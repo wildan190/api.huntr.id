@@ -1,0 +1,104 @@
+services:
+  # PHP Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: huntr_app
+    volumes:
+      - .:/var/www
+    env_file:
+      - .env.local
+    depends_on:
+      - db
+      - cache
+    networks:
+      - huntr_network
+
+  # Nginx Web Server
+  web:
+    image: nginx:alpine
+    container_name: huntr_web
+    ports:
+      - "8000:80"
+      - "8443:443"
+    volumes:
+      - .:/var/www
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+    networks:
+      - huntr_network
+
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: huntr_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: huntr
+      POSTGRES_USER: huntr
+      POSTGRES_PASSWORD: manchester@2025
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - huntr_network
+
+  # Dragonfly Cache (Fast Redis-compatible store)
+  cache:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: huntr_cache
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock: -1
+    networks:
+      - huntr_network
+
+  # Laravel Horizon (Queue worker)
+  horizon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: huntr_horizon
+    command: php artisan horizon
+    volumes:
+      - .:/var/www
+    env_file:
+      - .env.local
+    depends_on:
+      - db
+      - cache
+    networks:
+      - huntr_network
+
+  # Laravel Reverb (WebSocket server)
+  reverb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: huntr_reverb
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/var/www
+    env_file:
+      - .env.local
+    depends_on:
+      - cache
+    networks:
+      - huntr_network
+
+volumes:
+  pgdata:
+    driver: local
+
+networks:
+  huntr_network:
+    driver: bridge

@@ -1,0 +1,37 @@
+<?php
+
+namespace App\Domain\Communication\Actions;
+
+use App\Domain\Communication\Events\WebsocketNotificationBroadcasted;
+use App\Domain\Communication\Jobs\BroadcastWebsocketNotificationJob;
+use Illuminate\Support\Facades\Log;
+
+class BroadcastWebsocketNotificationAction
+{
+    /**
+     * Broadcast a real-time message via Reverb WebSocket.
+     *
+     * @param string $title The message title
+     * @param string $body The message content
+     * @param string $channel Target channel name
+     * @param bool $queued Whether to process asynchronously in the background via Horizon queue
+     * @return bool True on success
+     */
+    public function execute(string $title, string $body, string $channel = 'test-channel', bool $queued = true): bool
+    {
+        if ($queued) {
+            Log::info("BroadcastWebsocketNotificationAction: Dispatching queued broadcast job for: {$title}");
+            BroadcastWebsocketNotificationJob::dispatch($title, $body, $channel);
+            return true;
+        }
+
+        try {
+            Log::info("BroadcastWebsocketNotificationAction: Executing synchronous broadcast for: {$title}");
+            event(new WebsocketNotificationBroadcasted($title, $body, $channel));
+            return true;
+        } catch (\Exception $e) {
+            Log::error("BroadcastWebsocketNotificationAction Failed: " . $e->getMessage());
+            return false;
+        }
+    }
+}

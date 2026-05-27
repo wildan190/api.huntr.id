@@ -1,0 +1,58 @@
+services:
+  # PHP Application (Staging)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: huntr_app_staging
+    volumes: [] # No host volume mounting in staging for isolation
+    env_file:
+      - .env.staging
+
+  # Nginx Web Server (Staging)
+  web:
+    image: nginx:alpine
+    container_name: huntr_web_staging
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # PostgreSQL Database (Staging)
+  db:
+    container_name: huntr_db_staging
+    environment:
+      POSTGRES_DB: huntr
+      POSTGRES_USER: huntr
+      POSTGRES_PASSWORD: manchester@2025
+
+  # Dragonfly Cache (Staging)
+  cache:
+    container_name: huntr_cache_staging
+
+  # Laravel Horizon (Staging)
+  horizon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: huntr_horizon_staging
+    command: php artisan horizon
+    volumes: []
+    env_file:
+      - .env.staging
+
+  # Laravel Reverb (Staging)
+  reverb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: huntr_reverb_staging
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "8080:8080"
+    volumes: []
+    env_file:
+      - .env.staging
