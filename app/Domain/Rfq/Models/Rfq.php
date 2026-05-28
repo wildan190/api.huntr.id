@@ -13,9 +13,10 @@ class Rfq extends Model
 
     protected $fillable = [
         'company_id',
+        'user_id',
         'title',
         'description',
-        'status', // draft, pending_manager, active, awarded, closed
+        'status', // draft, pending_approval, approved, active, awarded, closed
     ];
 
     public function company()

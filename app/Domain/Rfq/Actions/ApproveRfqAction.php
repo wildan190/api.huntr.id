@@ -6,11 +6,13 @@ use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Auth\Models\User;
 use Illuminate\Validation\UnauthorizedException;
+use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 
 class ApproveRfqAction
 {
     public function __construct(
-        private readonly RfqRepositoryInterface $rfqRepository
+        private readonly RfqRepositoryInterface $rfqRepository,
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction
     ) {}
 
     /**
@@ -27,6 +29,17 @@ class ApproveRfqAction
             throw new UnauthorizedException("Only purchasing managers can approve RFQs.");
         }
 
-        return $this->rfqRepository->update($rfq, ['status' => 'active']);
+        $rfq = $this->rfqRepository->update($rfq, ['status' => 'active']);
+
+        $this->broadcastAction->execute(
+            "PR Approved",
+            "PR '{$rfq->title}' has been approved and published.",
+            'test-channel',
+            true,
+            $rfq->user_id,
+            "/my-pr"
+        );
+
+        return $rfq;
     }
 }

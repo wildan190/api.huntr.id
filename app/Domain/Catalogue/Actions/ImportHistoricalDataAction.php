@@ -42,24 +42,24 @@ class ImportHistoricalDataAction
                     $normalized[trim((string) $key)] = $val;
                 }
 
-                $itemCode = $normalized['Inventory Code'] ?? null;
-                $name     = $normalized['Inventory name'] ?? $normalized['Inventory Name'] ?? null;
+                $itemCode = $normalized['Inventory Code'] ?? $normalized['inventory code'] ?? null;
+                $name     = $normalized['Inventory name'] ?? $normalized['inventory name'] ?? $normalized['Inventory Name'] ?? null;
 
                 if (!$itemCode || !$name) {
                     return;
                 }
 
-                $priceStr = (string) ($normalized['Unit price in original currency'] ?? $normalized['Orgi Curr Unit Price'] ?? '0');
+                $priceStr = (string) ($normalized['Unit price in original currency'] ?? $normalized['unit price in original currency'] ?? $normalized['Orgi Curr Unit Price'] ?? $normalized['orgi curr unit price'] ?? '0');
                 $price    = $this->cleanDecimal($priceStr);
-                $category = $normalized['Category'] ?? $normalized['Purchase Category'] ?? null;
+                $category = $normalized['Category'] ?? $normalized['category'] ?? $normalized['Purchase Category'] ?? $normalized['purchase category'] ?? null;
 
                 $items[] = [
                     'company_id'     => $company->id,
                     'item_code'      => $itemCode,
                     'name'           => $name,
                     'category'       => $category,
-                    'specifications' => $normalized['Specifications'] ?? null,
-                    'uom'            => $normalized['Primary UOM'] ?? 'Pc',
+                    'specifications' => $normalized['Specifications'] ?? $normalized['specifications'] ?? null,
+                    'uom'            => $normalized['Primary UOM'] ?? $normalized['primary uom'] ?? 'Pc',
                     'price'          => $price,
                 ];
             });

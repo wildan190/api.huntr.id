@@ -18,10 +18,12 @@ class OrderController extends \App\Http\Controllers\Controller
         $request->validate([
             'company_id' => 'required|exists:companies,id',
             'per_page'   => 'integer|min:1|max:100',
+            'search'     => 'nullable|string|max:255',
         ]);
 
         $companyId = $request->input('company_id');
         $perPage   = $request->input('per_page', 10);
+        $search    = $request->input('search');
         $company   = \App\Domain\Company\Models\Company::findOrFail($companyId);
 
         $query = PurchaseOrder::with(['historicalItems', 'invoices', 'deliveryOrders', 'rfq.items.catalogue', 'vendor'])
@@ -31,6 +33,18 @@ class OrderController extends \App\Http\Controllers\Controller
             $query->where('buyer_company_id', $companyId);
         } else {
             $query->where('vendor_id', $companyId);
+        }
+
+        // Apply server-side search
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('po_number', 'ilike', "%{$search}%")
+                  ->orWhere('vendor_name', 'ilike', "%{$search}%")
+                  ->orWhere('created_by', 'ilike', "%{$search}%")
+                  ->orWhereHas('rfq', function ($rq) use ($search) {
+                      $rq->where('title', 'ilike', "%{$search}%");
+                  });
+            });
         }
 
         $paginator = $query->paginate($perPage);
@@ -82,6 +96,7 @@ class OrderController extends \App\Http\Controllers\Controller
                 'is_historical'     => $po->is_historical,
                 'created_by'        => $po->created_by ?? 'N/A',
                 'approved_by'       => $po->approved_by ?? 'N/A',
+                'total_amount'      => $items->sum('total_amount'),
                 'items'             => $items,
             ];
         });

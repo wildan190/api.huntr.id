@@ -7,6 +7,7 @@ use App\Domain\Company\Actions\UpdateCompanyAction;
 use App\Domain\Company\Actions\UploadCompanyLogoAction;
 use App\Domain\Company\Actions\GetMyCompaniesAction;
 use App\Domain\Company\Actions\UploadCompanyDocumentAction;
+use App\Domain\Company\Services\PajakIoService;
 use App\Domain\Company\Http\Requests\RegisterCompanyRequest;
 use App\Domain\Company\Http\Requests\UpdateCompanyRequest;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,17 @@ use Illuminate\Support\Facades\Log;
 
 class CompanyController extends \App\Http\Controllers\Controller
 {
+    public function verifyNpwp(Request $request, PajakIoService $service): JsonResponse
+    {
+        $request->validate([
+            'npwp' => ['required', 'string', 'min:15', 'max:16'],
+        ]);
+
+        $result = $service->verifyNpwp($request->input('npwp'));
+
+        return response()->json($result);
+    }
+
     public function store(RegisterCompanyRequest $request, RegisterCompanyAction $action): JsonResponse
     {
         Log::info('Storing new company', ['payload' => $request->all()]);

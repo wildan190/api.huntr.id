@@ -16,12 +16,17 @@ class RfqController extends \App\Http\Controllers\Controller
     public function index(Request $request): JsonResponse
     {
         $companyId = $request->query('company_id');
+        $userId = $request->query('user_id');
         $status = $request->query('status');
         
         $query = Rfq::with(['items.catalogue', 'company']);
         
         if ($companyId) {
             $query->where('company_id', $companyId);
+        }
+
+        if ($userId) {
+            $query->where('user_id', $userId);
         }
         
         if ($status) {
@@ -34,7 +39,22 @@ class RfqController extends \App\Http\Controllers\Controller
     public function store(CreateRfqRequest $request, CreateRfqAction $action): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
-        $rfq = $action->execute($company, $request->validated()['title'], $request->validated()['description'], $request->validated()['items']);
+
+        if ($company->type !== 'buyer') {
+            return response()->json(['message' => 'Hanya perusahaan Buyer yang dapat membuat Purchase Requisition.'], 422);
+        }
+
+        $data = $request->validated();
+        
+        $rfq = $action->execute(
+            $company, 
+            $data['title'], 
+            $data['description'] ?? '', 
+            $data['items'],
+            $data['user_id'] ?? null,
+            $data['status'] ?? 'pending_approval'
+        );
+        
         return response()->json(['rfq' => $rfq], 201);
     }
 

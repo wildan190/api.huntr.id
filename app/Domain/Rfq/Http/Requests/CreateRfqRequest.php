@@ -15,8 +15,10 @@ class CreateRfqRequest extends FormRequest
     {
         return [
             'company_id' => ['required', 'exists:companies,id'],
+            'user_id' => ['nullable', 'exists:users,id'],
             'title' => ['required', 'string'],
-            'description' => ['required', 'string'],
+            'description' => ['nullable', 'string'],
+            'status' => ['nullable', 'string'],
             'items' => ['required', 'array'],
             'items.*.catalogue_id' => ['required', 'exists:catalogues,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
