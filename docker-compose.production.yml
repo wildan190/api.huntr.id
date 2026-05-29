@@ -6,7 +6,8 @@ services:
       dockerfile: Dockerfile
       target: production
     container_name: huntr_app_prod
-    volumes: []
+    volumes:
+      - .:/var/www
     env_file:
       - .env.production
 
