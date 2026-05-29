@@ -21,6 +21,7 @@ services:
 
   # PostgreSQL Database (Production)
   db:
+    image: postgres:16-alpine
     container_name: huntr_db_prod
     environment:
       POSTGRES_DB: huntr
