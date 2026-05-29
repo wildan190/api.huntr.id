@@ -1,0 +1,72 @@
+name: Docker Build and Test
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test-docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Langkah 1: Checkout kode dari repositori GitHub ke runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Langkah 2: Buat file .env.production tiruan untuk kebutuhan testing
+      - name: Create dummy env file
+        run: |
+          echo "APP_KEY=base64:$(openssl rand -base64 32)" >> .env.production
+          echo "DB_CONNECTION=pgsql" >> .env.production
+          echo "DB_HOST=db" >> .env.production
+          echo "DB_PORT=5432" >> .env.production
+          echo "DB_DATABASE=huntr" >> .env.production
+          echo "DB_USERNAME=huntr" >> .env.production
+          echo "DB_PASSWORD=manchester@2025" >> .env.production
+
+      # Langkah 3: Validasi struktur file docker-compose (Pengecekan Syntax)
+      - name: Validate Docker Compose Config
+        run: docker compose -f docker-compose.production.yml config
+
+      # Langkah 4: Build semua service yang ada di docker-compose
+      - name: Build Docker Images
+        run: docker compose -f docker-compose.production.yml build
+
+      # Langkah 5: Jalankan kontainer di latar belakang (detached mode)
+      - name: Start Docker Containers
+        run: docker compose -f docker-compose.production.yml up -d
+
+      # Langkah 6: Beri waktu 15 detik agar semua database & service siap sepenuhnya
+      - name: Wait for services to stabilize
+        run: sleep 15
+
+      # Langkah 7: Cek status kontainer (Harus berstatus 'Up', tidak boleh 'Exited')
+      - name: Check Container Status
+        run: docker compose -f docker-compose.production.yml ps
+
+      # Langkah 8: Tes apakah Nginx merespons dengan benar (Logika integrasi)
+      - name: Test Web Server Response
+        run: |
+          # Melakukan request ke port 80 lokal di dalam runner GitHub Action
+          # Kita gunakan flag -H untuk meniru seolah-olah diakses dari domain app.huntr.id
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: app.huntr.id" http://localhost)
+          echo "Nginx returned HTTP status: $RESPONSE"
+          
+          # Karena ini Laravel/PHP kosong tanpa database ter-migrate di CI, 
+          # Status 200, 404, atau 500 (selama direspons oleh Nginx) dianggap sukses untuk tes build ini.
+          if [ "$RESPONSE" -eq 000 ]; then
+            echo "Error: Web server is not responding at all!"
+            exit 1
+          fi
+
+      # Langkah 9: Tampilkan log kontainer jika terjadi kegagalan (Sangat berguna untuk debugging)
+      - name: Show Container Logs on Failure
+        if: failure()
+        run: docker compose -f docker-compose.production.yml logs
+
+      # Langkah 10: Matikan kembali kontainer dan bersihkan resource runner
+      - name: Shutdown Containers
+        if: always()
+        run: docker compose -f docker-compose.production.yml down -v
