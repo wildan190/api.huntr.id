@@ -47,15 +47,14 @@ jobs:
         run: docker compose -f docker-compose.production.yml ps
 
       # Langkah 8: Tes apakah Nginx merespons dengan benar (Logika integrasi)
-      - name: Test Web Server Response
+      - name: Check Web Server Response
         run: |
-          # Melakukan request ke port 80 lokal di dalam runner GitHub Action
-          # Kita gunakan flag -H untuk meniru seolah-olah diakses dari domain app.huntr.id
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: app.huntr.id" http://localhost)
+          echo "Menunggu kontainer Docker siap..."
+          sleep 10 # <--- TAMBAHKAN INI (Tunggu 10 detik agar Nginx & PHP benar-benar UP)
+        
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: api.huntr.id" http://localhost)
           echo "Nginx returned HTTP status: $RESPONSE"
-          
-          # Karena ini Laravel/PHP kosong tanpa database ter-migrate di CI, 
-          # Status 200, 404, atau 500 (selama direspons oleh Nginx) dianggap sukses untuk tes build ini.
+        
           if [ "$RESPONSE" -eq 000 ]; then
             echo "Error: Web server is not responding at all!"
             exit 1
