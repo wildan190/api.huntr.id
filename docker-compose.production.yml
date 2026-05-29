@@ -30,7 +30,14 @@ services:
 
   # Dragonfly Cache (Production)
   cache:
-    container_name: huntr_cache_prod
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: huntr_cache
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock: -1
+    networks:
+      - huntr_network
 
   # Laravel Horizon (Production)
   horizon:
