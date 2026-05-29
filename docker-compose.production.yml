@@ -44,12 +44,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: production
+      target: development
     container_name: huntr_horizon_prod
     command: php artisan horizon
-    volumes: []
+    volumes:
+      - .:/var/www
     env_file:
       - .env.production
+    depends_on:
+      - db
+      - cache
+    networks:
+      - huntr_network
 
   # Laravel Reverb (Production)
   reverb:
