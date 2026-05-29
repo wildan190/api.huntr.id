@@ -48,7 +48,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
         }
 
         // Store uploaded file in storage/app/private/imports directory
-        $path = $request->file('csv')->store('imports');
+        $path = $request->file('csv')->store('imports', 'local');
 
         // Dispatch sync import job to be processed via queue (Horizon)
         ImportCatalogueJob::dispatch($company->id, $path);
@@ -71,7 +71,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
         }
 
         // Store uploaded file in storage/app/private/imports directory
-        $path = $request->file('csv')->store('imports');
+        $path = $request->file('csv')->store('imports', 'local');
 
         // Dispatch historical PO import job to be processed via queue (Horizon)
         \App\Domain\Order\Jobs\ImportHistoricalPoJob::dispatch($company->id, $path);

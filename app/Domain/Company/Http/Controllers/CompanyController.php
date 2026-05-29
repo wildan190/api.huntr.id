@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class CompanyController extends \App\Http\Controllers\Controller
 {
@@ -99,7 +100,7 @@ class CompanyController extends \App\Http\Controllers\Controller
         return response()->json([
             'company' => $company,
             'file_path' => $company->logo_path,
-            'url' => asset('storage/' . $company->logo_path),
+            'url' => Storage::disk(env('FILESYSTEM_DISK', 'public'))->url($company->logo_path),
         ], 200);
     }
 
