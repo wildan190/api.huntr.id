@@ -26,46 +26,64 @@ jobs:
           echo "DB_USERNAME=huntr" >> .env.production
           echo "DB_PASSWORD=manchester@2025" >> .env.production
 
-      # Langkah 3: Validasi struktur file docker-compose (Pengecekan Syntax)
+      # Langkah 3: BUAT SERTIFIKAT SSL PALSU (Agar Nginx tidak crash di GitHub Action)
+      - name: Create Dummy SSL Certificates for Nginx
+        run: |
+          sudo mkdir -p /etc/letsencrypt/live/api.huntr.id
+          sudo openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
+            -keyout /etc/letsencrypt/live/api.huntr.id/privkey.pem \
+            -out /etc/letsencrypt/live/api.huntr.id/fullchain.pem \
+            -subj "/CN=api.huntr.id"
+
+      # Langkah 4: Validasi struktur file docker-compose (Pengecekan Syntax)
       - name: Validate Docker Compose Config
         run: docker compose -f docker-compose.production.yml config
 
-      # Langkah 4: Build semua service yang ada di docker-compose
+      # Langkah 5: Build semua service yang ada di docker-compose
       - name: Build Docker Images
         run: docker compose -f docker-compose.production.yml build
 
-      # Langkah 5: Jalankan kontainer di latar belakang (detached mode)
+      # Langkah 6: Jalankan kontainer di latar belakang (detached mode)
       - name: Start Docker Containers
         run: docker compose -f docker-compose.production.yml up -d
 
-      # Langkah 6: Beri waktu 15 detik agar semua database & service siap sepenuhnya
+      # Langkah 7: Beri waktu 15 detik agar semua database & service siap sepenuhnya
       - name: Wait for services to stabilize
         run: sleep 15
 
-      # Langkah 7: Cek status kontainer (Harus berstatus 'Up', tidak boleh 'Exited')
+      # Langkah 8: Cek status kontainer (Harus berstatus 'Up', tidak boleh 'Exited')
       - name: Check Container Status
         run: docker compose -f docker-compose.production.yml ps
 
-      # Langkah 8: Tes apakah Nginx merespons dengan benar (Logika integrasi)
+      # Langkah 9: Tes apakah Nginx merespons dengan benar (Menggunakan port 443 karena SSL aktif)
       - name: Check Web Server Response
         run: |
-          echo "Menunggu kontainer Docker siap..."
-          sleep 10 # <--- TAMBAHKAN INI (Tunggu 10 detik agar Nginx & PHP benar-benar UP)
-        
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: api.huntr.id" http://localhost)
+          echo "Melakukan tes koneksi ke Nginx SSL..."
+          # Kita gunakan flag -k (insecure) karena menggunakan sertifikat palsu yang dibuat di Langkah 3
+          RESPONSE=$(curl -k -s -o /dev/null -w "%{http_code}" -H "Host: api.huntr.id" https://localhost)
           echo "Nginx returned HTTP status: $RESPONSE"
-        
-          if [ "$RESPONSE" -eq 000 ]; then
+          
+          # Jika statusnya 000 atau kosong, berarti port tidak merespons
+          if [ "$RESPONSE" -eq 000 ] || [ -z "$RESPONSE" ]; then
             echo "Error: Web server is not responding at all!"
             exit 1
           fi
+          
+          # Mengabaikan status 500 karena database di CI kosong, yang penting Nginx berhasil merespons (200/404/500)
+          echo "Sukses! Nginx berhasil merespons dengan status $RESPONSE"
 
-      # Langkah 9: Tampilkan log kontainer jika terjadi kegagalan (Sangat berguna untuk debugging)
+      # Langkah 10: Tampilkan log kontainer jika terjadi kegagalan (Sangat berguna untuk debugging)
       - name: Show Container Logs on Failure
         if: failure()
-        run: docker compose -f docker-compose.production.yml logs
+        run: |
+          echo "========= DOCKER CONTAINER STATUS ========="
+          docker compose -f docker-compose.production.yml ps
+          echo "========= NGINX ERROR LOGS ========="
+          docker compose -f docker-compose.production.yml logs web
+          echo "========= APP/LARAVEL ERROR LOGS ========="
+          docker compose -f docker-compose.production.yml logs app
 
-      # Langkah 10: Matikan kembali kontainer dan bersihkan resource runner
+      # Langkah 11: Matikan kembali kontainer dan bersihkan resource runner
       - name: Shutdown Containers
         if: always()
         run: docker compose -f docker-compose.production.yml down -v
