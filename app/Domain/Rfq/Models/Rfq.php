@@ -4,6 +4,7 @@ namespace App\Domain\Rfq\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
 use App\Domain\Proposal\Models\Proposal;
 
@@ -17,6 +18,12 @@ class Rfq extends Model
         'title',
         'description',
         'status', // draft, pending_approval, approved, active, awarded, closed
+        'approved_by',
+        'approved_at',
+    ];
+
+    protected $casts = [
+        'approved_at' => 'datetime',
     ];
 
     public function company()
@@ -32,5 +39,10 @@ class Rfq extends Model
     public function proposals()
     {
         return $this->hasMany(Proposal::class);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

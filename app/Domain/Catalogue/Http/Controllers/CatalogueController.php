@@ -83,6 +83,42 @@ class CatalogueController extends \App\Http\Controllers\Controller
         ], 200);
     }
 
+    public function update(Request $request, $id): JsonResponse
+    {
+        $request->validate([
+            'company_id'     => 'required|exists:companies,id',
+            'item_code'      => 'required|string|max:255',
+            'name'           => 'required|string|max:255',
+            'category'       => 'nullable|string|max:255',
+            'specifications' => 'nullable|string',
+            'uom'            => 'required|string|max:50',
+            'price'          => 'required|numeric|min:0',
+        ]);
+
+        $item = \App\Domain\Catalogue\Models\Catalogue::findOrFail($id);
+        $company = Company::findOrFail($request->input('company_id'));
+
+        if ($company->type !== 'vendor') {
+            return response()->json(['message' => 'Hanya Vendor yang dapat mengubah katalog.'], 422);
+        }
+
+        $item->update($request->all());
+
+        return response()->json([
+            'message' => 'Produk katalog berhasil diperbarui.',
+            'data'    => $item,
+        ], 200);
+    }
+
+    public function show($id): JsonResponse
+    {
+        $item = \App\Domain\Catalogue\Models\Catalogue::with('company')->findOrFail($id);
+
+        return response()->json([
+            'data' => $item,
+        ], 200);
+    }
+
 
     /**
      * GET /api/catalogues

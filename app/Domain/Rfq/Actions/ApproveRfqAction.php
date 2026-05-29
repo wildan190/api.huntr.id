@@ -29,7 +29,11 @@ class ApproveRfqAction
             throw new UnauthorizedException("Only purchasing managers can approve RFQs.");
         }
 
-        $rfq = $this->rfqRepository->update($rfq, ['status' => 'active']);
+        $rfq = $this->rfqRepository->update($rfq, [
+            'status' => 'active',
+            'approved_by' => $manager->name,
+            'approved_at' => now(),
+        ]);
 
         $this->broadcastAction->execute(
             "PR Approved",

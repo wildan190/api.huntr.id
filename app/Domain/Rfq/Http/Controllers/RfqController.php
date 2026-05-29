@@ -19,7 +19,7 @@ class RfqController extends \App\Http\Controllers\Controller
         $userId = $request->query('user_id');
         $status = $request->query('status');
         
-        $query = Rfq::with(['items.catalogue', 'company']);
+        $query = Rfq::with(['items.catalogue', 'company', 'user']);
         
         if ($companyId) {
             $query->where('company_id', $companyId);
@@ -34,6 +34,12 @@ class RfqController extends \App\Http\Controllers\Controller
         }
         
         return response()->json($query->latest()->get());
+    }
+
+    public function show(Rfq $rfq): JsonResponse
+    {
+        $rfq->load(['items.catalogue', 'company', 'user', 'proposals']);
+        return response()->json(['rfq' => $rfq], 200);
     }
 
     public function store(CreateRfqRequest $request, CreateRfqAction $action): JsonResponse
