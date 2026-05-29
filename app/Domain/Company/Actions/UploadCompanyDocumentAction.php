@@ -4,6 +4,7 @@ namespace App\Domain\Company\Actions;
 
 use App\Domain\Company\Models\Company;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 class UploadCompanyDocumentAction
 {
@@ -16,8 +17,9 @@ class UploadCompanyDocumentAction
      */
     public function execute(array $data, UploadedFile $file): array
     {
-        $path = $file->store('company_documents', 'public');
-        $url = asset('storage/' . $path);
+        $disk = env('FILESYSTEM_DISK', 'public');
+        $path = $file->store('company_documents', $disk);
+        $url = Storage::disk($disk)->url($path);
         $result = [
             'file_path' => $path,
             'url' => $url,

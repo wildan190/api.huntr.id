@@ -17,12 +17,13 @@ class UploadCompanyLogoAction
      */
     public function execute(Company $company, UploadedFile $file): Company
     {
+        $disk = env('FILESYSTEM_DISK', 'public');
         // Delete old logo if exists
         if ($company->logo_path) {
-            Storage::disk('public')->delete($company->logo_path);
+            Storage::disk($disk)->delete($company->logo_path);
         }
 
-        $path = $file->store('company_logos', 'public');
+        $path = $file->store('company_logos', $disk);
         $company->update(['logo_path' => $path]);
         
         return $company->fresh(['documents']);
