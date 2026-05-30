@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use App\Domain\Communication\Actions\SendWhatsAppVerificationAction;
 use App\Domain\Auth\Models\User;
+use Illuminate\Support\Facades\Auth;
 
 class AuthController extends \App\Http\Controllers\Controller
 {
@@ -34,6 +35,10 @@ class AuthController extends \App\Http\Controllers\Controller
     public function login(LoginUserRequest $request, LoginUserAction $action): JsonResponse
     {
         $user = $action->execute($request->input('email'), $request->input('password'));
+        
+        // Log the user in to the session so it's recorded in the sessions table
+        Auth::login($user);
+        
         return response()->json(['user' => $user]);
     }
 
