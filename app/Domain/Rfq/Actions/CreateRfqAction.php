@@ -34,10 +34,11 @@ class CreateRfqAction
         ]);
 
         $lineItems = array_map(fn($item) => [
-            'rfq_id'        => $rfq->id,
-            'catalogue_id'  => $item['catalogue_id'],
-            'qty'           => $item['qty'],
-            'expected_date' => $item['expected_date'] ?? null,
+            'rfq_id'          => $rfq->id,
+            'catalogue_id'    => $item['catalogue_id'],
+            'qty'             => $item['qty'],
+            'estimated_price' => $item['estimated_price'] ?? null,
+            'expected_date'   => $item['expected_date'] ?? null,
         ], $cartItems);
 
         $this->rfqRepository->createItems($lineItems);

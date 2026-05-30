@@ -14,6 +14,7 @@ class RfqItem extends Model
         'rfq_id',
         'catalogue_id',
         'qty',
+        'estimated_price',
         'expected_date',
     ];
 
