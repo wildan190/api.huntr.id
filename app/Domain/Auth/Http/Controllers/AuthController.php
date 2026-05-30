@@ -8,26 +8,33 @@ use App\Domain\Auth\Http\Requests\RegisterUserRequest;
 use App\Domain\Auth\Http\Requests\LoginUserRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use App\Domain\Communication\Actions\SendWhatsAppVerificationAction;
 use App\Domain\Auth\Models\User;
+use App\Support\WhatsappNumber;
+use App\Support\OtpStore;
 use Illuminate\Support\Facades\Auth;
 
 class AuthController extends \App\Http\Controllers\Controller
 {
     public function register(RegisterUserRequest $request, RegisterUserAction $action): JsonResponse
     {
-        $whatsapp = $request->input('whatsapp');
-        
+        $whatsapp = WhatsappNumber::normalize($request->input('whatsapp'));
+
+        if ($whatsapp === '') {
+            return response()->json(['message' => 'Nomor WhatsApp tidak valid.'], 422);
+        }
+
         // Enforce OTP verification before allowing registration
-        if (!Cache::get('otp_verified_' . $whatsapp)) {
+        if (! OtpStore::isVerified($whatsapp)) {
             return response()->json(['message' => 'Nomor WhatsApp belum terverifikasi dengan OTP.'], 422);
         }
-        
-        $user = $action->execute($request->validated());
-        
-        // Consume the verification token
-        Cache::forget('otp_verified_' . $whatsapp);
+
+        $data = $request->validated();
+        $data['whatsapp'] = $whatsapp;
+
+        $user = $action->execute($data);
+
+        OtpStore::consumeVerified($whatsapp);
         
         return response()->json(['user' => $user], 201);
     }
@@ -48,26 +55,35 @@ class AuthController extends \App\Http\Controllers\Controller
             'whatsapp' => ['required', 'string'],
         ]);
 
-        $whatsapp = $request->input('whatsapp');
-        
-        // Generate a 6-digit random OTP
-        $otp = (string) rand(100000, 999999);
-        
-        // Store in cache for 10 minutes
-        Cache::put('otp_' . $whatsapp, $otp, now()->addMinutes(10));
-        
+        $whatsapp = WhatsappNumber::normalize($request->input('whatsapp'));
+
+        if (! WhatsappNumber::isValid($whatsapp)) {
+            return response()->json([
+                'message' => 'Format nomor WhatsApp tidak valid. Gunakan format 08xxxxxxxxxx (contoh: 085156334793).',
+            ], 422);
+        }
+
+        $otp = OtpStore::issue($whatsapp);
+
         $message = "Kode OTP Huntr.id Anda adalah: {$otp}. Berlaku selama 10 menit. Jangan sebarkan kode ini.";
-        
-        // Send synchronously via Fonnte
-        $sendWhatsAppAction->execute($whatsapp, $message, false);
-        
+
+        $delivery = $sendWhatsAppAction->execute($whatsapp, $message, false);
+
         $response = [
-            'message' => 'OTP berhasil dikirim ke nomor WhatsApp Anda.',
+            'message' => ($delivery['ok'] ?? false)
+                ? 'OTP berhasil dikirim ke nomor WhatsApp Anda.'
+                : 'OTP dibuat, tetapi pengiriman WhatsApp gagal. Gunakan kode debug di bawah (mode development) atau coba lagi.',
+            'expires_in' => OtpStore::ttlSeconds(),
+            'whatsapp' => $whatsapp,
+            'whatsapp_sent' => (bool) ($delivery['ok'] ?? false),
         ];
 
-        // Expose OTP in development/debug mode for ease of developer testing
+        if (! ($delivery['ok'] ?? false) && app()->environment('local')) {
+            $response['delivery_error'] = $delivery['detail'] ?? 'unknown';
+        }
+
         if (app()->environment('local') || config('app.debug')) {
-            $response['otp'] = $otp;
+            $response['otp'] = (string) $otp;
         }
 
         return response()->json($response);
@@ -80,24 +96,31 @@ class AuthController extends \App\Http\Controllers\Controller
             'otp' => ['required', 'string'],
         ]);
 
-        $whatsapp = $request->input('whatsapp');
-        $otp = $request->input('otp');
-        
-        $cachedOtp = Cache::get('otp_' . $whatsapp);
-        
-        if (!$cachedOtp || $cachedOtp !== $otp) {
-            return response()->json(['message' => 'Kode OTP tidak valid atau telah kedaluwarsa.'], 422);
+        $whatsapp = WhatsappNumber::normalize($request->input('whatsapp'));
+        $otp = preg_replace('/\D/', '', trim($request->input('otp')));
+
+        if (! WhatsappNumber::isValid($whatsapp)) {
+            return response()->json(['message' => 'Format nomor WhatsApp tidak valid.'], 422);
         }
-        
-        // Store validation flag for 15 minutes
-        Cache::put('otp_verified_' . $whatsapp, true, now()->addMinutes(15));
-        
-        // Invalidate OTP
-        Cache::forget('otp_' . $whatsapp);
+
+        if (strlen($otp) !== 6) {
+            return response()->json(['message' => 'Kode OTP harus 6 digit.'], 422);
+        }
+
+        if (! OtpStore::hasPending($whatsapp)) {
+            return response()->json(['message' => 'Kode OTP telah kedaluwarsa. Silakan minta kode baru.'], 422);
+        }
+
+        if (! OtpStore::verify($whatsapp, $otp)) {
+            return response()->json(['message' => 'Kode OTP tidak sesuai. Periksa kembali kode dari WhatsApp.'], 422);
+        }
+
+        OtpStore::markVerified($whatsapp);
 
         return response()->json([
             'message' => 'Nomor WhatsApp berhasil diverifikasi.',
-            'verified' => true
+            'verified' => true,
+            'whatsapp' => $whatsapp,
         ]);
     }
 }

@@ -3,9 +3,10 @@
 namespace Tests\Feature;
 
 use App\Domain\Auth\Models\User;
+use App\Support\WhatsappNumber;
+use App\Support\OtpStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -52,15 +53,20 @@ class AccountSettingsTest extends TestCase
         ]);
 
         $newWhatsapp = '08987654321';
-        Cache::put('otp_verified_' . $newWhatsapp, true, now()->addMinutes(15));
+        $canonical = WhatsappNumber::normalize($newWhatsapp);
+        DB::table('whatsapp_otp_verified')->insert([
+            'whatsapp' => $canonical,
+            'expires_at' => now()->addMinutes(15),
+            'verified_at' => now(),
+        ]);
 
         $response = $this->actingAs($user)->putJson('/api/account/whatsapp', [
             'whatsapp' => $newWhatsapp,
         ]);
 
         $response->assertStatus(200);
-        $this->assertEquals($newWhatsapp, $user->refresh()->whatsapp);
-        $this->assertNull(Cache::get('otp_verified_' . $newWhatsapp));
+        $this->assertEquals($canonical, $user->refresh()->whatsapp);
+        $this->assertFalse(OtpStore::isVerified($canonical));
     }
 
     public function test_user_cannot_change_whatsapp_number_without_otp()

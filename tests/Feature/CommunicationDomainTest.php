@@ -24,7 +24,7 @@ class CommunicationDomainTest extends TestCase
         $action = new SendWhatsAppVerificationAction();
         $result = $action->execute('085156334793', 'Test queued message', true);
 
-        $this->assertTrue($result);
+        $this->assertTrue($result['ok'] ?? false);
         Queue::assertPushed(SendWhatsAppVerificationJob::class);
     }
 

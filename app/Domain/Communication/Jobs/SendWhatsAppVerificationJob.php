@@ -2,6 +2,7 @@
 
 namespace App\Domain\Communication\Jobs;
 
+use App\Support\WhatsappNumber;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -14,47 +15,38 @@ class SendWhatsAppVerificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $phone;
-    protected $message;
+    public function __construct(
+        protected string $phone,
+        protected string $message
+    ) {}
 
-    /**
-     * Create a new job instance.
-     */
-    public function __construct(string $phone, string $message)
-    {
-        $this->phone = $phone;
-        $this->message = $message;
-    }
-
-    /**
-     * Execute the job.
-     */
     public function handle(): void
     {
-        $deviceToken = env('FONNTE_DEVICE_TOKEN');
-        if (!$deviceToken) {
-            Log::error("FONNTE_DEVICE_TOKEN is not configured. Unable to send WhatsApp message.");
+        $deviceToken = config('services.fonnte.device_token') ?: env('FONNTE_DEVICE_TOKEN');
+        if (! $deviceToken) {
+            Log::error('FONNTE_DEVICE_TOKEN is not configured. Unable to send WhatsApp message.');
+
             return;
         }
 
-        try {
-            Log::info("Fonnte Send WhatsApp Job executing for: {$this->phone}");
+        $normalized = WhatsappNumber::normalize($this->phone);
+        $target = WhatsappNumber::isValid($normalized)
+            ? WhatsappNumber::fonnteTarget($normalized)
+            : $this->phone;
 
-            $response = Http::withHeaders([
+        try {
+            Log::info("Fonnte Send WhatsApp Job executing for: {$target}");
+
+            $response = Http::timeout(15)->withHeaders([
                 'Authorization' => $deviceToken,
             ])->asForm()->post('https://api.fonnte.com/send', [
-                'target' => $this->phone,
+                'target' => $target,
                 'message' => $this->message,
-                'countryCode' => '62',
-                'delay' => '2',
             ]);
 
-            $status = $response->status();
-            $body = $response->body();
-
-            Log::info("Fonnte Send WhatsApp Response: HTTP {$status}. Body: {$body}");
+            Log::info('Fonnte Send WhatsApp Response: HTTP '.$response->status().'. Body: '.$response->body());
         } catch (\Exception $e) {
-            Log::error("Fonnte Send WhatsApp Job failed: " . $e->getMessage());
+            Log::error('Fonnte Send WhatsApp Job failed: '.$e->getMessage());
         }
     }
 }
