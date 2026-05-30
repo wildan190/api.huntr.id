@@ -38,12 +38,36 @@ class AdminController extends \App\Http\Controllers\Controller
 
     public function listCompanies(Request $request): JsonResponse
     {
-        $companies = Company::with(['documents'])
-            ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
-            ->orderBy('id', 'desc')
-            ->get();
+        $perPage = $request->query('per_page', 10);
+        $search = $request->query('search');
+        $status = $request->query('status');
 
-        return response()->json(['companies' => $companies]);
+        $query = Company::with(['documents']);
+
+        if ($status && $status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                  ->orWhere('email', 'ilike', "%{$search}%");
+            });
+        }
+
+        $companies = $query->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+            ->orderBy('id', 'desc')
+            ->paginate($perPage);
+
+        // Get stats for all statuses
+        $stats = [
+            'total'    => Company::count(),
+            'pending'  => Company::where('status', 'pending')->count(),
+            'approved' => Company::where('status', 'approved')->count(),
+            'rejected' => Company::where('status', 'rejected')->count(),
+        ];
+
+        return response()->json(array_merge($companies->toArray(), ['stats' => $stats]));
     }
 
     public function auditCompany(Request $request, int $id): JsonResponse
