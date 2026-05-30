@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
 use App\Domain\Auth\Http\Controllers\AuthController;
 use App\Domain\Auth\Http\Controllers\AccountController;
 
@@ -16,6 +17,12 @@ Route::prefix('api/account')->middleware(['api', 'auth'])->group(function () {
     Route::put('whatsapp', [AccountController::class, 'updateWhatsapp']);
     Route::get('sessions', [AccountController::class, 'getSessions']);
     Route::delete('sessions/{id}', [AccountController::class, 'logoutSession']);
+});
+
+Route::middleware(['api', 'auth'])->group(function () {
+    Route::get('api/user', function (Request $request) {
+        return $request->user();
+    });
 });
 
 Route::prefix('api/admin')->middleware('api')->group(function () {
