@@ -17,7 +17,9 @@ class UploadCompanyDocumentAction
      */
     public function execute(array $data, UploadedFile $file): array
     {
-        $disk = env('FILESYSTEM_DISK', 'public');
+        // 'local' disk is private (storage/app/private) and cannot generate public URLs.
+        // Use 'public' disk for local environments; 's3' for staging/production.
+        $disk = env('FILESYSTEM_DISK', 'public') === 'local' ? 'public' : env('FILESYSTEM_DISK', 'public');
         $path = $file->store('company_documents', $disk);
         $url = Storage::disk($disk)->url($path);
         $result = [
