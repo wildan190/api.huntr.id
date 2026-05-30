@@ -12,6 +12,7 @@ class Company extends Model
     use HasFactory;
 
     protected $fillable = [
+        'owner_id',
         'name',
         'type', // buyer, vendor
         'status', // pending, approved, rejected

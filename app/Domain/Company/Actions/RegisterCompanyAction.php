@@ -27,7 +27,8 @@ class RegisterCompanyAction
         Log::info('RegisterCompanyAction data:', $data);
 
         $companyData = array_merge($data, [
-            'status' => 'pending'
+            'status'   => 'pending',
+            'owner_id' => $user->id,
         ]);
 
         $company = $this->companyRepository->create($companyData);
@@ -47,7 +48,11 @@ class RegisterCompanyAction
             }
         }
 
-        $this->userRepository->update($user, ['company_id' => $company->id]);
+        // Set user as manager/owner role for the company they just created
+        $this->userRepository->update($user, [
+            'company_id' => $company->id,
+            'role'       => 'manager' // Using 'manager' as it usually has higher permissions
+        ]);
 
         return $company;
     }
