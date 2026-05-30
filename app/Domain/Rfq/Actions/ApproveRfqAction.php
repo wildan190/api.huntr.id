@@ -25,8 +25,10 @@ class ApproveRfqAction
      */
     public function execute(User $manager, Rfq $rfq): Rfq
     {
-        if ($manager->role !== 'manager') {
-            throw new UnauthorizedException("Only purchasing managers can approve RFQs.");
+        $isOwner = $rfq->company->owner_id === $manager->id;
+
+        if ($manager->role !== 'manager' && !$isOwner) {
+            throw new UnauthorizedException("Only purchasing managers or company owners can approve RFQs.");
         }
 
         $rfq = $this->rfqRepository->update($rfq, [

@@ -30,8 +30,10 @@ class AwardVendorAction
      */
     public function execute(User $manager, Rfq $rfq, Proposal $winningProposal): PurchaseOrder
     {
-        if ($manager->role !== 'manager') {
-            throw new UnauthorizedException("Only purchasing managers can award RFQs and generate POs.");
+        $isOwner = $rfq->company->owner_id === $manager->id;
+
+        if ($manager->role !== 'manager' && !$isOwner) {
+            throw new UnauthorizedException("Only purchasing managers or company owners can award RFQs and generate POs.");
         }
 
         // 1. Mark RFQ as awarded
