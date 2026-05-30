@@ -3,59 +3,69 @@
 namespace App\Domain\Communication\Actions;
 
 use App\Domain\Communication\Jobs\SendWhatsAppVerificationJob;
+use App\Support\WhatsappNumber;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class SendWhatsAppVerificationAction
 {
     /**
-     * Send or queue a WhatsApp verification message via Fonnte.
-     *
-     * @param string $phone Target phone number (e.g. 085156334793)
-     * @param string $message Message content
-     * @param bool $queued Whether to run asynchronously in the background via Horizon queue
-     * @return array|bool Response data if sync, true if queued, false on failure
+     * @return array{ok: bool, detail?: string, target?: string}
      */
-    public function execute(string $phone, string $message, bool $queued = true)
+    public function execute(string $phone, string $message, bool $queued = true): array
     {
-        if ($queued) {
-            Log::info("SendWhatsAppVerificationAction: Dispatching queued job for target: {$phone}");
-            SendWhatsAppVerificationJob::dispatch($phone, $message);
-            return true;
+        $normalized = WhatsappNumber::normalize($phone);
+
+        if (! WhatsappNumber::isValid($normalized)) {
+            Log::warning("SendWhatsApp: invalid phone after normalize: {$phone} -> {$normalized}");
+
+            return ['ok' => false, 'detail' => 'invalid_phone'];
         }
 
-        $deviceToken = env('FONNTE_DEVICE_TOKEN');
-        if (!$deviceToken) {
-            Log::error("SendWhatsAppVerificationAction: FONNTE_DEVICE_TOKEN is not configured.");
-            return false;
+        $target = WhatsappNumber::fonnteTarget($normalized);
+
+        if ($queued) {
+            Log::info("SendWhatsAppVerificationAction: Dispatching queued job for target: {$target}");
+            SendWhatsAppVerificationJob::dispatch($target, $message);
+
+            return ['ok' => true, 'target' => $target];
+        }
+
+        $deviceToken = config('services.fonnte.device_token') ?: env('FONNTE_DEVICE_TOKEN');
+        if (! $deviceToken) {
+            Log::error('SendWhatsAppVerificationAction: FONNTE_DEVICE_TOKEN is not configured.');
+
+            return ['ok' => false, 'detail' => 'not_configured'];
         }
 
         try {
-            Log::info("SendWhatsAppVerificationAction: Executing synchronous send to target: {$phone}");
+            Log::info("SendWhatsAppVerificationAction: Sending to {$target}");
 
-            $response = Http::withHeaders([
+            $response = Http::timeout(15)->withHeaders([
                 'Authorization' => $deviceToken,
             ])->asForm()->post('https://api.fonnte.com/send', [
-                'target' => $phone,
+                'target' => $target,
                 'message' => $message,
-                'countryCode' => '62',
-                'delay' => '2',
             ]);
 
             $status = $response->status();
             $body = $response->body();
-
             Log::info("SendWhatsAppVerificationAction Response: HTTP {$status}. Body: {$body}");
 
             $data = $response->json();
-            if (isset($data['status']) && $data['status'] === true) {
-                return $data;
+            if (is_array($data) && ($data['status'] ?? false) === true) {
+                return [
+                    'ok' => true,
+                    'target' => is_array($data['target'] ?? null) ? ($data['target'][0] ?? $target) : $target,
+                    'detail' => $data['detail'] ?? 'sent',
+                ];
             }
 
-            return false;
+            return ['ok' => false, 'detail' => $data['reason'] ?? $body, 'target' => $target];
         } catch (\Exception $e) {
-            Log::error("SendWhatsAppVerificationAction: Failed to send WhatsApp. Error: " . $e->getMessage());
-            return false;
+            Log::error('SendWhatsAppVerificationAction: '.$e->getMessage());
+
+            return ['ok' => false, 'detail' => $e->getMessage(), 'target' => $target];
         }
     }
 }

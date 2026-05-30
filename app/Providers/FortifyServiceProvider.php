@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use App\Domain\Auth\Models\User;
+use App\Support\WhatsappNumber;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Fortify\Actions\RedirectIfTwoFactorAuthenticatable;
 use Laravel\Fortify\Fortify;
@@ -32,8 +33,15 @@ class FortifyServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Fortify::authenticateUsing(function (Request $request) {
+            $login = $request->login;
+            
+            $lookupLogin = $login;
+            if (preg_match('/^[0-9+ \-]+$/', $login)) {
+                $lookupLogin = WhatsappNumber::normalize($login);
+            }
+
             $user = User::where('email', $request->login)
-                        ->orWhere('whatsapp', $request->login)
+                        ->orWhere('whatsapp', $lookupLogin)
                         ->first();
 
             if ($user && Hash::check($request->password, $user->password)) {

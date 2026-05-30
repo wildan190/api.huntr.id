@@ -5,7 +5,8 @@ namespace App\Actions\Fortify;
 use App\Domain\Auth\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\Cache;
+use App\Support\WhatsappNumber;
+use App\Support\OtpStore;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
@@ -23,6 +24,10 @@ class CreateNewUser implements CreatesNewUsers
      */
     public function create(array $input): User
     {
+        if (isset($input['whatsapp'])) {
+            $input['whatsapp'] = WhatsappNumber::normalize($input['whatsapp']);
+        }
+
         $whatsapp = $input['whatsapp'] ?? null;
 
         Validator::make($input, [
@@ -39,7 +44,7 @@ class CreateNewUser implements CreatesNewUsers
         ])->validate();
 
         // Enforce OTP verification before allowing registration
-        if ($whatsapp && !Cache::get('otp_verified_' . $whatsapp)) {
+        if ($whatsapp && ! OtpStore::isVerified($whatsapp)) {
             throw ValidationException::withMessages([
                 'whatsapp' => ['Nomor WhatsApp belum terverifikasi dengan OTP.'],
             ]);
@@ -55,7 +60,7 @@ class CreateNewUser implements CreatesNewUsers
 
         // Consume the verification token
         if ($whatsapp) {
-            Cache::forget('otp_verified_' . $whatsapp);
+            OtpStore::consumeVerified($whatsapp);
         }
 
         return $user;

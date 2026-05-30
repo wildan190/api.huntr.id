@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'fonnte' => [
+        'device_token' => env('FONNTE_DEVICE_TOKEN'),
+        'account_token' => env('FONNTE_ACCOUNT_TOKEN'),
+    ],
+
 ];

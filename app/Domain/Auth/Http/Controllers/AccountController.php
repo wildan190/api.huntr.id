@@ -9,7 +9,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Cache;
+use App\Support\WhatsappNumber;
+use App\Support\OtpStore;
 
 class AccountController extends Controller
 {
@@ -35,10 +36,17 @@ class AccountController extends Controller
     public function updateWhatsapp(UpdateWhatsappRequest $request): JsonResponse
     {
         $user = $request->user();
-        $whatsapp = $request->input('whatsapp');
+        
+        $whatsapp = WhatsappNumber::normalize($request->input('whatsapp'));
+
+        if ($whatsapp === '') {
+            return response()->json([
+                'message' => 'Nomor WhatsApp tidak valid.',
+            ], 422);
+        }
 
         // Enforce OTP verification before allowing update
-        if (!Cache::get('otp_verified_' . $whatsapp)) {
+        if (! OtpStore::isVerified($whatsapp)) {
             return response()->json([
                 'message' => 'Nomor WhatsApp baru belum terverifikasi dengan OTP.',
             ], 422);
@@ -48,8 +56,7 @@ class AccountController extends Controller
             'whatsapp' => $whatsapp,
         ]);
 
-        // Consume the verification token
-        Cache::forget('otp_verified_' . $whatsapp);
+        OtpStore::consumeVerified($whatsapp);
 
         return response()->json([
             'message' => 'Nomor WhatsApp berhasil diperbarui.',
