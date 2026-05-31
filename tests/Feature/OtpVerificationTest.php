@@ -104,15 +104,39 @@ class OtpVerificationTest extends TestCase
         $response->assertStatus(422);
     }
 
+    public function test_verify_with_otp_token_skips_whatsapp_mismatch(): void
+    {
+        $issued = \App\Support\OtpStore::issue('6285156334793');
+        $token = $issued['token'];
+        $otp = $issued['otp'];
+
+        $response = $this->postJson('/api/auth/otp/verify', [
+            'otp_token' => $token,
+            'otp' => $otp,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('whatsapp', '6285156334793');
+    }
+
+    public function test_send_returns_otp_token(): void
+    {
+        $response = $this->postJson('/api/auth/otp/send', [
+            'whatsapp' => '085156334793',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonStructure(['otp_token', 'whatsapp']);
+    }
+
     public function test_typo_phone_685_normalizes_and_verifies(): void
     {
         $send = $this->postJson('/api/auth/otp/send', ['whatsapp' => '685156334793']);
         $send->assertOk()->assertJsonPath('whatsapp', '6285156334793');
 
-        $otp = $send->json('otp');
         $verify = $this->postJson('/api/auth/otp/verify', [
-            'whatsapp' => '085156334793',
-            'otp' => $otp,
+            'otp_token' => $send->json('otp_token'),
+            'otp' => $send->json('otp'),
         ]);
 
         $verify->assertOk()->assertJson(['verified' => true]);

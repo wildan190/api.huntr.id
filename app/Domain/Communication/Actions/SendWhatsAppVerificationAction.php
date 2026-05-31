@@ -31,7 +31,10 @@ class SendWhatsAppVerificationAction
             return ['ok' => true, 'target' => $target];
         }
 
-        $deviceToken = config('services.fonnte.device_token') ?: env('FONNTE_DEVICE_TOKEN');
+        // Get device token with refresh capability
+        $refreshAction = new RefreshWhatsAppTokenAction();
+        $deviceToken = $refreshAction->getValidToken();
+        
         if (! $deviceToken) {
             Log::error('SendWhatsAppVerificationAction: FONNTE_DEVICE_TOKEN is not configured.');
 
@@ -59,6 +62,32 @@ class SendWhatsAppVerificationAction
                     'target' => is_array($data['target'] ?? null) ? ($data['target'][0] ?? $target) : $target,
                     'detail' => $data['detail'] ?? 'sent',
                 ];
+            }
+
+            // If token expired (401), try to refresh and retry once
+            if ($status === 401 && strpos($body, 'token') !== false) {
+                Log::warning('SendWhatsAppVerificationAction: Token expired, attempting refresh');
+                $refreshResult = $refreshAction->execute();
+                
+                if ($refreshResult['ok'] && isset($refreshResult['token'])) {
+                    Log::info('SendWhatsAppVerificationAction: Retrying with refreshed token');
+                    
+                    $retryResponse = Http::timeout(15)->withHeaders([
+                        'Authorization' => $refreshResult['token'],
+                    ])->asForm()->post('https://api.fonnte.com/send', [
+                        'target' => $target,
+                        'message' => $message,
+                    ]);
+
+                    $retryData = $retryResponse->json();
+                    if (is_array($retryData) && ($retryData['status'] ?? false) === true) {
+                        return [
+                            'ok' => true,
+                            'target' => is_array($retryData['target'] ?? null) ? ($retryData['target'][0] ?? $target) : $target,
+                            'detail' => $retryData['detail'] ?? 'sent',
+                        ];
+                    }
+                }
             }
 
             return ['ok' => false, 'detail' => $data['reason'] ?? $body, 'target' => $target];
