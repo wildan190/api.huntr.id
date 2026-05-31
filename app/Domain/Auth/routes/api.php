@@ -16,14 +16,14 @@ Route::prefix('api/auth')->middleware(['api', 'cors'])->group(function () {
     Route::post('otp/verify', [AuthController::class, 'verifyOtp']);
 });
 
-Route::prefix('api/account')->middleware(['api', 'auth', 'cors'])->group(function () {
+Route::prefix('api/account')->middleware(['api', 'auth:api', 'cors'])->group(function () {
     Route::put('password', [AccountController::class, 'updatePassword']);
     Route::put('whatsapp', [AccountController::class, 'updateWhatsapp']);
     Route::get('sessions', [AccountController::class, 'getSessions']);
     Route::delete('sessions/{id}', [AccountController::class, 'logoutSession']);
 });
 
-Route::middleware(['api', 'auth', 'cors'])->group(function () {
+Route::middleware(['api', 'auth:api', 'cors'])->group(function () {
     Route::get('api/user', function (Request $request) {
         return $request->user();
     });

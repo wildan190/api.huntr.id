@@ -81,7 +81,8 @@ return [
     'middleware' => [
         'authenticate_session' => AuthenticateSession::class,
         'encrypt_cookies' => EncryptCookies::class,
-        'validate_csrf_token' => ValidateCsrfToken::class,
+        // Disable Sanctum's CSRF validation - we handle it with our custom middleware
+        // 'validate_csrf_token' => ValidateCsrfToken::class,
     ],
 
 ];

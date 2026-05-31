@@ -16,10 +16,10 @@ class RegisterCompanyAction
     ) {}
 
     /**
-     * Update company details during onboarding and submit for approval.
-     * Changes company status from 'approved' to 'pending' to request admin verification.
+     * Create company during onboarding and submit for approval.
+     * Creates a new company with 'pending' status to request admin verification.
      *
-     * @param User $user The user updating the company
+     * @param User $user The user creating the company
      * @param array $data Input fields: name, type (buyer/vendor), and additional details
      * @return Company
      */
@@ -31,18 +31,32 @@ class RegisterCompanyAction
         $company = $user->company ?? Company::where('owner_id', $user->id)->first();
 
         if (!$company) {
-            // If no company exists, create one (shouldn't happen in normal flow)
+            // Create new company during onboarding with 'pending' status
             $companyData = array_merge($data, [
-                'status'   => 'pending',
+                'status'   => 'pending', // Submit for approval after onboarding
                 'owner_id' => $user->id,
             ]);
             $company = $this->companyRepository->create($companyData);
+            
+            // Associate user with the company
+            $user->update(['company_id' => $company->id]);
+            
+            Log::info('Created new company during onboarding', [
+                'user_id' => $user->id,
+                'company_id' => $company->id,
+                'status' => $company->status
+            ]);
         } else {
-            // Update existing company and change status to 'pending' to request approval
+            // Update existing company and ensure status is 'pending' for approval
             $updateData = array_merge($data, [
                 'status' => 'pending', // Submit for approval after onboarding
             ]);
             $company->update($updateData);
+            
+            Log::info('Updated existing company during onboarding', [
+                'company_id' => $company->id,
+                'status' => $company->status
+            ]);
         }
 
         Log::info('Updated company ID: ' . $company->id, [

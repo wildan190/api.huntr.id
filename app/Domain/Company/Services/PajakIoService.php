@@ -28,29 +28,89 @@ class PajakIoService
         if (env('BYPASS_NPWP_VERIFICATION', false)) {
             Log::info("Pajak.io NPWP verification bypassed (Local Development Mode)");
             
-            $dummyPath = storage_path('app/dummy_npwp.json');
-            $data = [
-                'nama' => 'PT. Dummy Perusahaan Lokal',
+            // Trim and normalize NPWP
+            $npwp = trim($npwp);
+            
+            Log::info("NPWP received", [
                 'npwp' => $npwp,
-                'alamat' => 'Jl. Dummy No. 123, Jakarta Selatan, DKI Jakarta',
-                'status' => 'Aktif',
-                'identitas_wp' => 'Badan',
-                'jenis_wp' => 'PT',
-            ];
-
+                'length' => strlen($npwp),
+                'bytes' => bin2hex($npwp)
+            ]);
+            
+            $dummyPath = storage_path('app/dummy_npwp.json');
+            $data = null;
+            
+            // Try to load dummy data from JSON file
             if (file_exists($dummyPath)) {
-                $json = json_decode(file_get_contents($dummyPath), true);
-                if (isset($json[$npwp])) {
-                    $data = $json[$npwp];
-                } elseif (isset($json['default'])) {
-                    $data = $json['default'];
-                    $data['npwp'] = $npwp; // Keep the requested NPWP
+                $jsonContent = file_get_contents($dummyPath);
+                $json = json_decode($jsonContent, true);
+                
+                Log::info("Loaded dummy NPWP data", [
+                    'file_exists' => true,
+                    'json_valid' => $json !== null,
+                    'requested_npwp' => $npwp,
+                    'available_keys' => array_keys($json ?? [])
+                ]);
+                
+                if ($json !== null) {
+                    // Convert all keys to strings for comparison (JSON parsing may convert numeric keys to integers)
+                    $stringKeys = [];
+                    foreach ($json as $key => $value) {
+                        $stringKeys[(string)$key] = $value;
+                    }
+                    
+                    // Try exact match first
+                    if (isset($stringKeys[$npwp])) {
+                        $data = $stringKeys[$npwp];
+                        Log::info("Found exact NPWP match in dummy data", ['npwp' => $npwp, 'nama' => $data['nama']]);
+                    }
+                    // Try matching all keys - check if any key matches when leading zeros are removed
+                    else {
+                        $npwpWithoutLeadingZeros = ltrim($npwp, '0') ?: '0'; // Handle case where NPWP is all zeros
+                        foreach ($stringKeys as $key => $value) {
+                            if ($key !== 'default' && (ltrim($key, '0') ?: '0') === $npwpWithoutLeadingZeros) {
+                                $data = $value;
+                                Log::info("Found NPWP match after removing leading zeros", ['npwp' => $npwp, 'matched_key' => $key, 'nama' => $data['nama']]);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If still not found, use default
+                    if (!$data && isset($stringKeys['default'])) {
+                        $data = array_merge($stringKeys['default'], ['npwp' => $npwp]);
+                        Log::info("Using default entry for NPWP", ['npwp' => $npwp, 'default_nama' => $stringKeys['default']['nama']]);
+                    }
                 }
+            }
+            
+            // Fallback if no data found
+            if (!$data) {
+                $data = [
+                    'nama' => 'PT. Perusahaan Lokal Bypass',
+                    'npwp' => $npwp,
+                    'alamat' => 'Jl. Bypass No. 0, Jakarta',
+                    'status' => 'Aktif',
+                    'identitas_wp' => 'Badan',
+                    'jenis_wp' => 'PT',
+                    'region' => 'Indonesia',
+                    'provincy_country' => 'DKI Jakarta',
+                    'city' => 'Jakarta',
+                    'regency' => 'Bypass',
+                    'zip_code' => '10000',
+                    'bank_name' => 'BNI',
+                    'bank_account' => '0000000000',
+                    'bank_account_name' => 'PT. Perusahaan Lokal Bypass',
+                    'industry_type' => 'Other',
+                    'phone' => '021-0000000',
+                    'email' => 'hello@dummy-company.id'
+                ];
+                Log::info("Using hardcoded fallback for NPWP", ['npwp' => $npwp]);
             }
 
             return [
                 'status' => 1,
-                'message' => 'Success (Bypassed from JSON)',
+                'message' => 'Success (From Dummy Data)',
                 'data' => $data
             ];
         }

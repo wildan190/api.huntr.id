@@ -3,7 +3,10 @@
 use Illuminate\Support\Facades\Route;
 use App\Domain\Proposal\Http\Controllers\ProposalController;
 
-Route::prefix('api')->middleware('api')->group(function () {
-    Route::post('proposals', [ProposalController::class, 'store']);
-    Route::get('rfqs/{rfq}/rankings', [ProposalController::class, 'calculateRankings']);
+Route::prefix('api/proposals')->middleware('api')->group(function () {
+    Route::post('', [ProposalController::class, 'store']);
+});
+
+Route::prefix('api/rfqs')->middleware('api')->group(function () {
+    Route::get('{rfq}/rankings', [ProposalController::class, 'calculateRankings']);
 });
