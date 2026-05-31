@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Sanctum;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -14,14 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->statefulApi();
-        $middleware->validateCsrfTokens(except: [
-            'api/auth/otp/send',
-            'api/auth/otp/verify',
-            'api/auth/register',
-            'api/auth/login',
-            'api/auth/logout',
-        ]);
+        // Don't use statefulApi - we're using bearer tokens instead
+        // $middleware->statefulApi();
+        
+        // No CSRF validation needed for bearer token auth
+        // $middleware->validateCsrfTokens(except: [...]);
+        
         $middleware->append(\App\Http\Middleware\ValidateUserExists::class);
         $middleware->append(\App\Http\Middleware\CheckCompanyApproved::class);
         $middleware->alias([
@@ -32,5 +31,5 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })->create();
 
-// Register Sanctum routes
-Sanctum::routes();
+// Don't register Sanctum routes - we're using bearer tokens instead
+// Sanctum::routes();

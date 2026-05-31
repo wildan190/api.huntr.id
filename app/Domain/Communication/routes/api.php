@@ -4,11 +4,12 @@ use Illuminate\Support\Facades\Route;
 use App\Domain\Communication\Http\Controllers\NotificationController;
 use App\Domain\Communication\Http\Controllers\CommunicationController;
 
-Route::prefix('api')->middleware('api')->group(function () {
-    Route::get('notifications', [NotificationController::class, 'index']);
-    Route::post('notifications/{id}/read', [NotificationController::class, 'markAsRead']);
-    Route::post('notifications/read-all', [NotificationController::class, 'markAllAsRead']);
-    
-    // WhatsApp token refresh
-    Route::post('communication/whatsapp/refresh-token', [CommunicationController::class, 'refreshWhatsAppToken']);
+Route::prefix('api/notifications')->middleware('api')->group(function () {
+    Route::get('', [NotificationController::class, 'index']);
+    Route::post('{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('read-all', [NotificationController::class, 'markAllAsRead']);
+});
+
+Route::prefix('api/communication')->middleware('api')->group(function () {
+    Route::post('whatsapp/refresh-token', [CommunicationController::class, 'refreshWhatsAppToken']);
 });

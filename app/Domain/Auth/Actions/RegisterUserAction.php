@@ -4,7 +4,6 @@ namespace App\Domain\Auth\Actions;
 
 use App\Domain\Auth\Repositories\UserRepositoryInterface;
 use App\Domain\Auth\Models\User;
-use App\Domain\Company\Models\Company;
 use Illuminate\Support\Facades\Log;
 
 class RegisterUserAction
@@ -14,7 +13,8 @@ class RegisterUserAction
     ) {}
 
     /**
-     * Register a new user in the system and create a default company.
+     * Register a new user in the system.
+     * Company creation is deferred until user completes onboarding.
      *
      * @param array $data Input fields: name, email, password, role, whatsapp
      * @return User
@@ -24,30 +24,19 @@ class RegisterUserAction
         $user = $this->userRepository->create($data);
 
         try {
-            // Create a default company for the user with 'approved' status
-            // User can then complete onboarding and submit for approval when ready
-            $company = Company::create([
-                'owner_id' => $user->id,
-                'name' => $data['name'] . '\'s Company',
-                'type' => 'buyer', // Default to buyer, can be changed during onboarding
-                'status' => 'approved', // Start as approved, user can submit for verification later
-                'email' => $data['email'] ?? null,
-                'phone' => $data['whatsapp'] ?? null,
-            ]);
-
-            // Associate user with the company
+            // Set user as manager role by default
+            // Company will be created during onboarding completion
             $user->update([
-                'company_id' => $company->id,
                 'role' => 'manager'
             ]);
 
-            Log::info('Created default company for user', [
+            Log::info('User registered successfully', [
                 'user_id' => $user->id,
-                'company_id' => $company->id,
-                'company_status' => $company->status
+                'email' => $user->email,
+                'note' => 'Company will be created during onboarding'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to create default company', [
+            Log::error('Failed to update user role', [
                 'user_id' => $user->id,
                 'error' => $e->getMessage()
             ]);
