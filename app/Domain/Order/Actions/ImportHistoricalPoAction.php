@@ -44,14 +44,46 @@ class ImportHistoricalPoAction
         });
 
         $totalItems = 0;
+        $batchSize = 100; // Process in batches to avoid memory issues
 
-        DB::transaction(function () use ($company, $grouped, &$totalItems) {
-            foreach ($grouped as $poNumber => $poRows) {
-                if (empty($poNumber)) {
+        // Process in batches
+        $poGroups = $grouped->values()->toArray();
+        $totalGroups = count($poGroups);
+
+        for ($i = 0; $i < $totalGroups; $i += $batchSize) {
+            $batch = array_slice($poGroups, $i, $batchSize);
+            $batchItems = $this->processBatch($company, $batch);
+            $totalItems += $batchItems;
+
+            // Log progress
+            Log::info("ImportHistoricalPoAction: Processed batch " . (($i / $batchSize) + 1) . " of " . ceil($totalGroups / $batchSize));
+        }
+
+        return $totalItems;
+    }
+
+    private function processBatch(Company $company, array $batch): int
+    {
+        $totalItems = 0;
+
+        DB::transaction(function () use ($company, $batch, &$totalItems) {
+            foreach ($batch as $poRows) {
+                if (empty($poRows) || !is_array($poRows)) {
                     continue;
                 }
 
+                $poRows = collect($poRows);
                 $firstRow = $poRows->first();
+
+                if (!$firstRow) {
+                    continue;
+                }
+
+                $poNumber = trim((string) ($firstRow['Order No'] ?? $firstRow['Order no'] ?? $firstRow['PO Number'] ?? $firstRow['PO number'] ?? ''));
+
+                if (empty($poNumber)) {
+                    continue;
+                }
 
                 $vendorName       = trim((string) ($firstRow['Vendor'] ?? $firstRow['vendor'] ?? ''));
                 $department       = trim((string) ($firstRow['Department'] ?? $firstRow['department'] ?? ''));
@@ -64,17 +96,8 @@ class ImportHistoricalPoAction
                 $createdBy        = trim((string) ($firstRow['Created By'] ?? $firstRow['Created by'] ?? $firstRow['created by'] ?? ''));
                 $approvedBy       = trim((string) ($firstRow['Approved by'] ?? $firstRow['Approved By'] ?? $firstRow['approved by'] ?? ''));
 
-                // Auto-create or find vendor company by name
-                $vendorCompany = null;
-                if (!empty($vendorName)) {
-                    $vendorCompany = Company::firstOrCreate(
-                        ['name' => $vendorName, 'type' => 'vendor'],
-                        ['status' => 'pending']
-                    );
-                }
-
                 // Create or find the PurchaseOrder record scoped by company
-                // This ensures PO number is unique WITHIN a company, but can repeat ACROSS different companies
+                // Note: vendor_name is stored as string, NOT as a Company entity
                 $po = PurchaseOrder::updateOrCreate(
                     [
                         'buyer_company_id' => $company->id,
@@ -82,7 +105,7 @@ class ImportHistoricalPoAction
                     ],
                     [
                         'rfq_id'            => null,
-                        'vendor_id'         => $vendorCompany?->id,
+                        'vendor_id'         => null,
                         'vendor_name'       => $vendorName,
                         'department'        => $department,
                         'currency'          => $currency,
@@ -96,7 +119,7 @@ class ImportHistoricalPoAction
                     ]
                 );
 
-                // If updating an existing PO, clear old items first to avoid duplication
+                // If updating an existing PO, clear old items first
                 $po->historicalItems()->delete();
 
                 // Create line items
@@ -109,9 +132,6 @@ class ImportHistoricalPoAction
                     }
 
                     $qty          = (float) ($row['Qty'] ?? $row['qty'] ?? 1);
-                    
-                    // Priority for nominals based on user's excel structure
-                    // Unit Price (Base)
                     $unitPrice    = $this->cleanDecimal($row['Unit price in original currency'] ?? $row['unit price in original currency'] ?? 0);
                     if ($unitPrice <= 0) {
                         $unitPrice = $this->cleanDecimal($row['Orgi Curr Unit Price'] ?? $row['orgi curr unit price'] ?? 0);
@@ -121,7 +141,6 @@ class ImportHistoricalPoAction
                     $taxAmount    = $this->cleanDecimal($row['Tax amount in original currency'] ?? $row['tax amount in original currency'] ?? 0);
                     $totalAmount  = $this->cleanDecimal($row['Original Currency Total Amount'] ?? $row['original currency total amount'] ?? 0);
                     
-                    // Fallback calculations if total is missing
                     if ($totalAmount <= 0) {
                         $totalAmount = $amount + $taxAmount;
                     }

@@ -16,9 +16,10 @@ class RegisterCompanyAction
     ) {}
 
     /**
-     * Register a new company and associate the registering user with it.
+     * Update company details during onboarding and submit for approval.
+     * Changes company status from 'approved' to 'pending' to request admin verification.
      *
-     * @param User $user The registering user
+     * @param User $user The user updating the company
      * @param array $data Input fields: name, type (buyer/vendor), and additional details
      * @return Company
      */
@@ -26,14 +27,26 @@ class RegisterCompanyAction
     {
         Log::info('RegisterCompanyAction data:', $data);
 
-        $companyData = array_merge($data, [
-            'status'   => 'pending',
-            'owner_id' => $user->id,
-        ]);
+        // Get the user's existing company
+        $company = $user->company ?? Company::where('owner_id', $user->id)->first();
 
-        $company = $this->companyRepository->create($companyData);
+        if (!$company) {
+            // If no company exists, create one (shouldn't happen in normal flow)
+            $companyData = array_merge($data, [
+                'status'   => 'pending',
+                'owner_id' => $user->id,
+            ]);
+            $company = $this->companyRepository->create($companyData);
+        } else {
+            // Update existing company and change status to 'pending' to request approval
+            $updateData = array_merge($data, [
+                'status' => 'pending', // Submit for approval after onboarding
+            ]);
+            $company->update($updateData);
+        }
 
-        Log::info('Created company ID: ' . $company->id, [
+        Log::info('Updated company ID: ' . $company->id, [
+            'status' => $company->status,
             'about' => $company->about,
             'industry_type' => $company->industry_type
         ]);
@@ -47,12 +60,6 @@ class RegisterCompanyAction
                 ]);
             }
         }
-
-        // Set user as manager/owner role for the company they just created
-        $this->userRepository->update($user, [
-            'company_id' => $company->id,
-            'role'       => 'manager' // Using 'manager' as it usually has higher permissions
-        ]);
 
         return $company;
     }
