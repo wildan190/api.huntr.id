@@ -13,6 +13,7 @@ use App\Domain\Auth\Models\User;
 use App\Support\WhatsappNumber;
 use App\Support\OtpStore;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class AuthController extends \App\Http\Controllers\Controller
 {
@@ -51,6 +52,13 @@ class AuthController extends \App\Http\Controllers\Controller
 
     public function sendOtp(Request $request, SendWhatsAppVerificationAction $sendWhatsAppAction): JsonResponse
     {
+        Log::info('sendOtp called', [
+            'method' => $request->method(),
+            'path' => $request->path(),
+            'url' => $request->url(),
+            'input' => $request->all(),
+        ]);
+
         $request->validate([
             'whatsapp' => ['required', 'string'],
         ]);
@@ -63,7 +71,9 @@ class AuthController extends \App\Http\Controllers\Controller
             ], 422);
         }
 
-        $otp = OtpStore::issue($whatsapp);
+        $issued = OtpStore::issue($whatsapp);
+        $otp = $issued['otp'];
+        $otpToken = $issued['token'];
 
         $message = "Kode OTP Huntr.id Anda adalah: {$otp}. Berlaku selama 10 menit. Jangan sebarkan kode ini.";
 
@@ -75,6 +85,7 @@ class AuthController extends \App\Http\Controllers\Controller
                 : 'OTP dibuat, tetapi pengiriman WhatsApp gagal. Gunakan kode debug di bawah (mode development) atau coba lagi.',
             'expires_in' => OtpStore::ttlSeconds(),
             'whatsapp' => $whatsapp,
+            'otp_token' => $otpToken,
             'whatsapp_sent' => (bool) ($delivery['ok'] ?? false),
         ];
 
@@ -92,27 +103,43 @@ class AuthController extends \App\Http\Controllers\Controller
     public function verifyOtp(Request $request): JsonResponse
     {
         $request->validate([
-            'whatsapp' => ['required', 'string'],
+            'whatsapp' => ['nullable', 'string'],
             'otp' => ['required', 'string'],
+            'otp_token' => ['nullable', 'string'],
         ]);
 
-        $whatsapp = WhatsappNumber::normalize($request->input('whatsapp'));
         $otp = preg_replace('/\D/', '', trim($request->input('otp')));
-
-        if (! WhatsappNumber::isValid($whatsapp)) {
-            return response()->json(['message' => 'Format nomor WhatsApp tidak valid.'], 422);
-        }
+        $otpToken = trim((string) $request->input('otp_token', ''));
 
         if (strlen($otp) !== 6) {
             return response()->json(['message' => 'Kode OTP harus 6 digit.'], 422);
         }
 
-        if (! OtpStore::hasPending($whatsapp)) {
-            return response()->json(['message' => 'Kode OTP telah kedaluwarsa. Silakan minta kode baru.'], 422);
-        }
+        $whatsapp = null;
 
-        if (! OtpStore::verify($whatsapp, $otp)) {
-            return response()->json(['message' => 'Kode OTP tidak sesuai. Periksa kembali kode dari WhatsApp.'], 422);
+        if ($otpToken !== '') {
+            $whatsapp = OtpStore::verifyByToken($otpToken, $otp);
+            if ($whatsapp === null) {
+                if (! OtpStore::hasPendingToken($otpToken)) {
+                    return response()->json(['message' => 'Kode OTP telah kedaluwarsa. Silakan minta kode baru.'], 422);
+                }
+
+                return response()->json(['message' => 'Kode OTP tidak sesuai. Periksa kembali kode dari WhatsApp.'], 422);
+            }
+        } else {
+            $whatsapp = WhatsappNumber::normalize($request->input('whatsapp', ''));
+
+            if (! WhatsappNumber::isValid($whatsapp)) {
+                return response()->json(['message' => 'Format nomor WhatsApp tidak valid.'], 422);
+            }
+
+            if (! OtpStore::hasPending($whatsapp)) {
+                return response()->json(['message' => 'Kode OTP telah kedaluwarsa. Silakan minta kode baru.'], 422);
+            }
+
+            if (! OtpStore::verify($whatsapp, $otp)) {
+                return response()->json(['message' => 'Kode OTP tidak sesuai. Periksa kembali kode dari WhatsApp.'], 422);
+            }
         }
 
         OtpStore::markVerified($whatsapp);
