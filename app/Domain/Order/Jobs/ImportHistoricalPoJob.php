@@ -19,6 +19,11 @@ class ImportHistoricalPoJob implements ShouldQueue
     protected $companyId;
     protected $filePath;
 
+    // Increase timeout to 15 minutes (900 seconds) for large imports
+    // NOTE: Queue worker must also be run with --timeout >= 900
+    // Example: php artisan queue:work --timeout=900
+    public $timeout = 900;
+
     /**
      * Create a new job instance.
      */

@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Domain\Company\Http\Controllers\CompanyController;
 
-Route::prefix('api')->middleware('api')->group(function () {
+Route::prefix('api')->middleware(['api', 'cors'])->group(function () {
     Route::post('companies', [CompanyController::class, 'store']);
     Route::post('companies/verify-npwp', [CompanyController::class, 'verifyNpwp']);
     Route::put('companies/{company}', [CompanyController::class, 'update']);
