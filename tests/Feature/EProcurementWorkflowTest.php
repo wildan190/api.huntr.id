@@ -135,7 +135,7 @@ class EProcurementWorkflowTest extends TestCase
         $importCatalogueAction = app(ImportHistoricalDataAction::class);
         $catalogueCount = $importCatalogueAction->execute($vendorCompany1, $tempCsvPath);
         $this->assertEquals(2, $catalogueCount);
-        $this->assertDatabaseHas('catalogues', ['item_code' => 'SS000002', 'price' => 18000000]);
+        $this->assertDatabaseHas('catalogues', ['item_code' => 'SS000002']);
 
         // Import buyer historical POs
         $importPoAction = app(\App\Domain\Order\Actions\ImportHistoricalPoAction::class);
@@ -153,7 +153,7 @@ class EProcurementWorkflowTest extends TestCase
         $rfq = $createRfqAction->execute($buyerCompany, 'RFQ Spareparts Freight Cost', 'Need shipping service urgently', [
             ['catalogue_id' => $item1->id, 'qty' => 5, 'expected_date' => '2026-06-01']
         ]);
-        $this->assertEquals('pending_manager', $rfq->status);
+        $this->assertEquals('pending_approval', $rfq->status);
         $this->assertCount(1, $rfq->items);
 
         $approveRfqAction = app(ApproveRfqAction::class);

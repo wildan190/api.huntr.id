@@ -17,7 +17,6 @@ class Catalogue extends Model
         'category',
         'specifications',
         'uom',
-        'price',
     ];
 
     public function company()

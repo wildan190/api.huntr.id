@@ -23,6 +23,7 @@ class CreateRfqRequest extends FormRequest
             'items.*.catalogue_id' => ['required', 'exists:catalogues,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.expected_date' => ['required', 'date'],
+            'items.*.estimated_price' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 }

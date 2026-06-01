@@ -49,8 +49,6 @@ class ImportHistoricalDataAction
                     return;
                 }
 
-                $priceStr = (string) ($normalized['Unit price in original currency'] ?? $normalized['unit price in original currency'] ?? $normalized['Orgi Curr Unit Price'] ?? $normalized['orgi curr unit price'] ?? '0');
-                $price    = $this->cleanDecimal($priceStr);
                 $category = $normalized['Category'] ?? $normalized['category'] ?? $normalized['Purchase Category'] ?? $normalized['purchase category'] ?? null;
 
                 $items[] = [
@@ -60,7 +58,6 @@ class ImportHistoricalDataAction
                     'category'       => $category,
                     'specifications' => $normalized['Specifications'] ?? $normalized['specifications'] ?? null,
                     'uom'            => $normalized['Primary UOM'] ?? $normalized['primary uom'] ?? 'Pc',
-                    'price'          => $price,
                 ];
             });
         } catch (\Exception $e) {
@@ -76,22 +73,5 @@ class ImportHistoricalDataAction
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private function cleanDecimal(mixed $value): float
-    {
-        $str = (string) $value;
-
-        // Handle Indonesian format: 18.000.000 or 18,000,000
-        if (preg_match('/^\d{1,3}(\.\d{3})+(,\d+)?$/', $str)) {
-            $str = str_replace('.', '', $str);
-            $str = str_replace(',', '.', $str);
-        } elseif (preg_match('/^\d{1,3}(,\d{3})+(\.\d+)?$/', $str)) {
-            $str = str_replace(',', '', $str);
-        } else {
-            $str = str_replace(',', '', $str);
-        }
-
-        return (float) $str;
-    }
 }
 

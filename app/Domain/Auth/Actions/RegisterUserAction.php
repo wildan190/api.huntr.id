@@ -24,15 +24,16 @@ class RegisterUserAction
         $user = $this->userRepository->create($data);
 
         try {
-            // Set user as manager role by default
-            // Company will be created during onboarding completion
+            // Set user role - use provided role or default to manager
+            $role = $data['role'] ?? 'manager';
             $user->update([
-                'role' => 'manager'
+                'role' => $role
             ]);
 
             Log::info('User registered successfully', [
                 'user_id' => $user->id,
                 'email' => $user->email,
+                'role' => $role,
                 'note' => 'Company will be created during onboarding'
             ]);
         } catch (\Exception $e) {
