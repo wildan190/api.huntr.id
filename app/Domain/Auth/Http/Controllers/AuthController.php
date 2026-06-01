@@ -37,7 +37,17 @@ class AuthController extends \App\Http\Controllers\Controller
 
         OtpStore::consumeVerified($whatsapp);
         
-        return response()->json(['user' => $user], 201);
+        // Generate API token for new user (1 day expiration)
+        $token = $user->createToken(
+            'api-token',
+            ['*'],
+            now()->addDays(1)
+        )->plainTextToken;
+        
+        $userData = $user->toArray();
+        $userData['token'] = $token;
+        
+        return response()->json(['user' => $userData], 201);
     }
 
     public function login(LoginUserRequest $request, LoginUserAction $action): JsonResponse
@@ -47,7 +57,22 @@ class AuthController extends \App\Http\Controllers\Controller
         // Log the user in to the session so it's recorded in the sessions table
         Auth::login($user);
         
-        return response()->json(['user' => $user]);
+        // Generate API token with expiration based on remember_me flag
+        $rememberMe = $request->boolean('remember_me', false);
+        $expiresAt = $rememberMe 
+            ? now()->addDays(30)  // 30 days for "Remember Me"
+            : now()->addDays(1);  // 1 day for regular login
+        
+        $token = $user->createToken(
+            'api-token',
+            ['*'],
+            $expiresAt
+        )->plainTextToken;
+        
+        $userData = $user->toArray();
+        $userData['token'] = $token;
+        
+        return response()->json(['user' => $userData]);
     }
 
     public function sendOtp(Request $request, SendWhatsAppVerificationAction $sendWhatsAppAction): JsonResponse

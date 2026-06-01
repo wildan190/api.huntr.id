@@ -14,7 +14,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
     public function store(Request $request): JsonResponse
     {
         $request->validate([
-            'company_id'     => 'required|exists:companies,id',
+            'company_id'     => 'nullable|exists:companies,id',
             'item_code'      => 'required|string|max:255',
             'name'           => 'required|string|max:255',
             'category'       => 'nullable|string|max:255',
@@ -23,13 +23,50 @@ class CatalogueController extends \App\Http\Controllers\Controller
             'price'          => 'required|numeric|min:0',
         ]);
 
-        $company = Company::findOrFail($request->input('company_id'));
+        $user = $request->user();
 
-        if ($company->type !== 'vendor') {
-            return response()->json(['message' => 'Hanya Vendor yang dapat menambahkan katalog.'], 422);
+        // Check if user is admin
+        $isAdmin = $user && get_class($user) === 'App\Domain\Auth\Models\Admin';
+        
+        if ($isAdmin) {
+            // Admin can create catalogues without a specific company
+            // Use a special admin company ID or create one if needed
+            $companyId = $request->input('company_id');
+            if (!$companyId) {
+                // Create or get admin company
+                $adminCompany = Company::firstOrCreate(
+                    ['name' => 'Admin Marketplace', 'type' => 'vendor'],
+                    ['status' => 'approved']
+                );
+                $companyId = $adminCompany->id;
+            }
+        } else {
+            // Non-admin users must provide a company_id
+            $request->validate(['company_id' => 'required|exists:companies,id']);
+            $companyId = $request->input('company_id');
+            $company = Company::findOrFail($companyId);
+            
+            // Check if user is vendor (has company with vendor type)
+            $isVendor = false;
+            if ($user && get_class($user) === 'App\Domain\Auth\Models\User') {
+                $userCompanies = $user->companies()->where('type', 'vendor')->get();
+                $isVendor = $userCompanies->contains('id', $company->id);
+            }
+
+            if (!$isVendor) {
+                return response()->json(['message' => 'Hanya Vendor yang dapat menambahkan katalog ke perusahaan ini.'], 422);
+            }
         }
 
-        $item = \App\Domain\Catalogue\Models\Catalogue::create($request->all());
+        $item = \App\Domain\Catalogue\Models\Catalogue::create([
+            'company_id' => $companyId,
+            'item_code' => $request->input('item_code'),
+            'name' => $request->input('name'),
+            'category' => $request->input('category'),
+            'specifications' => $request->input('specifications'),
+            'uom' => $request->input('uom'),
+            'price' => $request->input('price'),
+        ]);
 
         return response()->json([
             'message' => 'Produk berhasil ditambahkan ke katalog.',
@@ -124,6 +161,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
      * GET /api/catalogues
      * Returns catalogue items. If company_id is provided, filters by that company.
      * Supports search and category filtering for marketplace.
+     * Shows catalogues from vendor companies and admin-created catalogues.
      */
     public function index(Request $request): JsonResponse
     {
@@ -132,11 +170,13 @@ class CatalogueController extends \App\Http\Controllers\Controller
         if ($request->has('company_id')) {
             $query->where('company_id', $request->input('company_id'));
         } else {
-            // For global marketplace, show catalogues from vendors (approved or pending for dev)
+            // For global marketplace, show catalogues from vendors and admin-created catalogues
             $query->whereHas('company', function ($q) {
-                $q->where('type', 'vendor');
-                // In production, we might want only 'approved', but for now let's show both
-                $q->whereIn('status', ['approved', 'pending']);
+                // Show catalogues from vendor companies (approved or pending)
+                $q->where(function ($subQ) {
+                    $subQ->where('type', 'vendor')
+                         ->whereIn('status', ['approved', 'pending']);
+                });
             });
         }
 
