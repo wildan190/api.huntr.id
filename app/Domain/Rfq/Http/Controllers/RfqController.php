@@ -52,12 +52,13 @@ class RfqController extends \App\Http\Controllers\Controller
         $data = $request->validated();
         
         $rfq = $action->execute(
-            $company, 
-            $data['title'], 
-            $data['description'] ?? '', 
+            $company,
+            $data['title'],
+            $data['description'] ?? '',
             $data['items'],
             $data['user_id'] ?? null,
-            $data['status'] ?? 'pending_approval'
+            $data['status'] ?? 'pending_approval',
+            $data['duration_days'] ?? 7
         );
         
         return response()->json(['rfq' => $rfq], 201);

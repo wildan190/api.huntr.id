@@ -2,6 +2,7 @@
 
 namespace App\Domain\Proposal\Repositories;
 
+use App\Domain\Company\Models\Company;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Rfq\Models\Rfq;
 use Illuminate\Database\Eloquent\Collection;
@@ -32,6 +33,15 @@ interface ProposalRepositoryInterface
      * @return Collection
      */
     public function getSubmittedByRfq(Rfq $rfq): Collection;
+
+    /**
+     * Determine whether the vendor has already submitted a proposal for the RFQ.
+     *
+     * @param Rfq $rfq
+     * @param Company $company
+     * @return bool
+     */
+    public function hasSubmittedForRfq(Rfq $rfq, Company $company): bool;
 
     /**
      * Reject all proposals for an RFQ except the winning proposal.

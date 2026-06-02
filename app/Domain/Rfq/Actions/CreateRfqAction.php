@@ -23,14 +23,15 @@ class CreateRfqAction
      * @param array $cartItems Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
      * @return Rfq
      */
-    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?int $userId = null, string $status = 'pending_approval'): Rfq
+    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?int $userId = null, string $status = 'pending_approval', ?int $durationDays = null): Rfq
     {
         $rfq = $this->rfqRepository->create([
-            'company_id'  => $buyerCompany->id,
-            'user_id'     => $userId,
-            'title'       => $title,
-            'description' => $description,
-            'status'      => $status,
+            'company_id'   => $buyerCompany->id,
+            'user_id'      => $userId,
+            'title'        => $title,
+            'description'  => $description,
+            'status'       => $status,
+            'duration_days'=> $durationDays ?? 7,
         ]);
 
         $lineItems = array_map(fn($item) => [

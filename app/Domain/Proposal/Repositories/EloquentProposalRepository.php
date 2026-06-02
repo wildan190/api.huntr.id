@@ -2,6 +2,7 @@
 
 namespace App\Domain\Proposal\Repositories;
 
+use App\Domain\Company\Models\Company;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Rfq\Models\Rfq;
 use Illuminate\Database\Eloquent\Collection;
@@ -32,6 +33,13 @@ class EloquentProposalRepository implements ProposalRepositoryInterface
     public function getSubmittedByRfq(Rfq $rfq): Collection
     {
         return $rfq->proposals()->where('status', 'submitted')->get();
+    }
+
+    public function hasSubmittedForRfq(Rfq $rfq, Company $company): bool
+    {
+        return $rfq->proposals()
+            ->where('company_id', $company->id)
+            ->exists();
     }
 
     /**
