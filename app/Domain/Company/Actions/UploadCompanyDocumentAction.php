@@ -18,9 +18,12 @@ class UploadCompanyDocumentAction
         $companyId = $data['company_id'] ?? null;
         $type = $data['type'] ?? 'OTHER';
 
-        $disk = env('FILESYSTEM_DISK', 'public');
-        $path = $file->store('company_documents', $disk);
-        $url = \Illuminate\Support\Facades\Storage::disk($disk)->url($path);
+        $diskName = env('FILESYSTEM_DISK', 'public');
+        $path = $file->store('company_documents', $diskName);
+        
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = \Illuminate\Support\Facades\Storage::disk($diskName);
+        $url = $storage->url($path);
 
         if ($companyId) {
             CompanyDocument::create([

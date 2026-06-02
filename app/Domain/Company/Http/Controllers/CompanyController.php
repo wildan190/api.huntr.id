@@ -17,6 +17,7 @@ use App\Domain\Company\Models\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * CompanyController
@@ -32,7 +33,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     public function myCompanies(GetMyCompaniesAction $action): JsonResponse
     {
         return response()->json([
-            'companies' => $action->execute(auth()->id())
+            'companies' => $action->execute(Auth::id())
         ], 200);
     }
 
@@ -87,10 +88,13 @@ class CompanyController extends \App\Http\Controllers\Controller
         $company = Company::findOrFail($request->input('company_id'));
         $updatedCompany = $action->execute($company, $request->file('logo'));
 
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = Storage::disk(env('FILESYSTEM_DISK', 'public'));
+
         return response()->json([
             'message' => 'Logo berhasil diperbarui.',
             'file_path' => $updatedCompany->logo_path,
-            'url' => Storage::disk(env('FILESYSTEM_DISK', 'public'))->url($updatedCompany->logo_path),
+            'url' => $storage->url($updatedCompany->logo_path),
         ]);
     }
 }
