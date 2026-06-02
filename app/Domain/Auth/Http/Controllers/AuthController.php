@@ -37,9 +37,11 @@ class AuthController extends \App\Http\Controllers\Controller
 
         OtpStore::consumeVerified($whatsapp);
         
+        $deviceName = $request->input('device_name', 'Web Browser');
+
         // Generate API token for new user (1 day expiration)
         $token = $user->createToken(
-            'api-token',
+            $deviceName,
             ['*'],
             now()->addDays(1)
         )->plainTextToken;
@@ -59,12 +61,13 @@ class AuthController extends \App\Http\Controllers\Controller
         
         // Generate API token with expiration based on remember_me flag
         $rememberMe = $request->boolean('remember_me', false);
+        $deviceName = $request->input('device_name', 'Web Browser');
         $expiresAt = $rememberMe 
             ? now()->addDays(30)  // 30 days for "Remember Me"
             : now()->addDays(1);  // 1 day for regular login
         
         $token = $user->createToken(
-            'api-token',
+            $deviceName,
             ['*'],
             $expiresAt
         )->plainTextToken;

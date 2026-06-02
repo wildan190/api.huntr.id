@@ -20,21 +20,17 @@ class GetMyCompaniesAction
             return [];
         }
 
-        // User has company_id set — return that company along with all members
-        $companies = [];
-        if ($user->company_id) {
-            $company = Company::with('documents')->find($user->company_id);
-            if ($company) {
-                $companies = [$company];
-            }
-        }
-
-        // Also return any companies that have this user as a member
-        $memberCompanies = Company::with('documents')
-            ->whereHas('users', fn($q) => $q->where('id', $userId))
-            ->whereNotIn('id', array_column($companies, 'id'))
+        // 1. Get companies owned by the user
+        $ownedCompanies = Company::with('documents')
+            ->where('owner_id', $userId)
             ->get();
 
-        return array_merge($companies, $memberCompanies->toArray());
+        // 2. Get companies where the user is a member (via company_id)
+        $memberCompanies = Company::with('documents')
+            ->whereHas('users', fn($q) => $q->where('id', $userId))
+            ->whereNotIn('id', $ownedCompanies->pluck('id'))
+            ->get();
+
+        return $ownedCompanies->merge($memberCompanies)->toArray();
     }
 }
