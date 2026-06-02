@@ -12,7 +12,6 @@ use App\Domain\Company\Http\Requests\RegisterCompanyRequest;
 use App\Domain\Company\Http\Requests\UpdateCompanyRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -34,12 +33,10 @@ class CompanyController extends \App\Http\Controllers\Controller
     {
         Log::info('Storing new company', ['payload' => $request->all()]);
 
-        $userId = $request->input('user_id');
-        $user = $userId ? User::find($userId) : null;
+        $user = $request->user();
 
-        // Fallback: create a temp user only if absolutely no user is available
         if (!$user) {
-            return response()->json(['message' => 'User not found. Please login first.'], 422);
+            return response()->json(['message' => 'User not found. Please login first.'], 401);
         }
 
         $company = $action->execute($user, $request->validated());
@@ -50,7 +47,7 @@ class CompanyController extends \App\Http\Controllers\Controller
             'industry_type' => $company->industry_type
         ]);
 
-        return response()->json(['company' => $company], 201);
+        return response()->json(['company' => $company->load('documents')], 201);
     }
 
     /**
@@ -59,13 +56,13 @@ class CompanyController extends \App\Http\Controllers\Controller
      */
     public function myCompanies(Request $request, GetMyCompaniesAction $action): JsonResponse
     {
-        $userId = $request->query('user_id');
+        $user = $request->user();
         
-        if (!$userId) {
+        if (!$user) {
             return response()->json(['companies' => []], 200);
         }
 
-        $companies = $action->execute((int) $userId);
+        $companies = $action->execute($user->id);
 
         return response()->json(['companies' => $companies], 200);
     }

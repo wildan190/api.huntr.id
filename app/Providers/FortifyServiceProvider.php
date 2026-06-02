@@ -2,10 +2,10 @@
 
 namespace App\Providers;
 
-use App\Actions\Fortify\CreateNewUser;
-use App\Actions\Fortify\ResetUserPassword;
-use App\Actions\Fortify\UpdateUserPassword;
-use App\Actions\Fortify\UpdateUserProfileInformation;
+use App\Domain\Auth\Actions\Fortify\CreateNewUser;
+use App\Domain\Auth\Actions\Fortify\ResetUserPassword;
+use App\Domain\Auth\Actions\Fortify\UpdateUserPassword;
+use App\Domain\Auth\Actions\Fortify\UpdateUserProfileInformation;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -14,6 +14,7 @@ use Illuminate\Support\Str;
 use App\Domain\Auth\Models\User;
 use App\Support\WhatsappNumber;
 use Illuminate\Support\Facades\Hash;
+use App\Domain\Auth\Services\AuthService;
 use Laravel\Fortify\Actions\RedirectIfTwoFactorAuthenticatable;
 use Laravel\Fortify\Fortify;
 
@@ -24,29 +25,21 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(AuthService::class, function ($app) {
+            return new AuthService();
+        });
     }
 
     /**
      * Bootstrap any application services.
      */
-    public function boot(): void
+    public function boot(AuthService $authService): void
     {
-        Fortify::authenticateUsing(function (Request $request) {
-            $login = $request->login;
-            
-            $lookupLogin = $login;
-            if (preg_match('/^[0-9+ \-]+$/', $login)) {
-                $lookupLogin = WhatsappNumber::normalize($login);
-            }
-
-            $user = User::where('email', $request->login)
-                        ->orWhere('whatsapp', $lookupLogin)
-                        ->first();
-
-            if ($user && Hash::check($request->password, $user->password)) {
-                return $user;
-            }
+        Fortify::authenticateUsing(function (Request $request) use ($authService) {
+            return $authService->attempt(
+                $request->input('login'),
+                $request->input('password')
+            );
         });
 
         Fortify::createUsersUsing(CreateNewUser::class);
@@ -55,8 +48,8 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
         Fortify::redirectUserForTwoFactorAuthenticationUsing(RedirectIfTwoFactorAuthenticatable::class);
 
-        RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+        RateLimiter::for('login', function (Request $request) use ($authService) {
+            $throttleKey = Str::transliterate(Str::lower($request->input($authService->getFortifyUsername())).'|'.$request->ip());
 
             return Limit::perMinute(5)->by($throttleKey);
         });

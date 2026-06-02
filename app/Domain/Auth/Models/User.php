@@ -66,6 +66,6 @@ class User extends Authenticatable
      */
     public function companies()
     {
-        return \App\Domain\Company\Models\Company::where('owner_id', $this->id)->get();
+        return $this->hasMany(\App\Domain\Company\Models\Company::class, 'owner_id');
     }
 }
