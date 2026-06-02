@@ -13,11 +13,18 @@ class Proposal extends Model
 
     protected $fillable = [
         'rfq_id',
-        'company_id', // vendor
+        'company_id',
         'price_offer',
         'delivery_days',
         'warranty_months',
-        'status', // submitted, accepted, rejected
+        'document_path',
+        'payment_term',
+        'status',
+        'winner_status',
+        'awarded_at',
+        'awarded_by_user_id',
+        'approved_at',
+        'approved_by_user_id',
     ];
 
     public function rfq()
@@ -28,5 +35,10 @@ class Proposal extends Model
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function items()
+    {
+        return $this->hasMany(ProposalItem::class);
     }
 }

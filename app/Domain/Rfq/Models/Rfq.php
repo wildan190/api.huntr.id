@@ -18,12 +18,14 @@ class Rfq extends Model
         'title',
         'description',
         'status', // draft, pending_approval, approved, active, awarded, closed
+        'duration_days',
         'approved_by',
         'approved_at',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
+        'duration_days' => 'integer',
     ];
 
     public function company()
