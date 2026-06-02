@@ -22,4 +22,20 @@ interface CompanyRepositoryInterface
      * @return Company
      */
     public function update(Company $company, array $data): Company;
+
+    /**
+     * Get companies with pagination and filters.
+     *
+     * @param array $filters
+     * @param int $perPage
+     * @return \Illuminate\Pagination\LengthAwarePaginator
+     */
+    public function getPaginated(array $filters = [], int $perPage = 10): \Illuminate\Pagination\LengthAwarePaginator;
+
+    /**
+     * Get company statistics by status.
+     *
+     * @return array
+     */
+    public function getStats(): array;
 }

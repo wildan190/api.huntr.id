@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Domain\Auth\Actions;
+
+use App\Domain\Auth\Models\Admin;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
+
+class AdminLoginAction
+{
+    /**
+     * Authenticate admin credentials.
+     *
+     * @param array $credentials
+     * @return array
+     * @throws ValidationException
+     */
+    public function execute(array $credentials): array
+    {
+        $admin = Admin::where('email', $credentials['email'])->first();
+
+        if (!$admin || !Hash::check($credentials['password'], $admin->password)) {
+            throw ValidationException::withMessages([
+                'email' => ['Kredensial admin tidak valid.'],
+            ]);
+        }
+
+        return [
+            'message' => 'Login admin berhasil.',
+            'admin'   => [
+                'id'    => $admin->id,
+                'name'  => $admin->name,
+                'email' => $admin->email,
+            ],
+            'token'   => 'admin_session_token_' . $admin->id,
+        ];
+    }
+}

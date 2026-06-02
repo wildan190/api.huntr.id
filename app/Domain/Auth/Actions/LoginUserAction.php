@@ -6,31 +6,44 @@ use App\Domain\Auth\Repositories\UserRepositoryInterface;
 use App\Domain\Auth\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Auth;
 
 class LoginUserAction
 {
     public function __construct(
-        private readonly UserRepositoryInterface $userRepository
+        private readonly UserRepositoryInterface $userRepository,
+        private readonly CreateUserTokenAction $tokenAction
     ) {}
 
     /**
-     * Authenticate user credentials.
+     * Authenticate user credentials and return user with token.
      *
-     * @param string $login
-     * @param string $password
-     * @return User
+     * @param array $credentials
+     * @return array
      * @throws ValidationException
      */
-    public function execute(string $login, string $password): User
+    public function execute(array $credentials): array
     {
+        $login = $credentials['email'] ?? $credentials['whatsapp'] ?? '';
         $user = $this->userRepository->findByEmailOrWhatsapp($login);
 
-        if (!$user || !Hash::check($password, $user->password)) {
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['Invalid credentials.'],
             ]);
         }
 
-        return $user;
+        Auth::login($user);
+
+        $token = $this->tokenAction->execute(
+            $user, 
+            $credentials['device_name'] ?? 'Web Browser', 
+            $credentials['remember_me'] ?? false
+        );
+
+        $userData = $user->toArray();
+        $userData['token'] = $token;
+
+        return ['user' => $userData];
     }
 }
