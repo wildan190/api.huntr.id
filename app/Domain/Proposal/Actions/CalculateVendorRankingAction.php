@@ -43,7 +43,8 @@ class CalculateVendorRankingAction
             $rankings[] = [
                 'proposal' => $proposal->load('company'),
                 'rank' => $rank,
-                'is_winner' => $rank === 1,
+                'is_winner' => in_array($proposal->winner_status, ['awarded', 'approved'], true),
+                'is_top_rank' => $rank === 1,
             ];
         }
 
