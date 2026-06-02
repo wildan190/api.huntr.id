@@ -12,7 +12,6 @@ class RegisterCompanyAction
 {
     public function __construct(
         private readonly CompanyRepositoryInterface $companyRepository,
-        private readonly UserRepositoryInterface $userRepository
     ) {}
 
     /**
