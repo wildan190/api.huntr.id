@@ -10,15 +10,16 @@ class GetMyCompaniesAction
     /**
      * Get all companies associated with a user.
      *
-     * @param int $userId
+     * @param mixed $user
      * @return array
      */
-    public function execute(string $userId): array
+    public function execute($user): array
     {
-        $user = User::find($userId);
         if (!$user) {
             return [];
         }
+
+        $userId = $user->id;
 
         // 1. Get companies owned by the user
         $ownedCompanies = Company::with(['documents', 'catalogues'])
@@ -36,6 +37,7 @@ class GetMyCompaniesAction
         // 3. Add dynamic stats
         return $allCompanies->map(function ($company) {
             $data = $company->toArray();
+            $data['formatted_tax_id'] = $company->formatted_tax_id;
             
             if ($company->type === 'buyer') {
                 $data['stats'] = [

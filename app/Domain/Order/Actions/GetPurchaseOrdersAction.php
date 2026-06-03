@@ -22,6 +22,7 @@ class GetPurchaseOrdersAction
         $companyId = $params['company_id'];
         $perPage   = $params['per_page'] ?? 10;
         $search    = $params['search'] ?? null;
+        $type      = $params['type'] ?? 'all'; // all, operational, historical
         
         $company = Company::findOrFail($companyId);
 
@@ -30,13 +31,22 @@ class GetPurchaseOrdersAction
             'invoices', 
             'deliveryOrders', 
             'rfq.items.catalogue', 
+            'rfq.proposals' => function($q) {
+                $q->where('status', 'accepted')->with('items');
+            },
             'vendor'
-        ])->orderBy('id', 'desc');
+        ])->orderBy('created_at', 'desc');
 
         if ($company->type === 'buyer') {
             $query->where('buyer_company_id', $companyId);
         } else {
             $query->where('vendor_id', $companyId);
+        }
+
+        if ($type === 'operational') {
+            $query->where('is_historical', false);
+        } elseif ($type === 'historical') {
+            $query->where('is_historical', true);
         }
 
         if (!empty($search)) {
@@ -51,14 +61,46 @@ class GetPurchaseOrdersAction
         }
 
         $paginator = $query->paginate($perPage);
+        $items = $paginator->items();
+
+        // Manual eager loading for creator and approver to avoid UUID errors with historical names in Postgres
+        $this->loadUsersForPos($items);
 
         return [
-            'data'         => $this->mapItems($paginator->items()),
+            'data'         => $this->mapItems($items),
             'current_page' => $paginator->currentPage(),
             'last_page'    => $paginator->lastPage(),
             'total'        => $paginator->total(),
             'per_page'     => $paginator->perPage(),
         ];
+    }
+
+    /**
+     * Manual eager loading for creator and approver to avoid UUID errors with historical names.
+     */
+    private function loadUsersForPos(array $items): void
+    {
+        $userIds = collect($items)->flatMap(function ($po) {
+            return [$po->created_by, $po->approved_by];
+        })->filter(function ($id) {
+            // Only collect valid UUIDs to avoid Postgres type errors
+            return $id && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id);
+        })->unique();
+
+        if ($userIds->isEmpty()) {
+            return;
+        }
+
+        $users = \App\Domain\Auth\Models\User::whereIn('id', $userIds->toArray())->get()->keyBy('id');
+
+        foreach ($items as $po) {
+            if ($po->created_by && $users->has($po->created_by)) {
+                $po->setRelation('creator', $users->get($po->created_by));
+            }
+            if ($po->approved_by && $users->has($po->approved_by)) {
+                $po->setRelation('approver', $users->get($po->approved_by));
+            }
+        }
     }
 
     /**
@@ -84,8 +126,12 @@ class GetPurchaseOrdersAction
                     ];
                 });
             } else if ($po->rfq) {
-                $mappedItems = $po->rfq->items->map(function ($item) {
+                $winningProposal = $po->rfq->proposals->first();
+                $mappedItems = $po->rfq->items->map(function ($item) use ($winningProposal) {
                     $cat = $item->catalogue;
+                    $proposalItem = $winningProposal ? $winningProposal->items->where('rfq_item_id', $item->id)->first() : null;
+                    $unitPrice = $proposalItem ? $proposalItem->price_offer : ($cat?->price ?? 0);
+
                     return [
                         'pr_reference_number' => 'RFQ-' . $item->rfq_id,
                         'inventory_code'      => $cat?->item_code ?? 'N/A',
@@ -93,9 +139,9 @@ class GetPurchaseOrdersAction
                         'category'            => $cat?->category ?? 'N/A',
                         'uom'                 => $cat?->uom ?? 'Pc',
                         'qty'                 => $item->qty,
-                        'unit_price'          => $cat?->price ?? 0,
+                        'unit_price'          => $unitPrice,
                         'tax_amount'          => 0,
-                        'total_amount'        => $item->qty * ($cat?->price ?? 0),
+                        'total_amount'        => $item->qty * $unitPrice,
                     ];
                 });
             }
@@ -111,8 +157,8 @@ class GetPurchaseOrdersAction
                 'order_date'        => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
                 'status'            => $po->status,
                 'is_historical'     => $po->is_historical,
-                'created_by'        => $po->created_by ?? 'N/A',
-                'approved_by'       => $po->approved_by ?? 'N/A',
+                'created_by'        => ($po->relationLoaded('creator') && $po->creator) ? $po->creator->name : ($po->created_by ?? 'N/A'),
+                'approved_by'       => ($po->relationLoaded('approver') && $po->approver) ? $po->approver->name : ($po->approved_by ?? 'N/A'),
                 'total_amount'      => $mappedItems->sum('total_amount'),
                 'items'             => $mappedItems,
                 'invoices'          => $po->invoices->map(function ($inv) {

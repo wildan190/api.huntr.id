@@ -6,6 +6,7 @@ use App\Domain\Rfq\Http\Controllers\RfqController;
 Route::prefix('api/rfqs')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('', [RfqController::class, 'index']);
     Route::get('{rfq}', [RfqController::class, 'show']);
+    Route::get('{rfq}/rankings', [RfqController::class, 'rankings']);
     Route::post('', [RfqController::class, 'store']);
     Route::post('{rfq}/approve', [RfqController::class, 'approve']);
 });

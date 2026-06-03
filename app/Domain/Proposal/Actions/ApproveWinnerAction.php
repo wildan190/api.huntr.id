@@ -58,14 +58,31 @@ class ApproveWinnerAction
                 'approved_by'      => $managerUserId,
             ]);
 
-            // 3. Notify the vendor
+            // Generate placeholder PDF for the Purchase Order
+            $dummyPath = storage_path('app/public/invoices/dummy_proforma.pdf'); // Reuse same dummy for now
+            $targetPath = storage_path("app/public/invoices/po_{$purchaseOrder->id}.pdf");
+            if (file_exists($dummyPath)) {
+                copy($dummyPath, $targetPath);
+            }
+
+            // 3. Notify the buyer (requester)
+            $this->broadcastAction->execute(
+                "Purchase Order Ready",
+                "Your Purchase Order {$poNumber} has been generated and issued to vendor.",
+                'test-channel',
+                true,
+                $rfq->user_id,
+                "/orders?search={$poNumber}"
+            );
+
+            // 4. Notify the vendor
             $this->broadcastAction->execute(
                 "Purchase Order Generated",
                 "A new Purchase Order {$poNumber} has been generated for your proposal on '{$rfq->title}'.",
                 'test-channel',
                 true,
                 null,
-                "/orders"
+                "/orders?search={$poNumber}"
             );
 
             // Notify vendor users specifically
@@ -76,7 +93,7 @@ class ApproveWinnerAction
                     'test-channel',
                     true,
                     $vendorUser->id,
-                    "/orders"
+                    "/orders?search={$poNumber}"
                 );
             }
 

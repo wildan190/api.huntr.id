@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Domain\Auth\Models\User;
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Support\Tax\TaxIdFormatter;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
@@ -20,6 +21,7 @@ class Company extends Model
         'status', // pending, approved, rejected
         'verification_notes',
         'tax_id',
+        'country', // ID, MY, SG
         'email',
         'phone',
         'region',
@@ -35,6 +37,16 @@ class Company extends Model
         'industry_type',
         'logo_path',
     ];
+
+    protected $appends = ['formatted_tax_id'];
+
+    /**
+     * Get the formatted tax ID.
+     */
+    public function getFormattedTaxIdAttribute(): string
+    {
+        return TaxIdFormatter::format($this->tax_id, $this->country ?? 'ID');
+    }
 
     public function users()
     {

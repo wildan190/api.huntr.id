@@ -17,6 +17,7 @@ class GetPurchaseOrdersRequest extends FormRequest
             'company_id' => ['required', 'exists:companies,id'],
             'per_page'   => ['integer', 'min:1', 'max:100'],
             'search'     => ['nullable', 'string', 'max:255'],
+            'type'       => ['nullable', 'string', 'in:all,operational,historical'],
         ];
     }
 }

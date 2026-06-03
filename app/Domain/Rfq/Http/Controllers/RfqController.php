@@ -58,6 +58,12 @@ class RfqController extends \App\Http\Controllers\Controller
 
         $data = $request->validated();
         
+        $documentPath = null;
+        if ($request->hasFile('document')) {
+            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
+            $documentPath = $request->file('document')->store('rfq_documents', $disk);
+        }
+
         $rfq = $action->execute(
             $company,
             $data['title'],
@@ -65,7 +71,8 @@ class RfqController extends \App\Http\Controllers\Controller
             $data['items'],
             $data['user_id'] ?? null,
             $data['status'] ?? 'pending_approval',
-            $data['duration_days'] ?? 7
+            $data['duration_days'] ?? 7,
+            $documentPath
         );
         
         return response()->json(['rfq' => $rfq], 201);
@@ -81,5 +88,25 @@ class RfqController extends \App\Http\Controllers\Controller
         return response()->json([
             'rfq' => $action->execute($manager, $rfq)
         ], 200);
+    }
+
+    /**
+     * Mendapatkan perankingan proposal untuk RFQ tertentu.
+     */
+    public function rankings(Rfq $rfq): JsonResponse
+    {
+        $rankings = $rfq->proposals()
+            ->with('company')
+            ->orderBy('price_offer', 'asc')
+            ->get()
+            ->map(function ($proposal, $index) {
+                return [
+                    'rank' => $index + 1,
+                    'proposal' => $proposal,
+                    'is_winner' => $proposal->winner_status === 'awarded' || $proposal->winner_status === 'approved'
+                ];
+            });
+
+        return response()->json(['rankings' => $rankings], 200);
     }
 }

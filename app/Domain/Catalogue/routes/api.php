@@ -6,12 +6,12 @@ use App\Domain\Catalogue\Http\Controllers\CatalogueController;
 Route::prefix('api/catalogues')->middleware(['api', 'cors'])->group(function () {
     // Public endpoints
     Route::get('', [CatalogueController::class, 'index']);
-    Route::get('{id}', [CatalogueController::class, 'show']);
+    Route::get('{catalogue}', [CatalogueController::class, 'show']);
     
     // Protected endpoints (require authentication)
     Route::middleware('auth:api')->group(function () {
         Route::post('', [CatalogueController::class, 'store']);
-        Route::put('{id}', [CatalogueController::class, 'update']);
+        Route::put('{catalogue}', [CatalogueController::class, 'update']);
         Route::post('import', [CatalogueController::class, 'import']);
     });
 });

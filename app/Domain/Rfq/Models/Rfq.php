@@ -19,6 +19,7 @@ class Rfq extends Model
         'user_id',
         'title',
         'description',
+        'document_path',
         'status', // draft, pending_approval, approved, active, awarded, closed
         'duration_days',
         'approved_by',

@@ -9,14 +9,25 @@ class GetAwaitingApprovalsAction
     /**
      * Get all proposals awaiting manager approval (winner_status = 'awarded').
      *
+     * @param string|null $companyId Filter by buyer company ID
      * @return array
      */
-    public function execute(): array
+    public function execute(?string $companyId = null): array
     {
-        $proposals = Proposal::where('winner_status', 'awarded')
-            ->with('rfq', 'company')
-            ->orderBy('awarded_at', 'desc')
-            ->get();
+        $query = Proposal::where('winner_status', 'awarded')
+            ->with(['rfq', 'company'])
+            ->orderBy('awarded_at', 'desc');
+
+        if ($companyId) {
+            $query->whereHas('rfq', function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        } else {
+            // Data Isolation: Must provide company_id to see awaiting approvals
+            return [];
+        }
+
+        $proposals = $query->get();
 
         return $proposals->map(function (Proposal $proposal) {
             return [

@@ -34,10 +34,10 @@ class CompanyController extends \App\Http\Controllers\Controller
     /**
      * Menampilkan daftar perusahaan milik user yang sedang login.
      */
-    public function myCompanies(GetMyCompaniesAction $action): JsonResponse
+    public function myCompanies(Request $request, GetMyCompaniesAction $action): JsonResponse
     {
         return response()->json([
-            'companies' => $action->execute(Auth::id())
+            'companies' => $action->execute($request->user())
         ], 200);
     }
 
@@ -49,10 +49,12 @@ class CompanyController extends \App\Http\Controllers\Controller
         Log::info('Storing new company', ['payload' => $request->all()]);
 
         $company = $action->execute($request->user(), $request->validated());
+        $data = $company->load('documents')->toArray();
+        $data['formatted_tax_id'] = $company->formatted_tax_id;
 
         return response()->json([
             'message' => 'Perusahaan berhasil didaftarkan.',
-            'company' => $company->load('documents'),
+            'company' => $data,
         ], 201);
     }
 
@@ -62,8 +64,10 @@ class CompanyController extends \App\Http\Controllers\Controller
     public function update(UpdateCompanyRequest $request, Company $company, UpdateCompanyAction $action): JsonResponse
     {
         $company = $action->execute($company, $request->validated());
+        $data = $company->load('documents')->toArray();
+        $data['formatted_tax_id'] = $company->formatted_tax_id;
 
-        return response()->json(['company' => $company->load('documents')]);
+        return response()->json(['company' => $data]);
     }
 
     /**
