@@ -16,7 +16,7 @@ class ApproveWinnerAction
      * @return Proposal
      * @throws ValidationException
      */
-    public function execute(Proposal $proposal, int $managerUserId): Proposal
+    public function execute(Proposal $proposal, string $managerUserId): Proposal
     {
         // Verify proposal is in 'awarded' state
         if ($proposal->winner_status !== 'awarded') {

@@ -11,9 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('companies', function (Blueprint $table) {
-            $table->uuid('owner_id')->nullable()->after('id');
-            $table->foreign('owner_id')->references('id')->on('users')->onDelete('set null');
+        Schema::table('catalogues', function (Blueprint $table) {
+            $table->string('image_path')->nullable();
         });
     }
 
@@ -22,9 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('companies', function (Blueprint $table) {
-            $table->dropForeign(['owner_id']);
-            $table->dropColumn('owner_id');
+        Schema::table('catalogues', function (Blueprint $table) {
+            $table->dropColumn('image_path');
         });
     }
 };

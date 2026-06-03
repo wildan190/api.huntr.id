@@ -43,12 +43,17 @@ class CreateCatalogueAction
             
             $isVendor = false;
             if ($user instanceof User) {
-                $isVendor = $user->companies()->where('type', 'vendor')->contains('id', $company->id);
+                $isVendor = $user->companies()->where('companies.id', $company->id)->where('type', 'vendor')->exists();
             }
 
             if (!$isVendor) {
                 throw ValidationException::withMessages(['message' => 'Hanya Vendor yang dapat menambahkan katalog ke perusahaan ini.']);
             }
+        }
+
+        $imagePath = null;
+        if (isset($data['image']) && $data['image'] instanceof \Illuminate\Http\UploadedFile) {
+            $imagePath = $data['image']->store('catalogues', 'public');
         }
 
         return Catalogue::create([
@@ -59,6 +64,7 @@ class CreateCatalogueAction
             'specifications' => $data['specifications'] ?? null,
             'uom' => $data['uom'],
             'price' => $data['price'],
+            'image_path' => $imagePath,
         ]);
     }
 }

@@ -21,7 +21,7 @@ class AwardWinnerAction
      * @return Proposal
      * @throws ValidationException
      */
-    public function execute(Proposal $proposal, int $buyerUserId, Rfq $rfq): Proposal
+    public function execute(Proposal $proposal, string $buyerUserId, Rfq $rfq): Proposal
     {
         // Verify proposal belongs to this RFQ
         if ($proposal->rfq_id !== $rfq->id) {

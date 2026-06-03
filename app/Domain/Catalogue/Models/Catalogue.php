@@ -6,9 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Domain\Company\Models\Company;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
 class Catalogue extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'company_id',
@@ -17,6 +19,7 @@ class Catalogue extends Model
         'category',
         'specifications',
         'uom',
+        'image_path',
     ];
 
     public function company()

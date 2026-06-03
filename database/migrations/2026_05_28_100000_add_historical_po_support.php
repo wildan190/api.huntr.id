@@ -16,7 +16,7 @@ return new class extends Migration
     {
         // Add buyer_company_id and make rfq_id nullable on purchase_orders
         Schema::table('purchase_orders', function (Blueprint $table) {
-            $table->unsignedBigInteger('buyer_company_id')->nullable()->after('id');
+            $table->uuid('buyer_company_id')->nullable()->after('id');
             $table->string('vendor_name')->nullable()->after('vendor_id'); // Raw vendor name for historical
             $table->string('department')->nullable()->after('vendor_name');
             $table->string('currency')->nullable()->after('department');
@@ -29,16 +29,16 @@ return new class extends Migration
             $table->string('approved_by')->nullable()->after('created_by');
 
             // Make rfq_id nullable for historical imports (no actual RFQ was created)
-            $table->unsignedBigInteger('rfq_id')->nullable()->change();
-            $table->unsignedBigInteger('vendor_id')->nullable()->change();
+            $table->uuid('rfq_id')->nullable()->change();
+            $table->uuid('vendor_id')->nullable()->change();
             // Make po_number not unique to allow historical
             $table->string('po_number')->nullable()->change();
         });
 
         // Create historical_po_items table for line-level PO detail data
         Schema::create('historical_po_items', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('purchase_order_id');
+            $table->uuid('id')->primary();
+            $table->uuid('purchase_order_id');
             $table->string('pr_reference_number')->nullable();
             $table->string('inventory_code')->nullable();
             $table->string('inventory_name');

@@ -50,5 +50,5 @@ interface ProposalRepositoryInterface
      * @param int $winningProposalId
      * @return void
      */
-    public function rejectOthers(Rfq $rfq, int $winningProposalId): void;
+    public function rejectOthers(Rfq $rfq, string $winningProposalId): void;
 }

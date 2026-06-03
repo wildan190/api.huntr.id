@@ -21,7 +21,7 @@ class BroadcastWebsocketNotificationAction
      * @param string|null $url Redirect URL
      * @return bool True on success
      */
-    public function execute(string $title, string $body, string $channel = 'test-channel', bool $queued = true, ?int $userId = null, ?string $url = null): bool
+    public function execute(string $title, string $body, string $channel = 'test-channel', bool $queued = true, ?string $userId = null, ?string $url = null): bool
     {
         // If a specific user is targeted, save to their database notifications
         if ($userId) {

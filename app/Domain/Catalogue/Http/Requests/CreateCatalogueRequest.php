@@ -21,6 +21,7 @@ class CreateCatalogueRequest extends FormRequest
             'specifications' => ['nullable', 'string'],
             'uom'            => ['required', 'string', 'max:50'],
             'price'          => ['required', 'numeric', 'min:0'],
+            'image'          => ['nullable', 'image', 'mimes:jpeg,png,jpg,gif,svg,webp', 'max:5120'],
         ];
     }
 }

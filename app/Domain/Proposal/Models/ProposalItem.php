@@ -6,9 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Domain\Rfq\Models\RfqItem;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
 class ProposalItem extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'proposal_id',

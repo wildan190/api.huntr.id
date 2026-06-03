@@ -13,7 +13,7 @@ class GetMyCompaniesAction
      * @param int $userId
      * @return array
      */
-    public function execute(int $userId): array
+    public function execute(string $userId): array
     {
         $user = User::find($userId);
         if (!$user) {

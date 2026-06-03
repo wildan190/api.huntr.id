@@ -92,7 +92,13 @@ class CatalogueController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Hanya Vendor yang dapat mengubah katalog.'], 422);
         }
 
-        $catalogue->update($request->validated());
+        $data = $request->validated();
+        if (isset($data['image']) && $data['image'] instanceof \Illuminate\Http\UploadedFile) {
+            $data['image_path'] = $data['image']->store('catalogues', 'public');
+            unset($data['image']);
+        }
+
+        $catalogue->update($data);
 
         return response()->json([
             'message' => 'Produk katalog berhasil diperbarui.',
