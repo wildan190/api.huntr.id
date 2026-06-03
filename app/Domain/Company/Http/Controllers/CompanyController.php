@@ -92,8 +92,9 @@ class CompanyController extends \App\Http\Controllers\Controller
         $company = Company::findOrFail($request->input('company_id'));
         $updatedCompany = $action->execute($company, $request->file('logo'));
 
+        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
-        $storage = Storage::disk(env('FILESYSTEM_DISK', 'public'));
+        $storage = Storage::disk($disk);
 
         return response()->json([
             'message' => 'Logo berhasil diperbarui.',
