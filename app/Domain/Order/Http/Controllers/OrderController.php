@@ -4,9 +4,13 @@ namespace App\Domain\Order\Http\Controllers;
 
 use App\Domain\Order\Actions\AwardVendorAction;
 use App\Domain\Order\Actions\GetPurchaseOrdersAction;
+use App\Domain\Order\Actions\ConfirmPurchaseOrderAction;
 use App\Domain\Order\Http\Requests\AwardVendorRequest;
 use App\Domain\Order\Http\Requests\GetPurchaseOrdersRequest;
+use App\Domain\Order\Models\PurchaseOrder;
+use App\Domain\Company\Models\Company;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Auth\Models\User;
@@ -38,6 +42,23 @@ class OrderController extends \App\Http\Controllers\Controller
         
         return response()->json([
             'po' => $action->execute($manager, $rfq, $proposal)
+        ]);
+    }
+
+    /**
+     * Vendor mengonfirmasi Purchase Order dan menerbitkan Proforma Invoice.
+     */
+    public function confirm(Request $request, PurchaseOrder $po, ConfirmPurchaseOrderAction $action): JsonResponse
+    {
+        $vendorCompanyId = $request->input('company_id');
+        if (!$vendorCompanyId) {
+            return response()->json(['message' => 'Company ID is required.'], 400);
+        }
+
+        $vendorCompany = Company::findOrFail($vendorCompanyId);
+        
+        return response()->json([
+            'po' => $action->execute($vendorCompany, $po)
         ]);
     }
 }

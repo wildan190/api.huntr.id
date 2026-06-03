@@ -65,7 +65,11 @@ class ProposalController extends \App\Http\Controllers\Controller
     {
         $proposal = Proposal::findOrFail($request->input('proposal_id'));
         $rfq = Rfq::findOrFail($request->input('rfq_id'));
-        $userId = Auth::id();
+        $userId = Auth::id() ?: $request->input('user_id');
+
+        if (!$userId) {
+            return response()->json(['message' => 'User ID is required for awarding.'], 401);
+        }
 
         $awardedProposal = $action->execute($proposal, $userId, $rfq);
 
@@ -81,7 +85,11 @@ class ProposalController extends \App\Http\Controllers\Controller
     public function approveWinner(Request $request, ApproveWinnerAction $action): JsonResponse
     {
         $proposal = Proposal::findOrFail($request->input('proposal_id'));
-        $userId = Auth::id();
+        $userId = Auth::id() ?: $request->input('user_id');
+
+        if (!$userId) {
+            return response()->json(['message' => 'User ID is required for approval.'], 401);
+        }
 
         $approvedProposal = $action->execute($proposal, $userId);
 

@@ -26,39 +26,50 @@ class RegisterCompanyAction
     {
         Log::info('RegisterCompanyAction data:', $data);
 
-        // Get the user's existing company
-        $company = $user->company ?? Company::where('owner_id', $user->id)->first();
+        // Check if a company with the same name or tax_id already exists for this owner
+        // to prevent duplicate submissions, but allow registering different companies.
+        $existingCompany = Company::where('owner_id', $user->id)
+            ->where(function($query) use ($data) {
+                $query->where('name', $data['name']);
+                if (!empty($data['tax_id'])) {
+                    $query->orWhere('tax_id', $data['tax_id']);
+                }
+            })
+            ->first();
 
-        if (!$company) {
-            // Create new company during onboarding with 'pending' status
-            $companyData = array_merge($data, [
-                'status'   => 'pending', // Submit for approval after onboarding
-                'owner_id' => $user->id,
+        if ($existingCompany) {
+            // Update existing company and ensure status is 'pending' for approval
+            $updateData = array_merge($data, [
+                'status' => 'pending', // Re-submit for approval
             ]);
-            $company = $this->companyRepository->create($companyData);
+            $existingCompany->update($updateData);
+            $company = $existingCompany;
             
-            // Associate user with the company
-            $user->update(['company_id' => $company->id]);
-            
-            Log::info('Created new company during onboarding', [
-                'user_id' => $user->id,
+            Log::info('Updated existing company during registration', [
                 'company_id' => $company->id,
                 'status' => $company->status
             ]);
         } else {
-            // Update existing company and ensure status is 'pending' for approval
-            $updateData = array_merge($data, [
-                'status' => 'pending', // Submit for approval after onboarding
+            // Create a completely new company
+            $companyData = array_merge($data, [
+                'status'   => 'pending',
+                'owner_id' => $user->id,
             ]);
-            $company->update($updateData);
+            $company = $this->companyRepository->create($companyData);
             
-            Log::info('Updated existing company during onboarding', [
+            // NOTE: We do NOT update $user->company_id here.
+            // A user can own multiple companies. $user->company_id should represent
+            // their currently active or primary company context, which should be 
+            // handled by a separate "switch company" action, not registration.
+            
+            Log::info('Created new company during registration', [
+                'user_id' => $user->id,
                 'company_id' => $company->id,
                 'status' => $company->status
             ]);
         }
 
-        Log::info('Updated company ID: ' . $company->id, [
+        Log::info('Final company ID: ' . $company->id, [
             'status' => $company->status,
             'about' => $company->about,
             'industry_type' => $company->industry_type
