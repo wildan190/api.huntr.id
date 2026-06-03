@@ -48,6 +48,13 @@ class ConfirmPurchaseOrderAction
                 'status'            => 'unpaid',
             ]);
 
+            // Generate placeholder PDF for the proforma invoice
+            $dummyPath = storage_path('app/public/invoices/dummy_proforma.pdf');
+            $targetPath = storage_path("app/public/invoices/proforma_{$po->id}.pdf");
+            if (file_exists($dummyPath)) {
+                copy($dummyPath, $targetPath);
+            }
+
             // 4. Notify the buyer about PO confirmation
             $this->broadcastAction->execute(
                 "Purchase Order Confirmed",
@@ -55,7 +62,7 @@ class ConfirmPurchaseOrderAction
                 'test-channel',
                 true,
                 $po->created_by, // Notify the buyer user who created the PO
-                "/orders"
+                "/orders?search={$po->po_number}"
             );
 
             // 5. Notify the buyer about Proforma Invoice
@@ -65,7 +72,7 @@ class ConfirmPurchaseOrderAction
                 'test-channel',
                 true,
                 $po->created_by,
-                "/orders"
+                "/orders?search={$po->po_number}"
             );
 
             return $po;

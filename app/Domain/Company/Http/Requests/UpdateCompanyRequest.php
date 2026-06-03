@@ -16,6 +16,7 @@ class UpdateCompanyRequest extends FormRequest
         return [
             'name'              => ['required', 'string', 'max:255'],
             'tax_id'            => ['nullable', 'string'],
+            'country'           => ['nullable', 'string', 'max:10'],
             'email'             => ['nullable', 'email'],
             'phone'             => ['nullable', 'string'],
             'region'            => ['nullable', 'string'],

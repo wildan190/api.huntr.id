@@ -18,6 +18,7 @@ class RegisterCompanyRequest extends FormRequest
             'type' => ['required', 'in:buyer,vendor'],
             'user_id' => ['nullable', 'exists:users,id'],
             'tax_id' => ['nullable', 'string'],
+            'country' => ['nullable', 'string', 'max:10'],
             'email' => ['nullable', 'email'],
             'phone' => ['nullable', 'string'],
             'region' => ['nullable', 'string'],

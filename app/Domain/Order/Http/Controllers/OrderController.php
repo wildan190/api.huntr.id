@@ -61,4 +61,31 @@ class OrderController extends \App\Http\Controllers\Controller
             'po' => $action->execute($vendorCompany, $po)
         ]);
     }
+
+    /**
+     * Print Purchase Order (HTML for Ctrl+P).
+     */
+    public function printPo(PurchaseOrder $po, GetPurchaseOrdersAction $action)
+    {
+        $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
+        $poData = $data['data'][0] ?? null;
+
+        if (!$poData) abort(404);
+
+        return view('print.po', ['po' => $poData]);
+    }
+
+    /**
+     * Print Invoice/Proforma (HTML for Ctrl+P).
+     */
+    public function printInvoice(\App\Domain\Order\Models\Invoice $invoice, GetPurchaseOrdersAction $action)
+    {
+        $po = $invoice->purchaseOrder;
+        $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
+        $poData = $data['data'][0] ?? null;
+
+        if (!$poData) abort(404);
+
+        return view('print.invoice', ['invoice' => $invoice, 'po' => $poData]);
+    }
 }

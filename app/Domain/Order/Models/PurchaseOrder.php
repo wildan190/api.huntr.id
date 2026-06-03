@@ -37,6 +37,16 @@ class PurchaseOrder extends Model
         'is_historical'           => 'boolean',
     ];
 
+    public function creator()
+    {
+        return $this->belongsTo(\App\Domain\Auth\Models\User::class, 'created_by');
+    }
+
+    public function approver()
+    {
+        return $this->belongsTo(\App\Domain\Auth\Models\User::class, 'approved_by');
+    }
+
     public function rfq()
     {
         return $this->belongsTo(Rfq::class);

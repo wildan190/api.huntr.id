@@ -24,6 +24,12 @@ class GetRfqsAction
         
         $query = Rfq::with(['items.catalogue.company', 'company', 'user']);
         
+        // Data Isolation: If status is not 'active' (Global RFQ), company_id MUST be provided
+        // to prevent companies from seeing each other's private data.
+        if ($status !== 'active' && !$companyId && !$userId) {
+            return new Collection();
+        }
+
         if ($companyId) {
             $query->where('company_id', $companyId);
         }

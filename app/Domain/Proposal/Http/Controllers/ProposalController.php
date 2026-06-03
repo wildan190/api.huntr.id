@@ -62,9 +62,8 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Buyer awards a proposal as winner.
      */
-    public function awardWinner(Request $request, AwardWinnerAction $action): JsonResponse
+    public function awardWinner(Request $request, Proposal $proposal, AwardWinnerAction $action): JsonResponse
     {
-        $proposal = Proposal::findOrFail($request->input('proposal_id'));
         $rfq = Rfq::findOrFail($request->input('rfq_id'));
         $userId = Auth::id() ?: $request->input('user_id');
 
@@ -83,9 +82,8 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Manager approves the awarded winner.
      */
-    public function approveWinner(Request $request, ApproveWinnerAction $action): JsonResponse
+    public function approveWinner(Request $request, Proposal $proposal, ApproveWinnerAction $action): JsonResponse
     {
-        $proposal = Proposal::findOrFail($request->input('proposal_id'));
         $userId = Auth::id() ?: $request->input('user_id');
 
         if (!$userId) {
@@ -113,9 +111,10 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Get all proposals awaiting manager approval.
      */
-    public function awaitingApproval(GetAwaitingApprovalsAction $action): JsonResponse
+    public function awaitingApproval(Request $request, GetAwaitingApprovalsAction $action): JsonResponse
     {
-        $proposals = $action->execute();
+        $companyId = $request->query('company_id');
+        $proposals = $action->execute($companyId);
         return response()->json(['proposals' => $proposals]);
     }
 }
