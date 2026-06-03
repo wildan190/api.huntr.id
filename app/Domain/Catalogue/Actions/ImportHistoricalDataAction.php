@@ -2,12 +2,8 @@
 
 namespace App\Domain\Catalogue\Actions;
 
-use App\Domain\Catalogue\Models\Catalogue;
 use App\Domain\Catalogue\Repositories\CatalogueRepositoryInterface;
 use App\Domain\Company\Models\Company;
-use App\Domain\Order\Models\HistoricalPoItem;
-use App\Domain\Order\Models\PurchaseOrder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Rap2hpoutre\FastExcel\FastExcel;
 
