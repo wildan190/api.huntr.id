@@ -17,7 +17,7 @@ return new class extends Migration
                 $table->string('role')->default('buyer'); // admin, buyer, vendor, manager, finance
             }
             if (!Schema::hasColumn('users', 'company_id')) {
-                $table->unsignedBigInteger('company_id')->nullable();
+                $table->uuid('company_id')->nullable();
             }
             if (!Schema::hasColumn('users', 'whatsapp')) {
                 $table->string('whatsapp')->nullable()->unique();
@@ -26,7 +26,7 @@ return new class extends Migration
 
         // 2. Companies table
         Schema::create('companies', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('name');
             $table->string('type'); // buyer, vendor
             $table->string('status')->default('pending'); // pending, approved, rejected
@@ -36,8 +36,8 @@ return new class extends Migration
 
         // 3. Catalogues table
         Schema::create('catalogues', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('company_id'); // belonging to a company (vendor's inventory or buyer's standard item list)
+            $table->uuid('id')->primary();
+            $table->uuid('company_id'); // belonging to a company (vendor's inventory or buyer's standard item list)
             $table->string('item_code');
             $table->string('name');
             $table->string('category')->nullable();
@@ -49,8 +49,8 @@ return new class extends Migration
 
         // 4. RFQs table
         Schema::create('rfqs', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('company_id'); // buyer company
+            $table->uuid('id')->primary();
+            $table->uuid('company_id'); // buyer company
             $table->string('title');
             $table->text('description')->nullable();
             $table->string('status')->default('draft'); // draft, pending_manager, active, awarded, closed
@@ -59,9 +59,9 @@ return new class extends Migration
 
         // 5. RFQ Items table
         Schema::create('rfq_items', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('rfq_id');
-            $table->unsignedBigInteger('catalogue_id');
+            $table->uuid('id')->primary();
+            $table->uuid('rfq_id');
+            $table->uuid('catalogue_id');
             $table->integer('qty');
             $table->date('expected_date')->nullable();
             $table->timestamps();
@@ -69,9 +69,9 @@ return new class extends Migration
 
         // 6. Proposals (Tenders) table
         Schema::create('proposals', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('rfq_id');
-            $table->unsignedBigInteger('company_id'); // vendor company
+            $table->uuid('id')->primary();
+            $table->uuid('rfq_id');
+            $table->uuid('company_id'); // vendor company
             $table->decimal('price_offer', 15, 2);
             $table->integer('delivery_days');
             $table->integer('warranty_months')->default(12);
@@ -81,9 +81,9 @@ return new class extends Migration
 
         // 7. Purchase Orders table
         Schema::create('purchase_orders', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('rfq_id');
-            $table->unsignedBigInteger('vendor_id'); // vendor company
+            $table->uuid('id')->primary();
+            $table->uuid('rfq_id');
+            $table->uuid('vendor_id'); // vendor company
             $table->string('po_number')->unique();
             $table->string('status')->default('pending_manager'); // pending_manager, approved, confirmed, paid, shipping, completed
             $table->timestamps();
@@ -91,9 +91,9 @@ return new class extends Migration
 
         // 8. Invoices table
         Schema::create('invoices', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('purchase_order_id');
-            $table->string('type'); // proforma, final
+            $table->uuid('id')->primary();
+            $table->uuid('purchase_order_id');
+            $table->string('type')->default('proforma'); // proforma, final
             $table->decimal('amount', 15, 2);
             $table->string('status')->default('unpaid'); // unpaid, paid, pending_finance
             $table->timestamps();
@@ -101,8 +101,8 @@ return new class extends Migration
 
         // 9. Delivery Orders table
         Schema::create('delivery_orders', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('purchase_order_id');
+            $table->uuid('id')->primary();
+            $table->uuid('purchase_order_id');
             $table->string('do_number')->unique();
             $table->string('status')->default('shipped'); // shipped, delivered, received
             $table->timestamps();
@@ -110,8 +110,8 @@ return new class extends Migration
 
         // 10. Goods Receipts table
         Schema::create('goods_receipts', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('delivery_order_id');
+            $table->uuid('id')->primary();
+            $table->uuid('delivery_order_id');
             $table->integer('received_qty');
             $table->string('handover_document_path')->nullable();
             $table->string('status')->default('completed');

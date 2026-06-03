@@ -14,9 +14,9 @@ return new class extends Migration
         Schema::table('proposals', function (Blueprint $table) {
             $table->string('winner_status')->default('pending')->after('status'); // pending, awarded, approved, rejected
             $table->timestamp('awarded_at')->nullable()->after('winner_status'); // When buyer awards this as winner
-            $table->unsignedBigInteger('awarded_by_user_id')->nullable()->after('awarded_at'); // Buyer user who made the award decision
+            $table->uuid('awarded_by_user_id')->nullable()->after('awarded_at'); // Buyer user who made the award decision
             $table->timestamp('approved_at')->nullable()->after('awarded_by_user_id'); // When manager approves the winner
-            $table->unsignedBigInteger('approved_by_user_id')->nullable()->after('approved_at'); // Manager user who approved
+            $table->uuid('approved_by_user_id')->nullable()->after('approved_at'); // Manager user who approved
         });
     }
 

@@ -8,9 +8,11 @@ use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
 use App\Domain\Proposal\Models\Proposal;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
 class Rfq extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'company_id',

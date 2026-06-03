@@ -45,7 +45,7 @@ class EloquentProposalRepository implements ProposalRepositoryInterface
     /**
      * {@inheritdoc}
      */
-    public function rejectOthers(Rfq $rfq, int $winningProposalId): void
+    public function rejectOthers(Rfq $rfq, string $winningProposalId): void
     {
         $rfq->proposals()
             ->where('id', '!=', $winningProposalId)

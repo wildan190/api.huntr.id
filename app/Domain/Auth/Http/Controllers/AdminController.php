@@ -32,7 +32,7 @@ class AdminController extends \App\Http\Controllers\Controller
         return response()->json(array_merge($companies->toArray(), ['stats' => $stats]));
     }
 
-    public function auditCompany(Request $request, AuditCompanyAction $action, int $id): JsonResponse
+    public function auditCompany(Request $request, AuditCompanyAction $action, string $id): JsonResponse
     {
         $request->validate([
             'action' => 'required|in:approve,decline',

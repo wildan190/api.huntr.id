@@ -27,7 +27,7 @@ class ImportHistoricalPoJob implements ShouldQueue
     /**
      * Create a new job instance.
      */
-    public function __construct(int $companyId, string $filePath)
+    public function __construct(string $companyId, string $filePath)
     {
         $this->companyId = $companyId;
         $this->filePath = $filePath;

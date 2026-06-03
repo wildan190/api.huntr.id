@@ -6,9 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Domain\Receipt\Models\GoodsReceipt;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
 class DeliveryOrder extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'purchase_order_id',

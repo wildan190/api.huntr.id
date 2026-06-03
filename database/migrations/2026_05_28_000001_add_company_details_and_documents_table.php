@@ -27,8 +27,8 @@ return new class extends Migration
         });
 
         Schema::create('company_documents', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('company_id');
+            $table->uuid('id')->primary();
+            $table->uuid('company_id');
             $table->string('name');
             $table->string('type');
             $table->string('file_path')->nullable();

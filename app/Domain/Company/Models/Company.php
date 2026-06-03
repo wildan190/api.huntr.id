@@ -7,9 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use App\Domain\Auth\Models\User;
 use App\Domain\Catalogue\Models\Catalogue;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
 class Company extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'owner_id',

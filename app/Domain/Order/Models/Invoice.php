@@ -5,9 +5,11 @@ namespace App\Domain\Order\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+
 class Invoice extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     protected $fillable = [
         'purchase_order_id',
