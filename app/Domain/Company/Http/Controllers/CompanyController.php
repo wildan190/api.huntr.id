@@ -145,8 +145,18 @@ class CompanyController extends \App\Http\Controllers\Controller
      */
     public function teamMembers(Company $company): JsonResponse
     {
+        $members = $company->users()
+            ->select('users.id', 'users.name', 'users.email', 'users.whatsapp')
+            ->with('roles')
+            ->get()
+            ->map(function ($user) {
+                $data = $user->toArray();
+                $data['role'] = $user->role; // Use the accessor
+                return $data;
+            });
+
         return response()->json([
-            'members' => $company->users()->select('id', 'name', 'email', 'whatsapp', 'role')->get()
+            'members' => $members
         ]);
     }
 }

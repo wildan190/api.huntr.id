@@ -12,13 +12,16 @@ class EloquentUserRepository implements UserRepositoryInterface
      */
     public function create(array $data): User
     {
-        return User::create([
+        $user = User::create([
             'name'     => $data['name'],
             'email'    => $data['email'] ?? null,
             'whatsapp' => $data['whatsapp'] ?? null,
             'password' => Hash::make($data['password']),
-            'role'     => $data['role'] ?? 'buyer',
         ]);
+
+        $user->assignRole($data['role'] ?? 'buyer');
+
+        return $user;
     }
 
     /**

@@ -32,7 +32,7 @@ class AwardVendorAction
     {
         $isOwner = $rfq->company->owner_id === $manager->id;
 
-        if ($manager->role !== 'manager' && !$isOwner) {
+        if (!$manager->hasRole('manager') && !$isOwner) {
             throw new UnauthorizedException("Only purchasing managers or company owners can award RFQs and generate POs.");
         }
 

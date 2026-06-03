@@ -9,11 +9,12 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use App\Domain\Access\Traits\HasAccess;
 
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, TwoFactorAuthenticatable, HasApiTokens, HasUuids;
+    use HasFactory, Notifiable, TwoFactorAuthenticatable, HasApiTokens, HasUuids, HasAccess;
 
     /**
      * The attributes that are mass assignable.
@@ -25,7 +26,6 @@ class User extends Authenticatable
         'email',
         'whatsapp',
         'password',
-        'role',
         'company_id',
     ];
 
@@ -60,6 +60,14 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * Get the first role slug (for backward compatibility).
+     */
+    public function getRoleAttribute(): ?string
+    {
+        return $this->roles()->first()?->slug;
     }
 
     /**

@@ -18,7 +18,7 @@ class InviteUserAction
         $company = Company::findOrFail($data['company_id']);
         
         // Ensure the inviter is the owner or a manager
-        if ($company->owner_id !== $inviter->id && $inviter->role !== 'manager') {
+        if ($company->owner_id !== $inviter->id && !$inviter->hasRole('manager')) {
             throw new \Exception("Unauthorized to invite users to this company.");
         }
 

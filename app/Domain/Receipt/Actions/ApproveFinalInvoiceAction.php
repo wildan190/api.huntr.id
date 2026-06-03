@@ -23,7 +23,7 @@ class ApproveFinalInvoiceAction
      */
     public function execute(User $finance, Invoice $invoice): Invoice
     {
-        if ($finance->role !== 'finance') {
+        if (!$finance->hasRole('finance')) {
             throw new UnauthorizedException("Only finance officers can approve final payment schemas.");
         }
 
