@@ -18,11 +18,11 @@ class AcceptInvitationAction
             ->where('expires_at', '>', now())
             ->firstOrFail();
 
-        // Update user's company and role
+        // Update user's company and assign role via Access domain
         $user->update([
             'company_id' => $invitation->company_id,
-            'role'       => $invitation->role,
         ]);
+        $user->assignRole($invitation->role);
 
         // Mark invitation as accepted
         $invitation->update(['status' => 'accepted']);

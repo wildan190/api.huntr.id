@@ -3,7 +3,7 @@
 namespace App\Domain\Auth\Actions;
 
 use App\Domain\Auth\Repositories\UserRepositoryInterface;
-use App\Domain\Auth\Models\User;
+use App\Domain\Access\Actions\AssignRoleAction;
 use Illuminate\Support\Facades\Log;
 use App\Support\WhatsappNumber;
 use App\Support\OtpStore;
@@ -13,7 +13,8 @@ class RegisterUserAction
 {
     public function __construct(
         private readonly UserRepositoryInterface $userRepository,
-        private readonly CreateUserTokenAction $tokenAction
+        private readonly CreateUserTokenAction $tokenAction,
+        private readonly AssignRoleAction $assignRoleAction
     ) {}
 
     /**
@@ -40,9 +41,9 @@ class RegisterUserAction
         try {
             // Set user role - use provided role or default to manager
             $role = $data['role'] ?? 'manager';
-            $user->update([
-                'role' => $role
-            ]);
+
+            // Assign role via the new Access domain
+            $this->assignRoleAction->execute($user, $role);
 
             Log::info('User registered successfully', [
                 'user_id' => $user->id,

@@ -15,6 +15,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // No seed data.
+        $this->call([
+            AccessControlSeeder::class,
+        ]);
     }
 }

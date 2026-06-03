@@ -55,8 +55,10 @@ class CreateNewUser implements CreatesNewUsers
             'email' => $input['email'] ?? null,
             'whatsapp' => $whatsapp,
             'password' => Hash::make($input['password']),
-            'role' => 'buyer', // Default role
         ]);
+
+        // Assign default role via Access domain
+        $user->assignRole('buyer');
 
         // Consume the verification token
         if ($whatsapp) {
