@@ -11,7 +11,8 @@ class CreateRfqAction
 {
     public function __construct(
         private readonly RfqRepositoryInterface $rfqRepository,
-        private readonly BroadcastWebsocketNotificationAction $broadcastAction
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction,
+        private readonly NotifyRelevantVendorsAction $notifyVendorsAction
     ) {}
 
     /**
@@ -52,6 +53,10 @@ class CreateRfqAction
             $userId,
             "/my-pr"
         );
+
+        if ($status === 'active') {
+            $this->notifyVendorsAction->execute($rfq);
+        }
 
         return $rfq;
     }
