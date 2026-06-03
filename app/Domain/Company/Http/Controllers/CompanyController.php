@@ -19,6 +19,10 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 
+use App\Domain\Company\Actions\InviteUserAction;
+use App\Domain\Company\Actions\AcceptInvitationAction;
+use Illuminate\Http\Request;
+
 /**
  * CompanyController
  * 
@@ -95,6 +99,53 @@ class CompanyController extends \App\Http\Controllers\Controller
             'message' => 'Logo berhasil diperbarui.',
             'file_path' => $updatedCompany->logo_path,
             'url' => $storage->url($updatedCompany->logo_path),
+        ]);
+    }
+
+    /**
+     * Mengundang user baru ke perusahaan via WhatsApp.
+     */
+    public function invite(Request $request, InviteUserAction $action): JsonResponse
+    {
+        $data = $request->validate([
+            'company_id' => 'required|exists:companies,id',
+            'whatsapp'   => 'required|string',
+            'email'      => 'nullable|email',
+            'role'       => 'required|string',
+        ]);
+
+        try {
+            $result = $action->execute($request->user(), $data);
+            return response()->json($result, 201);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+    }
+
+    /**
+     * Menerima undangan bergabung ke perusahaan.
+     */
+    public function acceptInvitation(Request $request, AcceptInvitationAction $action): JsonResponse
+    {
+        $request->validate([
+            'token' => 'required|string',
+        ]);
+
+        try {
+            $result = $action->execute($request->user(), $request->input('token'));
+            return response()->json($result, 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Undangan tidak valid atau sudah kedaluwarsa.'], 400);
+        }
+    }
+
+    /**
+     * Menampilkan daftar anggota tim di perusahaan.
+     */
+    public function teamMembers(Company $company): JsonResponse
+    {
+        return response()->json([
+            'members' => $company->users()->select('id', 'name', 'email', 'whatsapp', 'role')->get()
         ]);
     }
 }

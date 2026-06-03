@@ -10,4 +10,7 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->gro
     Route::get('my', [CompanyController::class, 'myCompanies']);
     Route::post('documents/upload', [CompanyController::class, 'uploadDocument']);
     Route::post('logo/upload', [CompanyController::class, 'uploadLogo']);
+    Route::post('invite', [CompanyController::class, 'invite']);
+    Route::post('accept-invitation', [CompanyController::class, 'acceptInvitation']);
+    Route::get('{company}/members', [CompanyController::class, 'teamMembers']);
 });
