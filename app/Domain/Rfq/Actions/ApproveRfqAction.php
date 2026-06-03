@@ -12,7 +12,8 @@ class ApproveRfqAction
 {
     public function __construct(
         private readonly RfqRepositoryInterface $rfqRepository,
-        private readonly BroadcastWebsocketNotificationAction $broadcastAction
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction,
+        private readonly NotifyRelevantVendorsAction $notifyVendorsAction
     ) {}
 
     /**
@@ -37,6 +38,7 @@ class ApproveRfqAction
             'approved_at' => now(),
         ]);
 
+        // Notify the buyer who created the PR
         $this->broadcastAction->execute(
             "PR Approved",
             "PR '{$rfq->title}' has been approved and published.",
@@ -45,6 +47,9 @@ class ApproveRfqAction
             $rfq->user_id,
             "/my-pr"
         );
+
+        // Notify relevant vendors
+        $this->notifyVendorsAction->execute($rfq);
 
         return $rfq;
     }
