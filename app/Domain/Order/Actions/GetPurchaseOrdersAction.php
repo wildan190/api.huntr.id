@@ -34,7 +34,8 @@ class GetPurchaseOrdersAction
             'rfq.proposals' => function($q) {
                 $q->where('status', 'accepted')->with('items');
             },
-            'vendor'
+            'vendor',
+            'buyer'
         ])->orderBy('created_at', 'desc');
 
         if ($company->type === 'buyer') {
@@ -150,6 +151,8 @@ class GetPurchaseOrdersAction
                 'id'                => $po->id,
                 'po_number'         => $po->po_number,
                 'vendor_name'       => $po->vendor_name ?? $po->vendor?->name ?? 'N/A',
+                'buyer_name'        => $po->buyer?->name ?? 'N/A',
+                'buyer_address'     => $po->buyer?->address ?? 'N/A',
                 'department'        => $po->department ?? 'N/A',
                 'currency'          => $po->currency ?? 'IDR',
                 'purchase_category' => $po->purchase_category ?? 'N/A',

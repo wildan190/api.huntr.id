@@ -35,14 +35,15 @@
     <div class="info-grid">
         <div>
             <div class="section-title">Billed To</div>
-            <strong>Buyer Company</strong><br>
+            <strong>{{ $po['buyer_name'] }}</strong><br>
+            {{ $po['buyer_address'] }}<br>
             Department: {{ $po['department'] }}
         </div>
         <div style="text-align: right;">
-            <div class="section-title">Invoice Details</div>
+            <div class="section-title">Vendor</div>
+            <strong>{{ $po['vendor_name'] }}</strong><br>
             Date: {{ date('Y-m-d') }}<br>
-            Status: <span class="status-badge">{{ strtoupper($invoice->status) }}</span><br>
-            PO Reference: {{ $po['po_number'] }}
+            Status: <span class="status-badge">{{ strtoupper($invoice->status) }}</span>
         </div>
     </div>
 
