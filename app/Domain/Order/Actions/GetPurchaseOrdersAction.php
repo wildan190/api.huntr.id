@@ -115,6 +115,15 @@ class GetPurchaseOrdersAction
                 'approved_by'       => $po->approved_by ?? 'N/A',
                 'total_amount'      => $mappedItems->sum('total_amount'),
                 'items'             => $mappedItems,
+                'invoices'          => $po->invoices->map(function ($inv) {
+                    return [
+                        'id'     => $inv->id,
+                        'type'   => $inv->type,
+                        'amount' => $inv->amount,
+                        'status' => $inv->status,
+                        'date'   => $inv->created_at->format('Y-m-d'),
+                    ];
+                }),
             ];
         }, $items);
     }

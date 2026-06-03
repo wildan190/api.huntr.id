@@ -34,7 +34,14 @@ class RfqController extends \App\Http\Controllers\Controller
     public function show(Rfq $rfq): JsonResponse
     {
         return response()->json([
-            'rfq' => $rfq->load(['items.catalogue.company', 'company', 'user', 'proposals.company'])
+            'rfq' => $rfq->load([
+                'items.catalogue.company', 
+                'company', 
+                'user', 
+                'proposals' => function($query) {
+                    $query->with('company');
+                }
+            ])
         ], 200);
     }
 

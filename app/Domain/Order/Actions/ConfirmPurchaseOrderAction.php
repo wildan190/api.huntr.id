@@ -5,12 +5,15 @@ namespace App\Domain\Order\Actions;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Company\Models\Company;
 use App\Domain\Order\Models\PurchaseOrder;
+use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ConfirmPurchaseOrderAction
 {
     public function __construct(
-        private readonly OrderRepositoryInterface $orderRepository
+        private readonly OrderRepositoryInterface $orderRepository,
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction
     ) {}
 
     /**
@@ -29,21 +32,43 @@ class ConfirmPurchaseOrderAction
             ]);
         }
 
-        // 1. Move PO status to confirmed
-        $po = $this->orderRepository->updatePurchaseOrder($po, ['status' => 'confirmed']);
+        return DB::transaction(function () use ($vendorCompany, $po) {
+            // 1. Move PO status to confirmed
+            $po = $this->orderRepository->updatePurchaseOrder($po, ['status' => 'confirmed']);
 
-        // 2. Derive PO amount from the accepted proposal
-        $winningProposal = $this->orderRepository->findAcceptedProposal($po);
-        $poAmount        = $winningProposal ? $winningProposal->price_offer : 0;
+            // 2. Derive PO amount from the accepted proposal
+            $winningProposal = $this->orderRepository->findAcceptedProposal($po);
+            $poAmount        = $winningProposal ? $winningProposal->price_offer : 0;
 
-        // 3. Release Proforma Invoice
-        $this->orderRepository->createInvoice([
-            'purchase_order_id' => $po->id,
-            'type'              => 'proforma',
-            'amount'            => $poAmount,
-            'status'            => 'unpaid',
-        ]);
+            // 3. Release Proforma Invoice
+            $this->orderRepository->createInvoice([
+                'purchase_order_id' => $po->id,
+                'type'              => 'proforma',
+                'amount'            => $poAmount,
+                'status'            => 'unpaid',
+            ]);
 
-        return $po;
+            // 4. Notify the buyer about PO confirmation
+            $this->broadcastAction->execute(
+                "Purchase Order Confirmed",
+                "Vendor {$vendorCompany->name} has confirmed Purchase Order {$po->po_number}.",
+                'test-channel',
+                true,
+                $po->created_by, // Notify the buyer user who created the PO
+                "/orders"
+            );
+
+            // 5. Notify the buyer about Proforma Invoice
+            $this->broadcastAction->execute(
+                "Proforma Invoice Published",
+                "A Proforma Invoice has been published for PO {$po->po_number}. Please review and process payment.",
+                'test-channel',
+                true,
+                $po->created_by,
+                "/orders"
+            );
+
+            return $po;
+        });
     }
 }
