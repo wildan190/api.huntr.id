@@ -33,15 +33,15 @@
 
     <div class="info-grid">
         <div>
-            <div class="section-title">Vendor</div>
-            <strong>{{ $po['vendor_name'] }}</strong><br>
+            <div class="section-title">Buyer</div>
+            <strong>{{ $po['buyer_name'] }}</strong><br>
+            {{ $po['buyer_address'] }}<br>
             {{ $po['department'] }} Department
         </div>
         <div style="text-align: right;">
-            <div class="section-title">Order Details</div>
-            Date: {{ $po['order_date'] }}<br>
-            Currency: {{ $po['currency'] }}<br>
-            Issued by: {{ $po['created_by'] }}
+            <div class="section-title">Vendor</div>
+            <strong>{{ $po['vendor_name'] }}</strong><br>
+            Order Date: {{ $po['order_date'] }}
         </div>
     </div>
 
