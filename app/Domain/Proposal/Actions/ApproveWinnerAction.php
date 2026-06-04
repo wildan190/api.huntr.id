@@ -27,14 +27,75 @@ class ApproveWinnerAction
      */
     public function execute(Proposal $proposal, string $managerUserId): Proposal
     {
-        // Verify proposal is in 'awarded' state
+        $rfq = $proposal->rfq;
+        $poNumber = 'PO-' . date('Ymd') . '-' . strtoupper(substr($proposal->id, 0, 6));
+
+        // 1. Check if PO already exists (case-insensitive check for po_number)
+        $existingPo = \App\Domain\Order\Models\PurchaseOrder::where(function($q) use ($rfq, $proposal) {
+                $q->where('rfq_id', $rfq->id)
+                  ->where('vendor_id', $proposal->company_id);
+            })
+            ->orWhereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])
+            ->first();
+
+        if ($existingPo) {
+            // Update existing PO to ensure it's correct and visible
+            $existingPo->update([
+                'vendor_id'        => $proposal->company_id,
+                'buyer_company_id' => $rfq->company_id,
+                'total_amount'     => $proposal->price_offer,
+                'purchase_type'    => $proposal->payment_term,
+                'status'           => 'issued',
+            ]);
+
+            // Ensure proposal status is also correct
+            if ($proposal->winner_status !== 'approved') {
+                $proposal->update([
+                    'status' => 'accepted',
+                    'winner_status' => 'approved',
+                    'approved_at' => $proposal->approved_at ?? now(),
+                    'approved_by_user_id' => $proposal->approved_by_user_id ?? $managerUserId,
+                ]);
+            }
+            return $proposal;
+        }
+
+        // 2. Verify proposal is in 'awarded' state
         if ($proposal->winner_status !== 'awarded') {
             throw ValidationException::withMessages([
                 'proposal' => ['This proposal has not been awarded yet or is already approved.'],
             ]);
         }
 
-        return DB::transaction(function () use ($proposal, $managerUserId) {
+        return DB::transaction(function () use ($proposal, $managerUserId, $rfq, $poNumber) {
+            // Re-check inside transaction with lock to prevent race conditions
+            $existingPoInside = \App\Domain\Order\Models\PurchaseOrder::whereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingPoInside) {
+                // Ensure correct vendor assignment and data even inside lock
+                $existingPoInside->update([
+                    'vendor_id'        => $proposal->company_id,
+                    'buyer_company_id' => $rfq->company_id,
+                    'total_amount'     => $proposal->price_offer,
+                    'purchase_type'    => $proposal->payment_term,
+                    'status'           => 'issued',
+                ]);
+
+                // Still need to update proposal if it's not approved
+                if ($proposal->winner_status !== 'approved') {
+                    $proposal->update([
+                        'status' => 'accepted',
+                        'winner_status' => 'approved',
+                        'approved_at' => now(),
+                        'approved_by_user_id' => $managerUserId,
+                    ]);
+                }
+
+                return $proposal;
+            }
+
             // 1. Update proposal to approved and accepted
             $proposal->update([
                 'status' => 'accepted',
@@ -44,18 +105,17 @@ class ApproveWinnerAction
             ]);
 
             // 2. Generate Purchase Order
-            $rfq = $proposal->rfq;
-            $poNumber = 'PO-' . date('Ymd') . '-' . strtoupper(substr($proposal->id, 0, 6));
-
-            $purchaseOrder = $this->orderRepository->createPurchaseOrder([
+            $purchaseOrder = \App\Domain\Order\Models\PurchaseOrder::create([
                 'buyer_company_id' => $rfq->company_id,
                 'rfq_id'           => $rfq->id,
                 'vendor_id'        => $proposal->company_id,
                 'po_number'        => $poNumber,
-                'status'           => 'published', // Automatically published to vendor
+                'status'           => 'issued',
                 'order_date'       => now(),
                 'created_by'       => $rfq->user_id,
                 'approved_by'      => $managerUserId,
+                'total_amount'     => $proposal->price_offer,
+                'purchase_type'    => $proposal->payment_term,
             ]);
 
             // Generate placeholder PDF for the Purchase Order

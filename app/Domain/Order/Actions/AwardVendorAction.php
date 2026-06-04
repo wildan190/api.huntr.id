@@ -50,7 +50,11 @@ class AwardVendorAction
             'rfq_id'    => $rfq->id,
             'vendor_id' => $winningProposal->company_id,
             'po_number' => $poNumber,
-            'status'    => 'pending_manager',
+            'status'    => 'issued',
+            'created_by' => $manager->id,
+            'buyer_company_id' => $rfq->company_id,
+            'total_amount' => $winningProposal->price_offer,
+            'purchase_type' => $winningProposal->payment_term,
         ]);
     }
 }

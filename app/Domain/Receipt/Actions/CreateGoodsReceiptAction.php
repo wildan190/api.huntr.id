@@ -42,11 +42,23 @@ class CreateGoodsReceiptAction
         // 2. Update DO and PO statuses
         $this->orderRepository->updateDeliveryOrder($do, ['status' => 'received']);
         $po = $do->purchaseOrder;
-        $this->orderRepository->updatePurchaseOrder($po, ['status' => 'completed']);
+        $this->orderRepository->updatePurchaseOrder($po, ['status' => 'delivered']);
 
-        // 3. Derive amount from accepted proposal and release Final Invoice
+        // 3. Derive amount from accepted proposal or negotiation and release Final Invoice
         $winningProposal = $this->orderRepository->findAcceptedProposal($po);
-        $poAmount        = $winningProposal ? $winningProposal->price_offer : 0;
+        $poAmount = $winningProposal ? $winningProposal->price_offer : 0;
+
+        // Check for accepted negotiation
+        if ($winningProposal && $winningProposal->acceptedNegotiation) {
+            $negotiation = $winningProposal->acceptedNegotiation;
+            $negotiatedTotal = 0;
+            foreach ($negotiation->items as $nItem) {
+                $negotiatedTotal += $nItem->negotiated_price * $nItem->negotiated_qty;
+            }
+            if ($negotiatedTotal > 0) {
+                $poAmount = $negotiatedTotal;
+            }
+        }
 
         $this->orderRepository->createInvoice([
             'purchase_order_id' => $po->id,

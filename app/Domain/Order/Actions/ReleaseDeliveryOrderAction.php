@@ -36,8 +36,8 @@ class ReleaseDeliveryOrderAction
             ]);
         }
 
-        // 1. Move PO status to shipping
-        $this->orderRepository->updatePurchaseOrder($po, ['status' => 'shipping']);
+        // 1. Move PO status to delivery
+        $this->orderRepository->updatePurchaseOrder($po, ['status' => 'delivery']);
 
         // 2. Generate Delivery Order
         $doNumber = 'DO-' . date('Ymd') . '-' . str_pad($po->id, 4, '0', STR_PAD_LEFT);

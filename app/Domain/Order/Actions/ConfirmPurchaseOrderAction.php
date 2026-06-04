@@ -34,11 +34,18 @@ class ConfirmPurchaseOrderAction
 
         return DB::transaction(function () use ($vendorCompany, $po) {
             // 1. Move PO status to confirmed
-            $po = $this->orderRepository->updatePurchaseOrder($po, ['status' => 'confirmed']);
+            $updateData = ['status' => 'confirmed'];
 
-            // 2. Derive PO amount from the accepted proposal
+            // 2. Derive PO amount from the accepted proposal or negotiation
             $winningProposal = $this->orderRepository->findAcceptedProposal($po);
-            $poAmount        = $winningProposal ? $winningProposal->price_offer : 0;
+            $poAmount = $winningProposal ? $winningProposal->price_offer : ($po->total_amount ?? 0);
+
+            // Update PO with winning proposal terms if not already set
+            if ($winningProposal && !$po->purchase_type) {
+                $updateData['purchase_type'] = $winningProposal->payment_term;
+            }
+
+            $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
 
             // 3. Release Proforma Invoice
             $this->orderRepository->createInvoice([

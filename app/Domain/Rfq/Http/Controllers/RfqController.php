@@ -96,7 +96,7 @@ class RfqController extends \App\Http\Controllers\Controller
     public function rankings(Rfq $rfq): JsonResponse
     {
         $rankings = $rfq->proposals()
-            ->with('company')
+            ->with(['company', 'items.rfqItem.catalogue'])
             ->orderBy('price_offer', 'asc')
             ->get()
             ->map(function ($proposal, $index) {

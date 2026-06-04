@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Domain\Proposal\Http\Controllers\ProposalController;
 
 Route::prefix('api/proposals')->middleware(['api', 'auth:api'])->group(function () {
+    Route::get('', [ProposalController::class, 'index']);
     Route::post('', [ProposalController::class, 'store']);
     Route::get('my-rank', [ProposalController::class, 'vendorRankings']);
     Route::get('manager/awaiting-approval', [ProposalController::class, 'awaitingApproval']);
