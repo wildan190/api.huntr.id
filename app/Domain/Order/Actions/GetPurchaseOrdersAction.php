@@ -32,7 +32,7 @@ class GetPurchaseOrdersAction
             'deliveryOrders', 
             'rfq.items.catalogue', 
             'rfq.proposals' => function($q) {
-                $q->where('status', 'accepted')->with('items');
+                $q->where('status', 'accepted')->with(['items', 'acceptedNegotiation.items']);
             },
             'vendor',
             'buyer'
@@ -127,11 +127,28 @@ class GetPurchaseOrdersAction
                     ];
                 });
             } else if ($po->rfq) {
-                $winningProposal = $po->rfq->proposals->first();
+                // Find the awarded proposal specifically
+                $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first() 
+                    ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
+                    ?? $po->rfq->proposals->where('winner_status', 'awarded')->first()
+                    ?? $po->rfq->proposals->first();
+
                 $mappedItems = $po->rfq->items->map(function ($item) use ($winningProposal) {
                     $cat = $item->catalogue;
                     $proposalItem = $winningProposal ? $winningProposal->items->where('rfq_item_id', $item->id)->first() : null;
-                    $unitPrice = $proposalItem ? $proposalItem->price_offer : ($cat?->price ?? 0);
+                    
+                    // Check for negotiation
+                    $negotiationItem = null;
+                    if ($winningProposal && $winningProposal->relationLoaded('acceptedNegotiation') && $winningProposal->acceptedNegotiation) {
+                        $negotiationItem = $winningProposal->acceptedNegotiation->items
+                            ->filter(function($nItem) use ($proposalItem, $item) {
+                                return $nItem->proposal_item_id === ($proposalItem?->id ?? null);
+                            })
+                            ->first();
+                    }
+
+                    $unitPrice = $negotiationItem ? $negotiationItem->negotiated_price : ($proposalItem ? $proposalItem->price_offer : ($cat?->price ?? 0));
+                    $qty = $negotiationItem ? $negotiationItem->negotiated_qty : $item->qty;
 
                     return [
                         'pr_reference_number' => 'RFQ-' . $item->rfq_id,
@@ -139,12 +156,14 @@ class GetPurchaseOrdersAction
                         'inventory_name'      => $cat?->name ?? 'N/A',
                         'category'            => $cat?->category ?? 'N/A',
                         'uom'                 => $cat?->uom ?? 'Pc',
-                        'qty'                 => $item->qty,
-                        'unit_price'          => $unitPrice,
+                        'qty'                 => $qty,
+                        'unit_price'          => (float) $unitPrice,
                         'tax_amount'          => 0,
-                        'total_amount'        => $item->qty * $unitPrice,
+                        'total_amount'        => $qty * $unitPrice,
                     ];
                 });
+
+                $totalAmount = $mappedItems->sum('total_amount');
             }
 
             return [
@@ -160,9 +179,10 @@ class GetPurchaseOrdersAction
                 'order_date'        => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
                 'status'            => $po->status,
                 'is_historical'     => $po->is_historical,
+                'updated_at'        => $po->updated_at->toIso8601String(),
                 'created_by'        => ($po->relationLoaded('creator') && $po->creator) ? $po->creator->name : ($po->created_by ?? 'N/A'),
                 'approved_by'       => ($po->relationLoaded('approver') && $po->approver) ? $po->approver->name : ($po->approved_by ?? 'N/A'),
-                'total_amount'      => $mappedItems->sum('total_amount'),
+                'total_amount'      => $totalAmount ?? $po->total_amount,
                 'items'             => $mappedItems,
                 'invoices'          => $po->invoices->map(function ($inv) {
                     return [

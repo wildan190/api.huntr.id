@@ -41,7 +41,8 @@
         <div style="text-align: right;">
             <div class="section-title">Vendor</div>
             <strong>{{ $po['vendor_name'] }}</strong><br>
-            Order Date: {{ $po['order_date'] }}
+            Order Date: {{ $po['order_date'] }}<br>
+            Payment Scheme: {{ $po['purchase_type'] }}
         </div>
     </div>
 

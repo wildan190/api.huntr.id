@@ -27,6 +27,9 @@ class ApproveFinalInvoiceAction
             throw new UnauthorizedException("Only finance officers can approve final payment schemas.");
         }
 
-        return $this->receiptRepository->updateInvoice($invoice, ['status' => 'paid']);
+        $invoice->update(['status' => 'paid']);
+        $invoice->purchaseOrder->update(['status' => 'done']);
+
+        return $invoice;
     }
 }

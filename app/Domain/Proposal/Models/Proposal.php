@@ -43,4 +43,14 @@ class Proposal extends Model
     {
         return $this->hasMany(ProposalItem::class);
     }
+
+    public function negotiations()
+    {
+        return $this->hasMany(\App\Domain\Negotiation\Models\Negotiation::class);
+    }
+
+    public function acceptedNegotiation()
+    {
+        return $this->hasOne(\App\Domain\Negotiation\Models\Negotiation::class)->where('status', 'accepted')->latest();
+    }
 }

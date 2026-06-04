@@ -18,6 +18,45 @@ use Illuminate\Http\Request;
 
 class ProposalController extends \App\Http\Controllers\Controller
 {
+    /**
+     * Get list of proposals for a company.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $companyId = $request->query('company_id');
+        $search = $request->query('search');
+
+        if (!$companyId) {
+            return response()->json(['message' => 'Company ID is required.'], 400);
+        }
+
+        $company = Company::findOrFail($companyId);
+
+        $query = Proposal::with(['rfq', 'company', 'items.rfqItem.catalogue']);
+
+        if ($company->type === 'buyer') {
+            // Buyer sees proposals for their RFQs
+            $query->whereHas('rfq', function ($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            });
+        } else {
+            // Vendor sees their own proposals
+            $query->where('company_id', $companyId);
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('rfq', function ($sq) use ($search) {
+                    $sq->where('title', 'like', "%{$search}%");
+                })->orWhereHas('company', function ($sq) use ($search) {
+                    $sq->where('name', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        return response()->json($query->latest()->get());
+    }
+
     public function store(SubmitProposalRequest $request, SubmitProposalAction $action): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));

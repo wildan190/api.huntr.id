@@ -41,7 +41,7 @@ class CalculateVendorRankingAction
         foreach ($sortedProposals as $index => $proposal) {
             $rank = $index + 1;
             $rankings[] = [
-                'proposal' => $proposal->load('company'),
+                'proposal' => $proposal->load(['company', 'items.rfqItem.catalogue']),
                 'rank' => $rank,
                 'is_winner' => in_array($proposal->winner_status, ['awarded', 'approved'], true),
                 'is_top_rank' => $rank === 1,
