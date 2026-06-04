@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Proforma Invoice - {{ $po['po_number'] }}</title>
+    <title>{{ $invoice->status === 'paid' ? 'Tax Invoice' : 'Proforma Invoice' }} - {{ $po['po_number'] }}</title>
     <style>
         body { font-family: 'Inter', sans-serif; padding: 40px; color: #333; line-height: 1.6; }
         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f59e0b; padding-bottom: 20px; margin-bottom: 30px; }
@@ -27,7 +27,7 @@
     <div class="header">
         <div class="logo">HUNTR.ID</div>
         <div class="title">
-            <h1>PROFORMA INVOICE</h1>
+            <h1>{{ $invoice->status === 'paid' ? 'TAX INVOICE' : 'PROFORMA INVOICE' }}</h1>
             <p>Ref: {{ $po['po_number'] }}</p>
         </div>
     </div>
@@ -72,13 +72,20 @@
         </tbody>
     </table>
 
+    @if($invoice->status !== 'paid')
     <div style="margin-top: 20px; padding: 20px; background: #f9fafb; border-radius: 12px; font-size: 13px;">
         <h4 style="margin-top: 0;">Payment Instructions</h4>
         <p>Please complete the payment based on the total amount above. This proforma invoice is valid for 7 days.</p>
     </div>
+    @else
+    <div style="margin-top: 20px; padding: 20px; background: #ecfdf5; border-radius: 12px; font-size: 13px; color: #065f46; border: 1px solid #a7f3d0;">
+        <h4 style="margin-top: 0;">Payment Confirmed</h4>
+        <p>This invoice has been fully paid. Thank you for your business!</p>
+    </div>
+    @endif
 
     <div class="footer">
-        <p>This is a computer-generated proforma invoice. No signature is required.</p>
+        <p>This is a computer-generated {{ $invoice->status === 'paid' ? 'tax' : 'proforma' }} invoice. No signature is required.</p>
         <p>&copy; {{ date('Y') }} Huntr.id Procurement System</p>
     </div>
 </body>
