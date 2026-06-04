@@ -18,6 +18,27 @@ class PaymentController extends \App\Http\Controllers\Controller
     ) {}
 
     /**
+     * Get list of payments for a company.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $companyId = $request->query('company_id');
+        if (!$companyId) {
+            return response()->json(['message' => 'Company ID is required.'], 400);
+        }
+
+        $payments = Payment::with(['invoice.purchaseOrder'])
+            ->whereHas('invoice.purchaseOrder', function($q) use ($companyId) {
+                $q->where('buyer_company_id', $companyId)
+                  ->orWhere('vendor_id', $companyId);
+            })
+            ->latest()
+            ->paginate(10);
+
+        return response()->json($payments);
+    }
+
+    /**
      * Initiate a payment for an invoice.
      */
     public function store(Request $request, CreatePaymentAction $action): JsonResponse
@@ -90,7 +111,10 @@ class PaymentController extends \App\Http\Controllers\Controller
                     ]);
 
                     if ($newStatus === 'settlement' || $newStatus === 'capture') {
-                        $payment->invoice->update(['status' => 'paid']);
+                        $payment->invoice->update([
+                            'status' => 'paid',
+                            'type' => $payment->invoice->type === 'proforma' ? 'final' : $payment->invoice->type
+                        ]);
                         $payment->invoice->purchaseOrder->update(['status' => 'paid']);
                     }
                 }

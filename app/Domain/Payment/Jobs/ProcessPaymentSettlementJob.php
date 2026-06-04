@@ -51,7 +51,10 @@ class ProcessPaymentSettlementJob implements ShouldQueue
 
         // If payment is settled, update invoice and PO status
         if ($this->status === 'settlement' || $this->status === 'capture') {
-            $payment->invoice->update(['status' => 'paid']);
+            $payment->invoice->update([
+                'status' => 'paid',
+                'type' => $payment->invoice->type === 'proforma' ? 'final' : $payment->invoice->type
+            ]);
             $po->update(['status' => 'paid']);
             
             \Illuminate\Support\Facades\Log::info('Payment Settlement Successful', [
