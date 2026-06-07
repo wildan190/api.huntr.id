@@ -31,24 +31,31 @@ class PublishInvoiceAction
             ]);
         }
 
+        if ($invoice->type !== 'final') {
+            throw ValidationException::withMessages([
+                'invoice' => ['Only final invoices can be published. Proforma invoices are handled separately.'],
+            ]);
+        }
+
         if ($invoice->status !== 'draft') {
             throw ValidationException::withMessages([
                 'invoice' => ['Only draft invoices can be published.'],
             ]);
         }
 
+        // Set status to pending_finance so Buyer's finance team can review and approve
         $invoice->update(['status' => 'pending_finance']);
 
         $po = $invoice->purchaseOrder;
 
-        // Notify Buyer
+        // Notify Buyer — their finance team needs to review
         $this->broadcastAction->execute(
-            "Invoice Published",
-            "Vendor has published the final invoice for PO {$po->po_number}. Please review for payment.",
+            "Invoice Menunggu Approval Finance",
+            "Vendor telah menerbitkan Invoice Akhir untuk PO {$po->po_number}. Silahkan tim Finance Anda melakukan review & approval.",
             'test-channel',
             true,
             $po->created_by,
-            "/orders?search={$po->po_number}"
+            "/finance?search={$po->po_number}"
         );
 
         return $invoice;

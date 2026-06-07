@@ -23,4 +23,5 @@ Route::prefix('api/do')->middleware(['api'])->group(function () {
 Route::prefix('api/invoices')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('{invoice}/print', [OrderController::class, 'printInvoice'])->withoutMiddleware('auth:api');
     Route::post('{invoice}/publish', [OrderController::class, 'publishInvoice']);
+    Route::post('{invoice}/approve', [OrderController::class, 'approveInvoice']);
 });

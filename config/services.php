@@ -45,6 +45,8 @@ return [
         'client_key' => env('MIDTRANS_CLIENT_KEY'),
         'is_production' => env('MIDTRANS_IS_PRODUCTION', false),
         'notification_url' => env('MIDTRANS_NOTIFICATION_URL'),
+        'iris_api_key' => env('MIDTRANS_IRIS_API_KEY'),
+        'iris_merchant_key' => env('MIDTRANS_IRIS_MERCHANT_KEY'),
     ],
 
 ];
