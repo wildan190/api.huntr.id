@@ -113,7 +113,7 @@ class PaymentController extends \App\Http\Controllers\Controller
                     if ($newStatus === 'settlement' || $newStatus === 'capture') {
                         $payment->invoice->update([
                             'status' => 'paid',
-                            'type' => $payment->invoice->type === 'proforma' ? 'final' : $payment->invoice->type
+                            // type stays as-is (proforma remains proforma after payment)
                         ]);
                         $payment->invoice->purchaseOrder->update(['status' => 'paid']);
                     }

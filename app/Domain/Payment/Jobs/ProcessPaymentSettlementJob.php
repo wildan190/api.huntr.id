@@ -53,7 +53,7 @@ class ProcessPaymentSettlementJob implements ShouldQueue
         if ($this->status === 'settlement' || $this->status === 'capture') {
             $payment->invoice->update([
                 'status' => 'paid',
-                'type' => $payment->invoice->type === 'proforma' ? 'final' : $payment->invoice->type
+                // type stays as-is (proforma remains proforma after payment)
             ]);
             $po->update(['status' => 'paid']);
             

@@ -33,4 +33,12 @@ Route::prefix('api/admin')->middleware(['api', 'cors'])->group(function () {
     Route::post('auth/login', [\App\Domain\Auth\Http\Controllers\AdminController::class, 'login']);
     Route::get('companies', [\App\Domain\Auth\Http\Controllers\AdminController::class, 'listCompanies']);
     Route::post('companies/{id}/audit', [\App\Domain\Auth\Http\Controllers\AdminController::class, 'auditCompany']);
+    
+    // Transactions & Escrow
+    Route::get('transactions', [\App\Domain\Auth\Http\Controllers\AdminTransactionController::class, 'index']);
+    Route::get('transactions/escrow-summary', [\App\Domain\Auth\Http\Controllers\AdminTransactionController::class, 'escrowSummary']);
+    
+    // Global Catalogue
+    Route::get('catalogues', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'index']);
+    Route::post('catalogues', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'store']);
 });

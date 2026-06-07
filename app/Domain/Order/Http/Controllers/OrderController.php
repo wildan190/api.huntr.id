@@ -138,4 +138,21 @@ class OrderController extends \App\Http\Controllers\Controller
             'invoice' => $action->execute($vendorCompany, $invoice)
         ]);
     }
+
+    /**
+     * Buyer's Finance team approves an Invoice.
+     */
+    public function approveInvoice(Request $request, \App\Domain\Order\Models\Invoice $invoice, \App\Domain\Order\Actions\ApproveInvoiceAction $action): JsonResponse
+    {
+        $buyerCompanyId = $request->input('company_id');
+        if (!$buyerCompanyId) {
+            return response()->json(['message' => 'Company ID is required.'], 400);
+        }
+
+        $buyerCompany = Company::findOrFail($buyerCompanyId);
+
+        return response()->json([
+            'invoice' => $action->execute($buyerCompany, $invoice)
+        ]);
+    }
 }
