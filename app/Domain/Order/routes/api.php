@@ -13,8 +13,14 @@ Route::prefix('api/orders')->middleware(['api', 'auth:api'])->group(function () 
     Route::get('negotiations', [\App\Domain\Negotiation\Http\Controllers\NegotiationController::class, 'index']);
     Route::post('negotiate', [\App\Domain\Negotiation\Http\Controllers\NegotiationController::class, 'store']);
     Route::post('negotiate/{negotiation}/respond', [\App\Domain\Negotiation\Http\Controllers\NegotiationController::class, 'respond']);
+    Route::post('{po}/arrange-delivery', [OrderController::class, 'arrangeDelivery']);
 });
 
-Route::prefix('api/invoices')->middleware(['api'])->group(function () {
-    Route::get('{invoice}/print', [OrderController::class, 'printInvoice']);
+Route::prefix('api/do')->middleware(['api'])->group(function () {
+    Route::get('{deliveryOrder}/print', [OrderController::class, 'printDo'])->withoutMiddleware('auth:api');
+});
+
+Route::prefix('api/invoices')->middleware(['api', 'auth:api'])->group(function () {
+    Route::get('{invoice}/print', [OrderController::class, 'printInvoice'])->withoutMiddleware('auth:api');
+    Route::post('{invoice}/publish', [OrderController::class, 'publishInvoice']);
 });

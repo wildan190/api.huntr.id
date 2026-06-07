@@ -20,9 +20,19 @@ class ReceiptController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'This Purchase Order does not belong to your company.'], 403);
         }
 
-        $do = $po->deliveryOrders()->where('status', 'delivered')->first();
+        // Date restriction validation
+        if ($po->expected_receiving_date && !env('APP_DEBUG_GR_DATE', false)) {
+            $expectedDate = \Carbon\Carbon::parse($po->expected_receiving_date)->startOfDay();
+            if (now()->startOfDay()->lessThan($expectedDate)) {
+                return response()->json([
+                    'message' => 'You cannot receive goods before the expected receiving date: ' . $expectedDate->format('Y-m-d')
+                ], 422);
+            }
+        }
+
+        $do = $po->deliveryOrders()->whereIn('status', ['shipped', 'delivered'])->first();
         if (!$do) {
-            return response()->json(['message' => 'No delivered Delivery Order found for this PO.'], 422);
+            return response()->json(['message' => 'No shipped or delivered Delivery Order found for this PO.'], 422);
         }
 
         $receipt = $action->execute($do, $request->validated());

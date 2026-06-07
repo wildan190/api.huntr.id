@@ -73,13 +73,14 @@ class ProcessPaymentSettlementJob implements ShouldQueue
             );
 
             // 2. Notify the Vendor (The one receiving money)
-            foreach ($po->vendor->users as $vendorUser) {
+            $vendorUserIds = collect($po->vendor->users->pluck('id'))->push($po->vendor->owner_id)->unique()->filter();
+            foreach ($vendorUserIds as $vendorUserId) {
                 $broadcastAction->execute(
                     "Payment Received",
                     "Buyer has completed payment for PO {$po->po_number}. Please prepare for delivery.",
                     'test-channel',
                     true,
-                    $vendorUser->id,
+                    $vendorUserId,
                     "/orders?search={$po->po_number}"
                 );
             }

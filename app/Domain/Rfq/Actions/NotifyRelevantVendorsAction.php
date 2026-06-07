@@ -40,13 +40,14 @@ class NotifyRelevantVendorsAction
 
         // 3. Notify all users belonging to these relevant vendors
         foreach ($relevantVendors as $vendor) {
-            foreach ($vendor->users as $vendorUser) {
+            $vendorUserIds = collect($vendor->users->pluck('id'))->push($vendor->owner_id)->unique()->filter();
+            foreach ($vendorUserIds as $vendorUserId) {
                 $this->broadcastAction->execute(
                     "New Relevant RFQ Published",
                     "A new RFQ '{$rfq->title}' matches your product categories. Check it out and submit a bid!",
                     'vendor-channel',
                     true,
-                    $vendorUser->id,
+                    $vendorUserId,
                     "/rfq/{$rfq->id}"
                 );
             }
