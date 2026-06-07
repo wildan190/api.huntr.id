@@ -76,4 +76,20 @@ class AdminCatalogueController extends Controller
             return response()->json(['errors' => $e->errors()], 422);
         }
     }
+
+    /**
+     * Delete a catalogue item.
+     */
+    public function destroy(Catalogue $catalogue): JsonResponse
+    {
+        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
+
+        if ($catalogue->image_path) {
+            \Illuminate\Support\Facades\Storage::disk($disk)->delete($catalogue->image_path);
+        }
+
+        $catalogue->delete();
+
+        return response()->json(['message' => 'Produk berhasil dihapus dari katalog.']);
+    }
 }
