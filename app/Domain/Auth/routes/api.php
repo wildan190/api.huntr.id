@@ -41,4 +41,5 @@ Route::prefix('api/admin')->middleware(['api', 'cors'])->group(function () {
     // Global Catalogue
     Route::get('catalogues', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'index']);
     Route::post('catalogues', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'store']);
+    Route::delete('catalogues/{catalogue}', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'destroy']);
 });
