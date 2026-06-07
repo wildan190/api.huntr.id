@@ -177,6 +177,7 @@ class GetPurchaseOrdersAction
                 'purchase_category' => $po->purchase_category ?? 'N/A',
                 'purchase_type'     => $po->purchase_type ?? 'N/A',
                 'order_date'        => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
+                'expected_receiving_date' => $po->expected_receiving_date?->format('Y-m-d'),
                 'status'            => $po->status,
                 'is_historical'     => $po->is_historical,
                 'updated_at'        => $po->updated_at->toIso8601String(),
@@ -184,6 +185,14 @@ class GetPurchaseOrdersAction
                 'approved_by'       => ($po->relationLoaded('approver') && $po->approver) ? $po->approver->name : ($po->approved_by ?? 'N/A'),
                 'total_amount'      => $totalAmount ?? $po->total_amount,
                 'items'             => $mappedItems,
+                'delivery_orders'   => $po->deliveryOrders->map(function ($do) {
+                    return [
+                        'id' => $do->id,
+                        'do_number' => $do->do_number,
+                        'tracking_number' => $do->tracking_number,
+                        'status' => $do->status,
+                    ];
+                }),
                 'invoices'          => $po->invoices->map(function ($inv) {
                     return [
                         'id'     => $inv->id,

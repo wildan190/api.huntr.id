@@ -15,6 +15,7 @@ class DeliveryOrder extends Model
     protected $fillable = [
         'purchase_order_id',
         'do_number',
+        'tracking_number',
         'status', // shipped, delivered, received
     ];
 

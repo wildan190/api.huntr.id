@@ -14,9 +14,10 @@ class CreateGoodsReceiptRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'po_id' => ['required', 'exists:purchase_orders,id'],
-            'received_qty' => ['required', 'integer', 'min:1'],
-            'handover_document_path' => ['required', 'string'],
+            'po_id'          => ['required', 'exists:purchase_orders,id'],
+            'company_id'     => ['required'],
+            'received_qty'   => ['nullable', 'integer', 'min:1'],
+            // handover_document_path is optional — backend defaults it automatically
         ];
     }
 }

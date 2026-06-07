@@ -88,4 +88,54 @@ class OrderController extends \App\Http\Controllers\Controller
 
         return view('print.invoice', ['invoice' => $invoice, 'po' => $poData]);
     }
+
+    /**
+     * Print Delivery Order (HTML for Ctrl+P).
+     */
+    public function printDo(\App\Domain\Order\Models\DeliveryOrder $deliveryOrder, GetPurchaseOrdersAction $action)
+    {
+        $po = $deliveryOrder->purchaseOrder;
+        $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
+        $poData = $data['data'][0] ?? null;
+
+        if (!$poData) abort(404);
+
+        return view('print.do', ['do' => $deliveryOrder, 'po' => $poData]);
+    }
+
+    /**
+     * Arrange Delivery (Vendor releases Delivery Order).
+     */
+    public function arrangeDelivery(Request $request, PurchaseOrder $po, \App\Domain\Order\Actions\ReleaseDeliveryOrderAction $action): JsonResponse
+    {
+        $vendorCompanyId = $request->input('company_id');
+        $trackingNumber  = $request->input('tracking_number');
+
+        if (!$vendorCompanyId) {
+            return response()->json(['message' => 'Company ID is required.'], 400);
+        }
+
+        $vendorCompany = Company::findOrFail($vendorCompanyId);
+
+        return response()->json([
+            'do' => $action->execute($vendorCompany, $po, $trackingNumber)
+        ]);
+    }
+
+    /**
+     * Vendor publishes an Invoice.
+     */
+    public function publishInvoice(Request $request, \App\Domain\Order\Models\Invoice $invoice, \App\Domain\Order\Actions\PublishInvoiceAction $action): JsonResponse
+    {
+        $vendorCompanyId = $request->input('company_id');
+        if (!$vendorCompanyId) {
+            return response()->json(['message' => 'Company ID is required.'], 400);
+        }
+
+        $vendorCompany = Company::findOrFail($vendorCompanyId);
+
+        return response()->json([
+            'invoice' => $action->execute($vendorCompany, $invoice)
+        ]);
+    }
 }
