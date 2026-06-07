@@ -54,7 +54,7 @@ class CreateCatalogueAction
         $imagePath = null;
         if (isset($data['image']) && $data['image'] instanceof \Illuminate\Http\UploadedFile) {
             $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-            $imagePath = $data['image']->store('catalogues', $disk);
+            $imagePath = $data['image']->storePublicly('catalogues', $disk);
         }
 
         return Catalogue::create([

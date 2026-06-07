@@ -23,7 +23,7 @@ class UploadCompanyLogoAction
             Storage::disk($disk)->delete($company->logo_path);
         }
 
-        $path = $file->store('company_logos', $disk);
+        $path = $file->storePublicly('company_logos', $disk);
         $company->update(['logo_path' => $path]);
         
         return $company->fresh(['documents']);
