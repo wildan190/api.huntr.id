@@ -30,6 +30,11 @@ class AwardWinnerAction
             ]);
         }
 
+        // Idempotency check: If already awarded, return success silently
+        if ($proposal->winner_status === 'awarded') {
+            return $proposal->fresh();
+        }
+
         // Verify RFQ is not already closed
         if ($rfq->status !== 'active') {
             throw ValidationException::withMessages([
