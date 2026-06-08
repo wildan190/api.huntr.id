@@ -63,8 +63,8 @@ class ImportCatalogueJob implements ShouldQueue
             try {
                 $broadcast = app(BroadcastWebsocketNotificationAction::class);
                 $broadcast->execute(
-                    "Import Selesai",
-                    "Berhasil mengunggah {$importedCount} data katalog untuk perusahaan {$company->name}.",
+                    "Import Completed",
+                    "Successfully uploaded {$importedCount} catalog items for {$company->name}.",
                     "company-{$company->id}",
                     false
                 );
@@ -78,8 +78,8 @@ class ImportCatalogueJob implements ShouldQueue
             try {
                 $broadcast = app(BroadcastWebsocketNotificationAction::class);
                 $broadcast->execute(
-                    "Import Gagal",
-                    "Gagal mengunggah data katalog: " . $e->getMessage(),
+                    "Import Failed",
+                    "Failed to upload catalog items: " . $e->getMessage(),
                     "company-{$company->id}",
                     false
                 );

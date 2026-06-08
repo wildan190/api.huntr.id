@@ -68,8 +68,8 @@ class ImportHistoricalPoJob implements ShouldQueue
             try {
                 $broadcast = app(BroadcastWebsocketNotificationAction::class);
                 $broadcast->execute(
-                    "Import PO Selesai",
-                    "Berhasil mengunggah {$importedCount} data PO historis untuk perusahaan {$company->name}.",
+                    "PO Import Completed",
+                    "Successfully uploaded {$importedCount} historical PO items for {$company->name}.",
                     "company-{$company->id}",
                     false
                 );
@@ -83,8 +83,8 @@ class ImportHistoricalPoJob implements ShouldQueue
             try {
                 $broadcast = app(BroadcastWebsocketNotificationAction::class);
                 $broadcast->execute(
-                    "Import PO Gagal",
-                    "Gagal mengunggah data PO historis: " . $e->getMessage(),
+                    "PO Import Failed",
+                    "Failed to upload historical PO items: " . $e->getMessage(),
                     "company-{$company->id}",
                     false
                 );

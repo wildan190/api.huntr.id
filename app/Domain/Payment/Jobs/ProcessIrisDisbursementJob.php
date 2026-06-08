@@ -61,8 +61,8 @@ class ProcessIrisDisbursementJob implements ShouldQueue
 
             // 3. Notify Buyer
             $broadcastAction->execute(
-                "Pembayaran Diteruskan ke Vendor",
-                "Tim Finance telah menyetujui Invoice Akhir untuk PO {$this->poNumber}. Dana telah diteruskan ke vendor via Midtrans IRIS.",
+                "Payment Forwarded to Vendor",
+                "Finance team approved final invoice for PO {$this->poNumber}. Funds have been transferred to vendor via Midtrans IRIS.",
                 'test-channel',
                 true,
                 $this->buyerUserId,
@@ -72,8 +72,8 @@ class ProcessIrisDisbursementJob implements ShouldQueue
             // 4. Notify Vendor
             foreach ($this->vendorUserIds as $vendorUserId) {
                 $broadcastAction->execute(
-                    "Dana Telah Dicairkan",
-                    "Buyer telah menyetujui Invoice Akhir untuk PO {$this->poNumber}. Dana sedang ditransfer ke rekening bank Anda.",
+                    "Funds Disbursed",
+                    "Buyer approved final invoice for PO {$this->poNumber}. Funds are being transferred to your bank account.",
                     'test-channel',
                     true,
                     $vendorUserId,
@@ -97,8 +97,8 @@ class ProcessIrisDisbursementJob implements ShouldQueue
 
             // Notify Finance/Buyer about failure
             $broadcastAction->execute(
-                "Gagal Mencairkan Dana",
-                "Pencairan dana otomatis ke Vendor gagal: {$e->getMessage()}. Silakan periksa kembali data rekening.",
+                "Disbursement Failed",
+                "Automatic fund transfer to vendor failed: {$e->getMessage()}. Please check the bank account details again.",
                 'test-channel',
                 true,
                 $this->buyerUserId,

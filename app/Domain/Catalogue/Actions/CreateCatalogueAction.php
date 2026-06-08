@@ -36,7 +36,7 @@ class CreateCatalogueAction
             }
         } else {
             if (!$companyId) {
-                throw ValidationException::withMessages(['company_id' => 'ID Perusahaan wajib diisi.']);
+                throw ValidationException::withMessages(['company_id' => 'Company ID is required.']);
             }
             
             $company = Company::findOrFail($companyId);
@@ -47,7 +47,7 @@ class CreateCatalogueAction
             }
 
             if (!$isVendor) {
-                throw ValidationException::withMessages(['message' => 'Hanya Vendor yang dapat menambahkan katalog ke perusahaan ini.']);
+                throw ValidationException::withMessages(['message' => 'Only Vendors can add catalogue items to this company.']);
             }
         }
 

@@ -69,7 +69,7 @@ class AdminCatalogueController extends Controller
         try {
             $item = $action->execute($admin, $data);
             return response()->json([
-                'message' => 'Produk berhasil ditambahkan ke katalog vendor.',
+                'message' => 'Product successfully added to vendor catalog.',
                 'data'    => $item
             ], 201);
         } catch (ValidationException $e) {
@@ -90,6 +90,6 @@ class AdminCatalogueController extends Controller
 
         $catalogue->delete();
 
-        return response()->json(['message' => 'Produk berhasil dihapus dari katalog.']);
+        return response()->json(['message' => 'Product successfully deleted from catalog.']);
     }
 }

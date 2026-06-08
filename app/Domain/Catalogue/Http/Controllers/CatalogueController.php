@@ -15,13 +15,13 @@ use Illuminate\Http\Request;
 /**
  * CatalogueController
  * 
- * Tanggung jawab: Mengelola permintaan terkait katalog produk.
- * Pola: Thin Controller.
+ * Responsibility: Manage requests related to product catalogue.
+ * Pattern: Thin Controller.
  */
 class CatalogueController extends \App\Http\Controllers\Controller
 {
     /**
-     * Menampilkan daftar katalog dengan filter dan paginasi.
+     * Display list of catalogues with filters and pagination.
      */
     public function index(Request $request, GetCataloguesAction $action): JsonResponse
     {
@@ -29,67 +29,67 @@ class CatalogueController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Menyimpan produk baru ke dalam katalog.
+     * Store a new product in the catalogue.
      */
     public function store(CreateCatalogueRequest $request, CreateCatalogueAction $action): JsonResponse
     {
         $item = $action->execute($request->user(), $request->validated());
 
         return response()->json([
-            'message' => 'Produk berhasil ditambahkan ke katalog.',
+            'message' => 'Product successfully added to catalogue.',
             'data'    => $item
         ], 201);
     }
 
     /**
-     * Mengimpor data katalog dari file CSV.
+     * Import catalogue data from CSV file.
      */
     public function import(ImportHistoricalDataRequest $request): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
 
         if ($company->type !== 'vendor') {
-            return response()->json(['message' => 'Hanya Vendor yang dapat mengimpor katalog.'], 422);
+            return response()->json(['message' => 'Only Vendors can import catalogues.'], 422);
         }
 
         $path = $request->file('csv')->store('imports', 'local');
         ImportCatalogueJob::dispatch($company->id, $path);
 
         return response()->json([
-            'message' => 'Data katalog sedang diimpor ke dalam antrean.',
+            'message' => 'Catalogue data is being imported into the queue.',
             'queued'  => true,
         ], 200);
     }
 
     /**
-     * Mengimpor data historis Purchase Order dari file CSV.
+     * Import historical Purchase Order data from CSV file.
      */
     public function importHistoricalPos(ImportHistoricalDataRequest $request): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
 
         if ($company->type !== 'buyer') {
-            return response()->json(['message' => 'Hanya Buyer yang dapat mengimpor data PO historis.'], 422);
+            return response()->json(['message' => 'Only Buyers can import historical PO data.'], 422);
         }
 
         $path = $request->file('csv')->store('imports', 'local');
         \App\Domain\Order\Jobs\ImportHistoricalPoJob::dispatch($company->id, $path);
 
         return response()->json([
-            'message' => 'Data Purchase Order sedang diimpor ke dalam antrean.',
+            'message' => 'Purchase Order data is being imported into the queue.',
             'queued'  => true,
         ], 200);
     }
 
     /**
-     * Memperbarui informasi produk di katalog.
+     * Update product information in the catalogue.
      */
     public function update(CreateCatalogueRequest $request, Catalogue $catalogue): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
 
         if ($company->type !== 'vendor') {
-            return response()->json(['message' => 'Hanya Vendor yang dapat mengubah katalog.'], 422);
+            return response()->json(['message' => 'Only Vendors can modify the catalogue.'], 422);
         }
 
         $data = $request->validated();
@@ -102,13 +102,13 @@ class CatalogueController extends \App\Http\Controllers\Controller
         $catalogue->update($data);
 
         return response()->json([
-            'message' => 'Produk katalog berhasil diperbarui.',
+            'message' => 'Catalogue product successfully updated.',
             'data'    => $catalogue,
         ], 200);
     }
 
     /**
-     * Menampilkan detail produk katalog.
+     * Display product catalogue detail.
      */
     public function show(Catalogue $catalogue): JsonResponse
     {

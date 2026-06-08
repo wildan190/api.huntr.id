@@ -23,14 +23,14 @@ class UpdateUserWhatsappAction
 
         if ($whatsapp === '') {
             throw ValidationException::withMessages([
-                'whatsapp' => ['Nomor WhatsApp tidak valid.'],
+                'whatsapp' => ['Invalid WhatsApp number.'],
             ]);
         }
 
         // Enforce OTP verification before allowing update
         if (! OtpStore::isVerified($whatsapp)) {
             throw ValidationException::withMessages([
-                'whatsapp' => ['Nomor WhatsApp baru belum terverifikasi dengan OTP.'],
+                'whatsapp' => ['New WhatsApp number has not been verified with OTP.'],
             ]);
         }
 

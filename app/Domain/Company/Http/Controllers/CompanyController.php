@@ -26,13 +26,13 @@ use Illuminate\Http\Request;
 /**
  * CompanyController
  * 
- * Tanggung jawab: Mengelola permintaan terkait profil perusahaan.
- * Pola: Thin Controller.
+ * Responsibility: Manage requests related to company profile.
+ * Pattern: Thin Controller.
  */
 class CompanyController extends \App\Http\Controllers\Controller
 {
     /**
-     * Menampilkan daftar perusahaan milik user yang sedang login.
+     * Display list of companies owned by the currently logged-in user.
      */
     public function myCompanies(Request $request, GetMyCompaniesAction $action): JsonResponse
     {
@@ -42,7 +42,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Mendaftarkan profil perusahaan baru.
+     * Register a new company profile.
      */
     public function store(RegisterCompanyRequest $request, RegisterCompanyAction $action): JsonResponse
     {
@@ -53,13 +53,13 @@ class CompanyController extends \App\Http\Controllers\Controller
         $data['formatted_tax_id'] = $company->formatted_tax_id;
 
         return response()->json([
-            'message' => 'Perusahaan berhasil didaftarkan.',
+            'message' => 'Company successfully registered.',
             'company' => $data,
         ], 201);
     }
 
     /**
-     * Memperbarui informasi profil perusahaan.
+     * Update company profile information.
      */
     public function update(UpdateCompanyRequest $request, Company $company, UpdateCompanyAction $action): JsonResponse
     {
@@ -71,7 +71,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Memverifikasi nomor NPWP perusahaan.
+     * Verify the company's NPWP number.
      */
     public function verifyNpwp(VerifyNpwpRequest $request, VerifyNpwpAction $action): JsonResponse
     {
@@ -84,7 +84,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Mengunggah dokumen legalitas perusahaan.
+     * Upload company legal documents.
      */
     public function uploadDocument(UploadCompanyDocumentRequest $request, UploadCompanyDocumentAction $action): JsonResponse
     {
@@ -92,7 +92,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Mengunggah logo perusahaan.
+     * Upload company logo.
      */
     public function uploadLogo(UploadCompanyLogoRequest $request, UploadCompanyLogoAction $action): JsonResponse
     {
@@ -104,14 +104,14 @@ class CompanyController extends \App\Http\Controllers\Controller
         $storage = Storage::disk($disk);
 
         return response()->json([
-            'message' => 'Logo berhasil diperbarui.',
+            'message' => 'Logo successfully updated.',
             'file_path' => $updatedCompany->logo_path,
             'url' => $storage->url($updatedCompany->logo_path),
         ]);
     }
 
     /**
-     * Mengundang user baru ke perusahaan via WhatsApp.
+     * Invite new user to company via WhatsApp.
      */
     public function invite(Request $request, InviteUserAction $action): JsonResponse
     {
@@ -131,7 +131,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Menerima undangan bergabung ke perusahaan.
+     * Accept invitation to join a company.
      */
     public function acceptInvitation(Request $request, AcceptInvitationAction $action): JsonResponse
     {
@@ -143,12 +143,12 @@ class CompanyController extends \App\Http\Controllers\Controller
             $result = $action->execute($request->user(), $request->input('token'));
             return response()->json($result, 200);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Undangan tidak valid atau sudah kedaluwarsa.'], 400);
+            return response()->json(['message' => 'Invitation is invalid or has expired.'], 400);
         }
     }
 
     /**
-     * Menampilkan daftar anggota tim di perusahaan.
+     * Display team members in the company.
      */
     public function teamMembers(Company $company): JsonResponse
     {

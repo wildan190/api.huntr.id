@@ -58,6 +58,6 @@ class AuthDomainTest extends TestCase
         ]);
 
         $response->assertStatus(200)
-            ->assertJson(['message' => 'Nomor WhatsApp berhasil diverifikasi.']);
+            ->assertJson(['message' => 'WhatsApp number successfully verified.']);
     }
 }

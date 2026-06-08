@@ -21,7 +21,7 @@ class VerifyOtpAction
         $otpToken = trim((string) ($data['otp_token'] ?? ''));
 
         if (strlen($otp) !== 6) {
-            throw ValidationException::withMessages(['otp' => ['Kode OTP harus 6 digit.']]);
+            throw ValidationException::withMessages(['otp' => ['OTP code must be 6 digits.']]);
         }
 
         $whatsapp = null;
@@ -30,30 +30,30 @@ class VerifyOtpAction
             $whatsapp = OtpStore::verifyByToken($otpToken, $otp);
             if ($whatsapp === null) {
                 if (! OtpStore::hasPendingToken($otpToken)) {
-                    throw ValidationException::withMessages(['otp' => ['Kode OTP telah kedaluwarsa. Silakan minta kode baru.']]);
+                    throw ValidationException::withMessages(['otp' => ['OTP code has expired. Please request a new code.']]);
                 }
-                throw ValidationException::withMessages(['otp' => ['Kode OTP tidak sesuai. Periksa kembali kode dari WhatsApp.']]);
+                throw ValidationException::withMessages(['otp' => ['OTP code does not match. Check the code from WhatsApp again.']]);
             }
         } else {
             $whatsapp = WhatsappNumber::normalize($data['whatsapp'] ?? '');
 
             if (! WhatsappNumber::isValid($whatsapp)) {
-                throw ValidationException::withMessages(['whatsapp' => ['Format nomor WhatsApp tidak valid.']]);
+                throw ValidationException::withMessages(['whatsapp' => ['Invalid WhatsApp number format.']]);
             }
 
             if (! OtpStore::hasPending($whatsapp)) {
-                throw ValidationException::withMessages(['otp' => ['Kode OTP telah kedaluwarsa. Silakan minta kode baru.']]);
+                throw ValidationException::withMessages(['otp' => ['OTP code has expired. Please request a new code.']]);
             }
 
             if (! OtpStore::verify($whatsapp, $otp)) {
-                throw ValidationException::withMessages(['otp' => ['Kode OTP tidak sesuai. Periksa kembali kode dari WhatsApp.']]);
+                throw ValidationException::withMessages(['otp' => ['OTP code does not match. Check the code from WhatsApp again.']]);
             }
         }
 
         OtpStore::markVerified($whatsapp);
 
         return [
-            'message' => 'Nomor WhatsApp berhasil diverifikasi.',
+            'message' => 'WhatsApp number successfully verified.',
             'verified' => true,
             'whatsapp' => $whatsapp,
         ];

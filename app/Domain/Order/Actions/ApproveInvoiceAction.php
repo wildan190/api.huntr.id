@@ -43,7 +43,7 @@ class ApproveInvoiceAction
 
         if (empty($vendor->bank_account) || empty($vendor->bank_name)) {
             throw ValidationException::withMessages([
-                'vendor_bank' => ['Informasi rekening bank Vendor belum lengkap. Tidak dapat meneruskan dana (Disbursement).'],
+                'vendor_bank' => ['Vendor bank account information is incomplete. Cannot proceed with disbursement.'],
             ]);
         }
 

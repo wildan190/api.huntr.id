@@ -21,12 +21,12 @@ class AdminLoginAction
 
         if (!$admin || !Hash::check($credentials['password'], $admin->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Kredensial admin tidak valid.'],
+                'email' => ['Invalid admin credentials.'],
             ]);
         }
 
         return [
-            'message' => 'Login admin berhasil.',
+            'message' => 'Admin login successful.',
             'admin'   => [
                 'id'    => $admin->id,
                 'name'  => $admin->name,

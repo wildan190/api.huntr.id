@@ -15,13 +15,13 @@ use Illuminate\Http\JsonResponse;
 /**
  * AuthController
  * 
- * Tanggung jawab: Mengelola permintaan autentikasi dan OTP.
- * Pola: Thin Controller.
+ * Responsibility: Manages authentication and OTP requests.
+ * Pattern: Thin Controller.
  */
 class AuthController extends \App\Http\Controllers\Controller
 {
     /**
-     * Mendaftarkan pengguna baru.
+     * Register a new user.
      */
     public function register(RegisterUserRequest $request, RegisterUserAction $action): JsonResponse
     {
@@ -29,7 +29,7 @@ class AuthController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Melakukan login pengguna.
+     * Perform user login.
      */
     public function login(LoginUserRequest $request, LoginUserAction $action): JsonResponse
     {
@@ -37,7 +37,7 @@ class AuthController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Mengirimkan kode OTP melalui WhatsApp.
+     * Send OTP code via WhatsApp.
      */
     public function sendOtp(SendOtpRequest $request, SendOtpAction $action): JsonResponse
     {
@@ -45,7 +45,7 @@ class AuthController extends \App\Http\Controllers\Controller
     }
 
     /**
-     * Memverifikasi kode OTP yang dikirimkan.
+     * Verify the sent OTP code.
      */
     public function verifyOtp(VerifyOtpRequest $request, VerifyOtpAction $action): JsonResponse
     {

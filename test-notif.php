@@ -10,49 +10,49 @@ $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 $broadcast = app(BroadcastWebsocketNotificationAction::class);
 
-// Ganti ID 2 sesuai dengan user yang sedang login di frontend Anda jika perlu
+// Replace ID 2 with the user currently logged in to your frontend if needed
 $userId = 2; 
 $user = User::find($userId);
 
 if (!$user) {
-    echo "User ID {$userId} tidak ditemukan. Silakan cek database.\n";
+    echo "User ID {$userId} not found. Please check database.\n";
     exit(1);
 }
 
-echo "Mengirim 3 notifikasi test ke User: {$user->name} (ID: {$userId})...\n";
+echo "Sending 3 test notifications to User: {$user->name} (ID: {$userId})...\n";
 
 $testNotifications = [
     [
-        'title' => '📦 Stok Barang Menipis',
-        'body' => 'Perhatian! Stok Kertas A4 di gudang tersisa 5 rim lagi.',
+        'title' => '📦 Stock Running Low',
+        'body' => 'Attention! Stock for A4 Paper in warehouse is down to 5 reams.',
         'url' => '/catalogue'
     ],
     [
-        'title' => '✅ PR Disetujui',
-        'body' => 'Purchase Request #PR-2026-001 Anda telah disetujui oleh Manager.',
+        'title' => '✅ Purchase Request Approved',
+        'body' => 'Your Purchase Request #PR-2026-001 has been approved by Manager.',
         'url' => '/my-pr'
     ],
     [
-        'title' => '💰 Invoice Baru',
-        'body' => 'Vendor PT. Cannonex telah mengirimkan invoice baru untuk PO #PO-9982.',
+        'title' => '💰 New Invoice',
+        'body' => 'Vendor PT. Cannonex has sent a new invoice for PO #PO-9982.',
         'url' => '/purchase_orders'
     ]
 ];
 
 foreach ($testNotifications as $index => $notif) {
-    echo "Mengirim notif #" . ($index + 1) . ": {$notif['title']}...\n";
+    echo "Sending notif #" . ($index + 1) . ": {$notif['title']}...\n";
     
     $broadcast->execute(
         $notif['title'],
         $notif['body'],
         'test-channel',
-        false, // Synchronous agar langsung masuk
+        false, // Synchronous so it arrives immediately
         $userId,
         $notif['url']
     );
     
-    // Beri jeda sedikit agar urutan terlihat bagus
+    // Add a small delay for nice ordering
     sleep(1);
 }
 
-echo "Selesai! Silakan cek ikon lonceng di frontend Anda.\n";
+echo "Done! Please check the bell icon in your frontend.\n";
