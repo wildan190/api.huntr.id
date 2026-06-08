@@ -18,6 +18,7 @@ class CreateCatalogueRequest extends FormRequest
             'item_code'      => ['required', 'string', 'max:255'],
             'name'           => ['required', 'string', 'max:255'],
             'category'       => ['nullable', 'string', 'max:255'],
+            'brand'          => ['nullable', 'string', 'max:255'],
             'specifications' => ['nullable', 'string'],
             'uom'            => ['required', 'string', 'max:50'],
             'price'          => ['required', 'numeric', 'min:0'],
