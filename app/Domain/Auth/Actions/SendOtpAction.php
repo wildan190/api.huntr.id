@@ -29,7 +29,7 @@ class SendOtpAction
 
         if (! WhatsappNumber::isValid($whatsapp)) {
             throw ValidationException::withMessages([
-                'whatsapp' => ['Format nomor WhatsApp tidak valid. Gunakan format 08xxxxxxxxxx.'],
+                'whatsapp' => ['Invalid WhatsApp number format. Use format 08xxxxxxxxxx.'],
             ]);
         }
 
@@ -37,14 +37,14 @@ class SendOtpAction
         $otp = $issued['otp'];
         $otpToken = $issued['token'];
 
-        $message = "Kode OTP Huntr.id Anda adalah: {$otp}. Berlaku selama 10 menit. Jangan sebarkan kode ini.";
+        $message = "Your Huntr.id OTP code is: {$otp}. Valid for 10 minutes. Do not share this code.";
 
         $delivery = $this->sendWhatsAppAction->execute($whatsapp, $message, false);
 
         $response = [
             'message' => ($delivery['ok'] ?? false)
-                ? 'OTP berhasil dikirim ke nomor WhatsApp Anda.'
-                : 'OTP dibuat, tetapi pengiriman WhatsApp gagal.',
+                ? 'OTP successfully sent to your WhatsApp number.'
+                : 'OTP created, but WhatsApp delivery failed.',
             'expires_in' => OtpStore::ttlSeconds(),
             'whatsapp' => $whatsapp,
             'otp_token' => $otpToken,

@@ -46,7 +46,7 @@ class CreateNewUser implements CreatesNewUsers
         // Enforce OTP verification before allowing registration
         if ($whatsapp && ! OtpStore::isVerified($whatsapp)) {
             throw ValidationException::withMessages([
-                'whatsapp' => ['Nomor WhatsApp belum terverifikasi dengan OTP.'],
+                'whatsapp' => ['WhatsApp number has not been verified with OTP.'],
             ]);
         }
 

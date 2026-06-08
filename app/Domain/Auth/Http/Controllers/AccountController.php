@@ -22,7 +22,7 @@ class AccountController extends Controller
         $action->execute($request->user(), $request->input('password'));
 
         return response()->json([
-            'message' => 'Password berhasil diperbarui.',
+            'message' => 'Password successfully updated.',
         ]);
     }
 
@@ -34,7 +34,7 @@ class AccountController extends Controller
         $user = $action->execute($request->user(), $request->input('whatsapp'));
 
         return response()->json([
-            'message' => 'Nomor WhatsApp berhasil diperbarui.',
+            'message' => 'WhatsApp number successfully updated.',
             'user' => $user,
         ]);
     }
@@ -60,7 +60,7 @@ class AccountController extends Controller
         $action->execute($request->user(), $sessionId);
 
         return response()->json([
-            'message' => 'Sesi berhasil dihentikan.',
+            'message' => 'Session successfully terminated.',
         ]);
     }
 }

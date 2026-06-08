@@ -17,21 +17,21 @@ class ValidateUserExists
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Jika user sudah authenticated, validasi bahwa user masih ada di database
+        // If user is already authenticated, validate that the user still exists in the database
         if ($request->user()) {
-            // Cek apakah user masih ada di database
+            // Check if user still exists in database
             if (!$request->user()->exists) {
-                // User tidak ada, logout
+                // User does not exist, logout
                 auth()->logout();
                 
-                // Jika request adalah API request, return JSON error
+                // If request is an API request, return JSON error
                 if ($request->expectsJson()) {
                     return response()->json([
-                        'message' => 'User tidak ditemukan. Silakan login kembali.'
+                        'message' => 'User not found. Please log in again.'
                     ], 401);
                 }
                 
-                // Redirect ke login
+                // Redirect to login
                 return redirect('/login');
             }
         }

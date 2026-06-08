@@ -23,12 +23,14 @@ class AwardWinnerAction
      */
     public function execute(Proposal $proposal, string $buyerUserId, Rfq $rfq): Proposal
     {
-        // Verify proposal belongs to this RFQ
-        if ($proposal->rfq_id !== $rfq->id) {
-            throw ValidationException::withMessages([
-                'proposal' => ['This proposal does not belong to the selected RFQ.'],
-            ]);
-        }
+    /**
+     * Verify proposal belongs to this RFQ
+     */
+    if ($proposal->rfq_id !== $rfq->id) {
+        throw ValidationException::withMessages([
+            'proposal' => ['This proposal does not belong to the selected RFQ.'],
+        ]);
+    }
 
         // Idempotency check: If already awarded, return success silently
         if ($proposal->winner_status === 'awarded') {

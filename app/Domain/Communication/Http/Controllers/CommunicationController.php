@@ -13,13 +13,13 @@ class CommunicationController extends \App\Http\Controllers\Controller
 
         if (! $result['ok']) {
             return response()->json([
-                'message' => 'Gagal menyegarkan token WhatsApp.',
+                'message' => 'Failed to refresh WhatsApp token.',
                 'detail' => $result['detail'] ?? 'unknown',
             ], 500);
         }
 
         return response()->json([
-            'message' => 'Token WhatsApp berhasil disegarkan.',
+            'message' => 'WhatsApp token successfully refreshed.',
             'expires_in' => $result['expires_in'] ?? 86400,
         ]);
     }

@@ -47,7 +47,7 @@ class AdminController extends \App\Http\Controllers\Controller
         );
 
         return response()->json([
-            'message' => 'Status perusahaan berhasil diperbarui.',
+            'message' => 'Company status successfully updated.',
             'company' => $updatedCompany->load('documents'),
         ]);
     }

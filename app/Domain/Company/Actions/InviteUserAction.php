@@ -37,7 +37,7 @@ class InviteUserAction
 
         $inviteUrl = config('app.frontend_url', 'http://localhost:5173') . "/invite/accept?token=" . $token;
         
-        $message = "Halo! Anda diundang untuk bergabung dengan perusahaan {$company->name} di Huntr.id sebagai {$data['role']}.\n\nSilakan klik tautan berikut untuk menerima undangan:\n{$inviteUrl}";
+        $message = "Hello! You are invited to join {$company->name} on Huntr.id as a {$data['role']}.\n\nPlease click the following link to accept the invitation:\n{$inviteUrl}";
         
         $whatsappLink = "https://wa.me/" . preg_replace('/[^0-9]/', '', $data['whatsapp']) . "?text=" . urlencode($message);
 
