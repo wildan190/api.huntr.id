@@ -75,7 +75,10 @@ class CompanyController extends \App\Http\Controllers\Controller
      */
     public function verifyNpwp(VerifyNpwpRequest $request, VerifyNpwpAction $action): JsonResponse
     {
-        $res = $action->execute($request->input('npwp'));
+        $res = $action->execute(
+            $request->input('npwp'),
+            $request->input('country', 'ID')
+        );
 
         return response()->json($res, $res['status'] === 1 ? 200 : 422);
     }

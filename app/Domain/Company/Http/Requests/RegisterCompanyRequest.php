@@ -13,11 +13,10 @@ class RegisterCompanyRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
+        $rules = [
             'name' => ['required', 'string', 'max:255'],
             'type' => ['required', 'in:buyer,vendor'],
             'user_id' => ['nullable', 'exists:users,id'],
-            'tax_id' => ['nullable', 'string'],
             'country' => ['nullable', 'string', 'max:10'],
             'email' => ['nullable', 'email'],
             'phone' => ['nullable', 'string'],
@@ -37,5 +36,31 @@ class RegisterCompanyRequest extends FormRequest
             'documents.*.type' => ['required', 'string'],
             'documents.*.file_path' => ['required', 'string'],
         ];
+
+        // TIN/NPWP is required only for Indonesia
+        $country = $this->input('country');
+        if ($this->isIndonesia($country)) {
+            $rules['tax_id'] = ['required', 'string', 'min:15', 'max:16'];
+        } else {
+            $rules['tax_id'] = ['nullable', 'string'];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Check if the country is Indonesia.
+     *
+     * @param string|null $country
+     * @return bool
+     */
+    private function isIndonesia(?string $country): bool
+    {
+        if (!$country) {
+            return false;
+        }
+
+        $countryCode = strtoupper(trim($country));
+        return in_array($countryCode, ['ID', 'INDONESIA']);
     }
 }
