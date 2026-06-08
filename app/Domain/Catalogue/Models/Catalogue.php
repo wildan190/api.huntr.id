@@ -17,6 +17,7 @@ class Catalogue extends Model
         'item_code',
         'name',
         'category',
+        'brand',
         'specifications',
         'uom',
         'image_path',
