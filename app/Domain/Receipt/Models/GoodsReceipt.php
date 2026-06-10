@@ -17,10 +17,59 @@ class GoodsReceipt extends Model
         'received_qty',
         'handover_document_path',
         'status', // completed
+        'items_inspection',
+        'accepted_items',
+        'rejected_items',
+        'inspection_notes',
+        'inspection_status',
+        'inspected_at',
+        'inspected_by',
+    ];
+
+    protected $casts = [
+        'items_inspection' => 'json',
+        'accepted_items' => 'json',
+        'rejected_items' => 'json',
+        'inspected_at' => 'datetime',
     ];
 
     public function deliveryOrder()
     {
         return $this->belongsTo(DeliveryOrder::class, 'delivery_order_id');
+    }
+
+    public function inspectedBy()
+    {
+        return $this->belongsTo(\App\Domain\Auth\Models\User::class, 'inspected_by');
+    }
+
+    public function returns()
+    {
+        return $this->hasMany(\App\Domain\Order\Models\GoodsReturn::class, 'goods_receipt_id');
+    }
+
+    /**
+     * Check if there are rejected items
+     */
+    public function hasRejectedItems(): bool
+    {
+        return !empty($this->rejected_items) && count($this->rejected_items) > 0;
+    }
+
+    /**
+     * Get total quantity of rejected items
+     */
+    public function getTotalRejectedQty(): int
+    {
+        if (!$this->rejected_items) {
+            return 0;
+        }
+
+        $total = 0;
+        foreach ($this->rejected_items as $item) {
+            $total += ($item['rejected_qty'] ?? 0);
+        }
+
+        return $total;
     }
 }

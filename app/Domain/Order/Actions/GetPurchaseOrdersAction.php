@@ -30,6 +30,7 @@ class GetPurchaseOrdersAction
             'historicalItems', 
             'invoices', 
             'deliveryOrders', 
+            'basts',
             'rfq.items.catalogue', 
             'rfq.proposals' => function($q) {
                 $q->where('status', 'accepted')->with(['items', 'acceptedNegotiation.items']);
@@ -200,6 +201,15 @@ class GetPurchaseOrdersAction
                         'amount' => $inv->amount,
                         'status' => $inv->status,
                         'date'   => $inv->created_at->format('Y-m-d'),
+                    ];
+                }),
+                'basts'             => $po->basts->map(function ($bast) {
+                    return [
+                        'id'            => $bast->id,
+                        'bast_number'   => $bast->bast_number,
+                        'bast_date'     => $bast->bast_date?->format('Y-m-d'),
+                        'status'        => $bast->status,
+                        'handed_by_name' => $bast->handed_by_name,
                     ];
                 }),
             ];

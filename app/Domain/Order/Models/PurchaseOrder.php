@@ -78,4 +78,9 @@ class PurchaseOrder extends Model
     {
         return $this->hasMany(DeliveryOrder::class, 'purchase_order_id');
     }
+
+    public function basts()
+    {
+        return $this->hasMany(Bast::class, 'po_id');
+    }
 }

@@ -24,14 +24,14 @@ class ValidateUserExists
                 // User does not exist, logout
                 auth()->logout();
                 
-                // If request is an API request, return JSON error
-                if ($request->expectsJson()) {
+                // Always return JSON for API routes (started with /api)
+                if ($request->is('api/*') || $request->expectsJson()) {
                     return response()->json([
                         'message' => 'User not found. Please log in again.'
                     ], 401);
                 }
                 
-                // Redirect to login
+                // For web requests, redirect to login page
                 return redirect('/login');
             }
         }
