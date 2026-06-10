@@ -4,6 +4,7 @@ namespace App\Domain\Company\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
 use App\Domain\Auth\Models\User;
 use App\Domain\Catalogue\Models\Catalogue;
 use App\Support\Tax\TaxIdFormatter;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 class Company extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory, HasUuids, Notifiable;
 
     protected $fillable = [
         'owner_id',

@@ -27,3 +27,4 @@ user_story.md
 .env.local
 .env.production
 .env.staging
+BAST_RETURNS_DEBIT_NOTES_GUIDE.md

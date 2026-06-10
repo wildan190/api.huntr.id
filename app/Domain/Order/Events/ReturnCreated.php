@@ -1,0 +1,16 @@
+<?php
+
+namespace App\Domain\Order\Events;
+
+use App\Domain\Order\Models\GoodsReturn;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+class ReturnCreated
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(public GoodsReturn $return)
+    {
+    }
+}
