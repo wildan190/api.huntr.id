@@ -15,15 +15,19 @@ class WebsocketNotificationBroadcasted implements ShouldBroadcast
     public $title;
     public $body;
     public $channel;
+    public $url;
+    public $data;
 
     /**
      * Create a new event instance.
      */
-    public function __construct(string $title, string $body, string $channel = 'test-channel')
+    public function __construct(string $title, string $body, string $channel = 'test-channel', ?string $url = null, array $data = [])
     {
         $this->title = $title;
         $this->body = $body;
         $this->channel = $channel;
+        $this->url = $url;
+        $this->data = $data;
     }
 
     /**

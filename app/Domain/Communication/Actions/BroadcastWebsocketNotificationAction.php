@@ -19,27 +19,28 @@ class BroadcastWebsocketNotificationAction
      * @param bool $queued Whether to process asynchronously in the background via Horizon queue
      * @param int|null $userId Specific user ID to notify
      * @param string|null $url Redirect URL
+     * @param array $data Extra data for the notification
      * @return bool True on success
      */
-    public function execute(string $title, string $body, string $channel = 'test-channel', bool $queued = true, ?string $userId = null, ?string $url = null): bool
+    public function execute(string $title, string $body, string $channel = 'test-channel', bool $queued = true, ?string $userId = null, ?string $url = null, array $data = []): bool
     {
         // If a specific user is targeted, save to their database notifications
         if ($userId) {
             $user = User::find($userId);
             if ($user) {
-                $user->notify(new DatabaseNotification($title, $body, $url));
+                $user->notify(new DatabaseNotification($title, $body, $url, null, $data));
             }
         }
 
         if ($queued) {
             Log::info("BroadcastWebsocketNotificationAction: Dispatching queued broadcast job for: {$title}");
-            BroadcastWebsocketNotificationJob::dispatch($title, $body, $channel);
+            BroadcastWebsocketNotificationJob::dispatch($title, $body, $channel, $url, $data);
             return true;
         }
 
         try {
             Log::info("BroadcastWebsocketNotificationAction: Executing synchronous broadcast for: {$title}");
-            event(new WebsocketNotificationBroadcasted($title, $body, $channel));
+            event(new WebsocketNotificationBroadcasted($title, $body, $channel, $url, $data));
             return true;
         } catch (\Exception $e) {
             Log::error("BroadcastWebsocketNotificationAction Failed: " . $e->getMessage());

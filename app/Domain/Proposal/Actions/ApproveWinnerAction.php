@@ -132,7 +132,8 @@ class ApproveWinnerAction
                 'test-channel',
                 true,
                 $rfq->user_id,
-                "/orders?search={$poNumber}"
+                "/orders?search={$poNumber}",
+                ['type' => 'purchase_order_created']
             );
 
             // 4. Notify the vendor
@@ -153,7 +154,8 @@ class ApproveWinnerAction
                     'test-channel',
                     true,
                     $vendorUser->id,
-                    "/orders?search={$poNumber}"
+                    "/orders?search={$poNumber}",
+                    ['type' => 'purchase_order_created']
                 );
             }
 

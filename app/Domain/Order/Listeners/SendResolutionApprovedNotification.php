@@ -3,7 +3,7 @@
 namespace App\Domain\Order\Listeners;
 
 use App\Domain\Order\Events\ResolutionApproved;
-use Illuminate\Notifications\DatabaseNotification;
+use App\Domain\Communication\Notifications\DatabaseNotification;
 
 class SendResolutionApprovedNotification
 {
@@ -21,20 +21,21 @@ class SendResolutionApprovedNotification
         
         // Notify vendor company about approval
         $return->vendorCompany->notify(
-            new DatabaseNotification([
-                'type' => 'resolution_approved',
-                'title' => 'Return Resolution Approved',
-                'message' => "Buyer has approved {$resolutionTypeLabel} for return {$return->return_number} (PO {$po->po_number}). Please proceed with the resolution.",
-                'data' => [
+            new DatabaseNotification(
+                'Return Resolution Approved',
+                "Buyer has approved {$resolutionTypeLabel} for return {$return->return_number} (PO {$po->po_number}). Please proceed with the resolution.",
+                "/returns/{$return->id}",
+                null,
+                [
+                    'type' => 'resolution_approved',
                     'return_id' => $return->id,
                     'return_number' => $return->return_number,
                     'po_id' => $po->id,
                     'po_number' => $po->po_number,
                     'resolution_type' => $return->resolution_type,
                     'buyer_notes' => $return->buyer_response_notes,
-                ],
-                'action_url' => "/returns/{$return->id}",
-            ])
+                ]
+            )
         );
     }
 }

@@ -3,7 +3,7 @@
 namespace App\Domain\Order\Listeners;
 
 use App\Domain\Order\Events\ResolutionProposed;
-use Illuminate\Notifications\DatabaseNotification;
+use App\Domain\Communication\Notifications\DatabaseNotification;
 
 class SendResolutionProposedNotification
 {
@@ -21,11 +21,13 @@ class SendResolutionProposedNotification
         
         // Notify buyer company about resolution proposal
         $return->buyerCompany->notify(
-            new DatabaseNotification([
-                'type' => 'resolution_proposed',
-                'title' => 'Return Resolution Proposed',
-                'message' => "Vendor has proposed {$resolutionTypeLabel} for return {$return->return_number} (PO {$po->po_number}). Please review and approve/reject.",
-                'data' => [
+            new DatabaseNotification(
+                'Return Resolution Proposed',
+                "Vendor has proposed {$resolutionTypeLabel} for return {$return->return_number} (PO {$po->po_number}). Please review and approve/reject.",
+                "/returns/{$return->id}",
+                null,
+                [
+                    'type' => 'resolution_proposed',
                     'return_id' => $return->id,
                     'return_number' => $return->return_number,
                     'po_id' => $po->id,
@@ -33,9 +35,8 @@ class SendResolutionProposedNotification
                     'resolution_type' => $return->resolution_type,
                     'resolution_details' => $return->resolution_details,
                     'vendor_notes' => $return->vendor_proposal_notes,
-                ],
-                'action_url' => "/returns/{$return->id}",
-            ])
+                ]
+            )
         );
     }
 }

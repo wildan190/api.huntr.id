@@ -17,15 +17,19 @@ class BroadcastWebsocketNotificationJob implements ShouldQueue
     protected $title;
     protected $body;
     protected $channel;
+    protected $url;
+    protected $data;
 
     /**
      * Create a new job instance.
      */
-    public function __construct(string $title, string $body, string $channel = 'test-channel')
+    public function __construct(string $title, string $body, string $channel = 'test-channel', ?string $url = null, array $data = [])
     {
         $this->title = $title;
         $this->body = $body;
         $this->channel = $channel;
+        $this->url = $url;
+        $this->data = $data;
     }
 
     /**
@@ -36,7 +40,7 @@ class BroadcastWebsocketNotificationJob implements ShouldQueue
         try {
             Log::info("Reverb Broadcast executing for: {$this->title}");
 
-            event(new WebsocketNotificationBroadcasted($this->title, $this->body, $this->channel));
+            event(new WebsocketNotificationBroadcasted($this->title, $this->body, $this->channel, $this->url, $this->data));
 
             Log::info("Reverb Broadcast finished successfully.");
         } catch (\Exception $e) {
