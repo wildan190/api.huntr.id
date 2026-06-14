@@ -116,6 +116,7 @@ class GetPurchaseOrdersAction
             if ($po->is_historical) {
                 $mappedItems = $po->historicalItems->map(function ($item) {
                     return [
+                        'id'                  => $item->id,
                         'pr_reference_number' => $item->pr_reference_number,
                         'inventory_code'      => $item->inventory_code,
                         'inventory_name'      => $item->inventory_name,
@@ -152,6 +153,7 @@ class GetPurchaseOrdersAction
                     $qty = $negotiationItem ? $negotiationItem->negotiated_qty : $item->qty;
 
                     return [
+                        'id'                  => $item->id,
                         'pr_reference_number' => 'RFQ-' . $item->rfq_id,
                         'inventory_code'      => $cat?->item_code ?? 'N/A',
                         'inventory_name'      => $cat?->name ?? 'N/A',

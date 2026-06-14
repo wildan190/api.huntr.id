@@ -65,18 +65,34 @@ class AwardWinnerAction
             // 3. Update RFQ status to 'awarded'
             $rfq->update(['status' => 'awarded']);
 
-            // 4. Notify the winning vendor
-            foreach ($proposal->company->users as $vendorUser) {
-                $this->broadcastAction->execute(
-                    "Proposal Selected as Winner!",
-                    "Congratulations! Your proposal for RFQ '{$rfq->title}' has been selected as the winner!",
-                    'test-channel',
-                    true,
-                    $vendorUser->id,
-                    "/proposals",
-                    ['type' => 'proposal_awarded']
-                );
-            }
+            DB::afterCommit(function () use ($proposal, $rfq) {
+                // 4. Notify the winning vendor
+                foreach ($proposal->company->users as $vendorUser) {
+                    $this->broadcastAction->execute(
+                        "Proposal Selected as Winner!",
+                        "Congratulations! Your proposal for RFQ '{$rfq->title}' has been selected as the winner!",
+                        'test-channel',
+                        true,
+                        $vendorUser->id,
+                        "/proposals",
+                        ['type' => 'proposal_awarded']
+                    );
+                }
+
+                // 5. Notify the buyer managers for approval
+                $managers = $rfq->company->users()->with('roles')->get()->filter(fn($user) => $user->roles->contains('slug', 'manager'));
+                foreach ($managers as $manager) {
+                    $this->broadcastAction->execute(
+                        "Winner Requires Approval",
+                        "A winner has been awarded for RFQ '{$rfq->title}' and requires your approval.",
+                        'test-channel',
+                        true,
+                        $manager->id,
+                        "/approvals",
+                        ['type' => 'winner_approval']
+                    );
+                }
+            });
 
             return $proposal->fresh();
         });

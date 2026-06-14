@@ -52,8 +52,22 @@ class CreateRfqAction
             'test-channel',
             true,
             $userId,
-            "/my-pr"
+            "/my-pr",
+            ['type' => 'pr_created']
         );
+
+        $managers = $buyerCompany->users()->with('roles')->get()->filter(fn($user) => $user->roles->contains('slug', 'manager'));
+        foreach ($managers as $manager) {
+            $this->broadcastAction->execute(
+                "PR Requires Approval",
+                "PR '{$title}' has been submitted and requires your approval.",
+                'test-channel',
+                true,
+                $manager->id,
+                "/approvals",
+                ['type' => 'pending_approval']
+            );
+        }
 
         if ($status === 'active') {
             $this->notifyVendorsAction->execute($rfq);

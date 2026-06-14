@@ -50,6 +50,19 @@
         </div>
     </div>
 
+    @php
+        $receipt = $do->goodsReceipts->first();
+        $inspections = [];
+        if ($receipt && $receipt->items_inspection) {
+            $data = is_string($receipt->items_inspection) ? json_decode($receipt->items_inspection, true) : $receipt->items_inspection;
+            if (is_array($data)) {
+                foreach($data as $insp) {
+                    $inspections[$insp['po_item_id']] = $insp;
+                }
+            }
+        }
+    @endphp
+
     <table>
         <thead>
             <tr>
@@ -57,15 +70,28 @@
                 <th>Item Description</th>
                 <th>Code</th>
                 <th style="text-align: center;">Ordered Qty</th>
+                @if($receipt)
+                <th style="text-align: center;">Accepted</th>
+                <th style="text-align: center;">Rejected</th>
+                <th>Condition</th>
+                @endif
             </tr>
         </thead>
         <tbody>
             @foreach($po['items'] as $index => $item)
+            @php
+                $insp = $inspections[$item['id']] ?? null;
+            @endphp
             <tr>
                 <td>{{ $index + 1 }}</td>
                 <td>{{ $item['inventory_name'] }}</td>
                 <td>{{ $item['inventory_code'] }}</td>
                 <td style="text-align: center;">{{ $item['qty'] }} {{ $item['uom'] }}</td>
+                @if($receipt)
+                <td style="text-align: center; font-weight: bold; color: #22c55e;">{{ $insp ? $insp['received_qty'] : '-' }}</td>
+                <td style="text-align: center; font-weight: bold; color: #f87171;">{{ $insp ? $insp['rejected_qty'] : '-' }}</td>
+                <td>{{ $insp && $insp['condition'] ? $insp['condition'] : '-' }}</td>
+                @endif
             </tr>
             @endforeach
         </tbody>
