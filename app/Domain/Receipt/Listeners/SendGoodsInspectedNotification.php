@@ -3,7 +3,7 @@
 namespace App\Domain\Receipt\Listeners;
 
 use App\Domain\Receipt\Events\GoodsInspected;
-use Illuminate\Notifications\DatabaseNotification;
+use App\Domain\Communication\Notifications\DatabaseNotification;
 
 class SendGoodsInspectedNotification
 {
@@ -17,23 +17,24 @@ class SendGoodsInspectedNotification
         $hasRejectedItems = $receipt->hasRejectedItems();
         
         $receipt->deliveryOrder->purchaseOrder->vendorCompany->notify(
-            new DatabaseNotification([
-                'type' => $hasRejectedItems ? 'goods_receipt_rejected_items' : 'goods_receipt_inspected',
-                'title' => $hasRejectedItems 
+            new DatabaseNotification(
+                $hasRejectedItems 
                     ? 'Items Rejected During Inspection' 
                     : 'Goods Receipt Inspected',
-                'message' => $hasRejectedItems
+                $hasRejectedItems
                     ? "Buyer has rejected {$receipt->getTotalRejectedQty()} items during inspection for PO {$po->po_number}. A return request has been created automatically."
                     : "All items have been accepted for PO {$po->po_number}. Goods receipt completed successfully.",
-                'data' => [
+                $hasRejectedItems ? "/returns" : "/receipts/{$receipt->id}",
+                null,
+                [
+                    'type' => $hasRejectedItems ? 'goods_receipt_rejected_items' : 'goods_receipt_inspected',
                     'receipt_id' => $receipt->id,
                     'po_id' => $po->id,
                     'po_number' => $po->po_number,
                     'has_rejected_items' => $hasRejectedItems,
                     'rejected_qty' => $receipt->getTotalRejectedQty(),
-                ],
-                'action_url' => $hasRejectedItems ? "/returns" : "/receipts/{$receipt->id}",
-            ])
+                ]
+            )
         );
     }
 }

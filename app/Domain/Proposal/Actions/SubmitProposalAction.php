@@ -7,13 +7,17 @@ use App\Domain\Company\Models\Company;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Proposal\Models\ProposalItem;
 use App\Domain\Rfq\Models\Rfq;
+use App\Domain\Communication\Notifications\DatabaseNotification;
+use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class SubmitProposalAction
 {
     public function __construct(
-        private readonly ProposalRepositoryInterface $proposalRepository
+        private readonly ProposalRepositoryInterface $proposalRepository,
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction
     ) {}
 
     /**
@@ -69,6 +73,39 @@ class SubmitProposalAction
                     'rfq_item_id' => $item['rfq_item_id'],
                     'price_offer' => $item['price_offer'],
                 ]);
+            }
+
+            // Send notification to buyer company
+            $buyerCompany = $rfq->company;
+            if ($buyerCompany) {
+                $buyerCompany->notify(new DatabaseNotification(
+                    'Proposal Baru Diterima',
+                    "Vendor {$vendorCompany->name} telah mengirimkan proposal untuk RFQ \"{$rfq->title}\"",
+                    "/rfq/{$rfq->id}",
+                    null,
+                    ['type' => 'proposal_submitted']
+                ));
+                Log::info("SubmitProposalAction: Sent notification to buyer company", [
+                    'company_id' => $buyerCompany->id
+                ]);
+                
+                // Send notifications to buyer company users
+                $buyerCompany->load('users');
+                foreach ($buyerCompany->users as $buyerUser) {
+                    Log::info("SubmitProposalAction: Sending notification to buyer user", [
+                        'user_id' => $buyerUser->id,
+                        'user_email' => $buyerUser->email
+                    ]);
+                    $this->broadcastAction->execute(
+                        'Proposal Baru Diterima',
+                        "Vendor {$vendorCompany->name} telah mengirimkan proposal untuk RFQ \"{$rfq->title}\"",
+                        "test-channel",
+                        true,
+                        $buyerUser->id,
+                        "/rfq/{$rfq->id}",
+                        ['type' => 'proposal_submitted']
+                    );
+                }
             }
 
             return $proposal;

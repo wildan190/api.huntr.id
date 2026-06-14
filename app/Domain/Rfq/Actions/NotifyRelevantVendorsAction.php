@@ -48,7 +48,8 @@ class NotifyRelevantVendorsAction
                     'vendor-channel',
                     true,
                     $vendorUserId,
-                    "/rfq/{$rfq->id}"
+                    "/rfq/{$rfq->id}",
+                    ['type' => 'rfq_published']
                 );
             }
         }

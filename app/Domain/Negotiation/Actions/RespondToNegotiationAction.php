@@ -22,6 +22,8 @@ class RespondToNegotiationAction
             ]);
 
             if ($status === 'accepted') {
+                // Load proposal with all needed relationships
+                $negotiation->load('proposal.rfq');
                 $proposal = $negotiation->proposal;
                 $negotiationItems = $negotiation->items;
                 $totalPrice = 0;
@@ -79,6 +81,8 @@ class RespondToNegotiationAction
             }
 
             // Notify Buyer
+            // Load negotiation with all needed relationships
+            $negotiation->load('proposal.rfq');
             // Use buyer_id from negotiation, or fallback to the person who created the RFQ
             $targetUserId = $negotiation->buyer_id ?? $negotiation->proposal->rfq->user_id;
 
@@ -89,7 +93,8 @@ class RespondToNegotiationAction
                     'test-channel',
                     true,
                     $targetUserId,
-                    "/negotiation"
+                    "/negotiation",
+                    ['type' => 'negotiation_response']
                 );
             }
 

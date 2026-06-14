@@ -94,12 +94,21 @@ class NotificationController extends Controller
     public function markAllAsRead(Request $request): JsonResponse
     {
         $userId = $request->input('user_id');
+        $companyId = $request->input('company_id');
+        
         if (!$userId) {
             return response()->json(['message' => 'User ID is required'], 400);
         }
 
-        $user = User::findOrFail($userId);
+        $user = \App\Domain\Auth\Models\User::findOrFail($userId);
         $user->unreadNotifications->markAsRead();
+        
+        if ($companyId) {
+            $company = \App\Domain\Company\Models\Company::find($companyId);
+            if ($company) {
+                $company->unreadNotifications->markAsRead();
+            }
+        }
 
         return response()->json(['message' => 'All notifications marked as read']);
     }

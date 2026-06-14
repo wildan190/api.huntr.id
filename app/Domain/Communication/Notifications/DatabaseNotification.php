@@ -16,16 +16,18 @@ class DatabaseNotification extends Notification implements ShouldQueue
     protected $body;
     protected $url;
     protected $icon;
+    protected $data;
 
     /**
      * Create a new notification instance.
      */
-    public function __construct(string $title, string $body, ?string $url = null, ?string $icon = null)
+    public function __construct(string $title, string $body, ?string $url = null, ?string $icon = null, array $data = [])
     {
         $this->title = $title;
         $this->body = $body;
         $this->url = $url;
         $this->icon = $icon;
+        $this->data = $data;
     }
 
     /**
@@ -45,12 +47,12 @@ class DatabaseNotification extends Notification implements ShouldQueue
      */
     public function toArray(object $notifiable): array
     {
-        return [
+        return array_merge([
             'title' => $this->title,
             'body' => $this->body,
             'url' => $this->url,
             'icon' => $this->icon,
-        ];
+        ], $this->data);
     }
 
     /**
@@ -58,11 +60,11 @@ class DatabaseNotification extends Notification implements ShouldQueue
      */
     public function toBroadcast(object $notifiable): BroadcastMessage
     {
-        return new BroadcastMessage([
+        return new BroadcastMessage(array_merge([
             'title' => $this->title,
             'body' => $this->body,
             'url' => $this->url,
             'icon' => $this->icon,
-        ]);
+        ], $this->data));
     }
 }
