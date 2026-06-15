@@ -5,8 +5,10 @@
     <title>BAST - {{ $bast->bast_number }}</title>
     <style>
         body { font-family: 'Inter', sans-serif; padding: 40px; color: #333; line-height: 1.6; }
-        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f97316; padding-bottom: 20px; margin-bottom: 30px; }
-        .logo { font-size: 28px; font-weight: 900; color: #f97316; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f97316; padding-bottom: 20px; margin-bottom: 30px; align-items: center; }
+        .logo-section { display: flex; align-items: center; gap: 20px; }
+        .company-logo { max-height: 60px; max-width: 150px; object-fit: contain; }
+        .huntr-logo { font-size: 28px; font-weight: 900; color: #f97316; }
         .title { text-align: right; }
         .title h1 { margin: 0; font-size: 24px; color: #333; }
         .title p { margin: 5px 0 0; font-size: 14px; color: #666; }
@@ -22,7 +24,8 @@
         .signature-box { border-top: 1px solid #999; padding-top: 20px; text-align: center; }
         .signature-box .name { font-weight: 700; margin-top: 40px; font-size: 13px; }
         .signature-box .position { font-size: 11px; color: #666; margin-top: 5px; }
-        .footer { margin-top: 50px; font-size: 11px; color: #777; border-top: 1px solid #eee; padding-top: 20px; }
+        .footer { margin-top: 50px; font-size: 11px; color: #777; border-top: 1px solid #eee; padding-top: 20px; text-align: center; }
+        .powered-by { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 15px; }
         @media print {
             body { padding: 0; }
             .no-print { display: none; }
@@ -31,7 +34,15 @@
 </head>
 <body onload="window.print()">
     <div class="header">
-        <div class="logo">HUNTR.ID</div>
+        <div class="logo-section">
+            @if($buyer_logo_url)
+                <img src="{{ $buyer_logo_url }}" alt="Buyer Logo" class="company-logo">
+            @endif
+            @if($vendor_logo_url)
+                <img src="{{ $vendor_logo_url }}" alt="Vendor Logo" class="company-logo">
+            @endif
+            <div class="huntr-logo">HUNTR.ID</div>
+        </div>
         <div class="title">
             <h1>BERITA ACARA SERAH TERIMA</h1>
             <p>(Handover Report - BAST)</p>
@@ -175,6 +186,10 @@
     <div class="footer">
         <p>This is a computer-generated BAST document from Huntr.id Procurement System.</p>
         <p>&copy; {{ date('Y') }} Huntr.id - All rights reserved</p>
+        <div class="powered-by">
+            <span>Powered by</span>
+            <span style="font-weight: 900; color: #f97316; font-size: 18px;">HUNTR.ID</span>
+        </div>
     </div>
 </body>
 </html>

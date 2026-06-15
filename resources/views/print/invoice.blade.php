@@ -5,8 +5,10 @@
     <title>{{ $invoice->status === 'paid' ? 'Tax Invoice' : 'Proforma Invoice' }} - {{ $po['po_number'] }}</title>
     <style>
         body { font-family: 'Inter', sans-serif; padding: 40px; color: #333; line-height: 1.6; }
-        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f59e0b; padding-bottom: 20px; margin-bottom: 30px; }
-        .logo { font-size: 28px; font-weight: 900; color: #f59e0b; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f59e0b; padding-bottom: 20px; margin-bottom: 30px; align-items: center; }
+        .logo-section { display: flex; align-items: center; gap: 20px; }
+        .company-logo { max-height: 60px; max-width: 150px; object-fit: contain; }
+        .huntr-logo { font-size: 28px; font-weight: 900; color: #f59e0b; }
         .title { text-align: right; }
         .title h1 { margin: 0; font-size: 24px; color: #333; }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
@@ -16,7 +18,8 @@
         td { padding: 12px; border-bottom: 1px solid #eee; font-size: 14px; }
         .total-row { font-weight: 900; font-size: 16px; background: #fffaf0; }
         .status-badge { display: inline-block; padding: 4px 12px; border-radius: 6px; background: #fef3c7; color: #92400e; font-weight: 700; font-size: 12px; }
-        .footer { margin-top: 50px; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 20px; }
+        .footer { margin-top: 50px; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 20px; text-align: center; }
+        .powered-by { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 15px; }
         @media print {
             body { padding: 0; }
             .no-print { display: none; }
@@ -25,7 +28,15 @@
 </head>
 <body onload="window.print()">
     <div class="header">
-        <div class="logo">HUNTR.ID</div>
+        <div class="logo-section">
+            @if($po['buyer_logo_url'])
+                <img src="{{ $po['buyer_logo_url'] }}" alt="Buyer Logo" class="company-logo">
+            @endif
+            @if($po['vendor_logo_url'])
+                <img src="{{ $po['vendor_logo_url'] }}" alt="Vendor Logo" class="company-logo">
+            @endif
+            <div class="huntr-logo">HUNTR.ID</div>
+        </div>
         <div class="title">
             <h1>{{ $invoice->status === 'paid' ? 'TAX INVOICE' : 'PROFORMA INVOICE' }}</h1>
             <p>Ref: {{ $po['po_number'] }}</p>
@@ -87,6 +98,10 @@
     <div class="footer">
         <p>This is a computer-generated {{ $invoice->status === 'paid' ? 'tax' : 'proforma' }} invoice. No signature is required.</p>
         <p>&copy; {{ date('Y') }} Huntr.id Procurement System</p>
+        <div class="powered-by">
+            <span>Powered by</span>
+            <span style="font-weight: 900; color: #f59e0b; font-size: 18px;">HUNTR.ID</span>
+        </div>
     </div>
 </body>
 </html>
