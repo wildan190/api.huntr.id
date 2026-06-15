@@ -8,6 +8,9 @@ use App\Domain\Order\Models\Bast;
 use App\Domain\Order\Models\PurchaseOrder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Filesystem\FilesystemAdapter;
 
 /**
  * BastController
@@ -36,16 +39,16 @@ class BastController extends \App\Http\Controllers\Controller
         ]);
 
         try {
-            \Log::info('BastController.store called', [
+            Log::info('BastController.store called', [
                 'po_id' => $request->input('po_id'),
-                'user_id' => auth()->id(),
+                'user_id' => auth()->id() ?? $request->user()->id,
             ]);
 
             $po = PurchaseOrder::findOrFail($request->input('po_id'));
 
             $bast = $action->execute($po, $request->all());
 
-            \Log::info('BAST created, dispatching event', [
+            Log::info('BAST created, dispatching event', [
                 'bast_id' => $bast->id,
                 'bast_number' => $bast->bast_number,
                 'buyer_company_id' => $po->buyer_company_id,
@@ -54,7 +57,7 @@ class BastController extends \App\Http\Controllers\Controller
             // Dispatch event to notify buyer
             event(new BastIssuedEvent($bast, $po->buyer_company_id));
 
-            \Log::info('Event dispatched successfully', [
+            Log::info('Event dispatched successfully', [
                 'bast_id' => $bast->id,
             ]);
 
@@ -63,7 +66,7 @@ class BastController extends \App\Http\Controllers\Controller
                 'bast' => $bast->load('purchaseOrder', 'buyerCompany', 'vendorCompany'),
             ], 201);
         } catch (\Exception $e) {
-            \Log::error('BastController.store error', [
+            Log::error('BastController.store error', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -96,7 +99,7 @@ class BastController extends \App\Http\Controllers\Controller
                 ], 422);
             }
 
-            \Log::info('BastController.index called', [
+            Log::info('BastController.index called', [
                 'company_id' => $companyId,
             ]);
 
@@ -117,7 +120,7 @@ class BastController extends \App\Http\Controllers\Controller
             $perPage = $request->input('per_page', 10);
             $basts = $query->with('purchaseOrder', 'buyerCompany', 'vendorCompany')->orderBy('created_at', 'desc')->paginate($perPage);
 
-            \Log::info('BastController.index result', [
+            Log::info('BastController.index result', [
                 'company_id' => $companyId,
                 'count' => $basts->total(),
             ]);
@@ -125,7 +128,7 @@ class BastController extends \App\Http\Controllers\Controller
             return response()->json($basts);
         } catch (\PDOException $e) {
             // Table doesn't exist yet
-            \Log::warning('BAST table not found: ' . $e->getMessage());
+            Log::warning('BAST table not found: ' . $e->getMessage());
             return response()->json([
                 'data' => [],
                 'current_page' => 1,
@@ -135,7 +138,7 @@ class BastController extends \App\Http\Controllers\Controller
                 'message' => 'BAST feature is being initialized'
             ]);
         } catch (\Exception $e) {
-            \Log::error('BAST index error: ' . $e->getMessage(), [
+            Log::error('BAST index error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
                 'company_id' => $request->input('company_id')
             ]);
@@ -248,7 +251,23 @@ class BastController extends \App\Http\Controllers\Controller
         $bast = Bast::with('purchaseOrder', 'buyerCompany', 'vendorCompany')
             ->findOrFail($id);
 
+        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
+        /** @var FilesystemAdapter $storageDisk */
+        $storageDisk = Storage::disk($disk);
+        $buyerLogoUrl = null;
+        if ($bast->buyerCompany && $bast->buyerCompany->logo_path) {
+            $buyerLogoUrl = $storageDisk->url($bast->buyerCompany->logo_path);
+        }
+        $vendorLogoUrl = null;
+        if ($bast->vendorCompany && $bast->vendorCompany->logo_path) {
+            $vendorLogoUrl = $storageDisk->url($bast->vendorCompany->logo_path);
+        }
+
         // Return view directly for browser display (user can Ctrl+P)
-        return view('print.bast', ['bast' => $bast]);
+        return view('print.bast', [
+            'bast' => $bast,
+            'buyer_logo_url' => $buyerLogoUrl,
+            'vendor_logo_url' => $vendorLogoUrl,
+        ]);
     }
 }

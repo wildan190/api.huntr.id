@@ -13,7 +13,8 @@ class ConfirmPurchaseOrderAction
 {
     public function __construct(
         private readonly OrderRepositoryInterface $orderRepository,
-        private readonly BroadcastWebsocketNotificationAction $broadcastAction
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction,
+        private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction
     ) {}
 
     /**
@@ -40,6 +41,9 @@ class ConfirmPurchaseOrderAction
             $winningProposal = $this->orderRepository->findAcceptedProposal($po);
             $poAmount = $winningProposal ? $winningProposal->price_offer : ($po->total_amount ?? 0);
 
+            // Calculate fees
+            $fees = $this->calculateInvoiceFeesAction->execute($poAmount);
+
             // Update PO with winning proposal terms if not already set
             if ($winningProposal && !$po->purchase_type) {
                 $updateData['purchase_type'] = $winningProposal->payment_term;
@@ -47,11 +51,16 @@ class ConfirmPurchaseOrderAction
 
             $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
 
-            // 3. Release Proforma Invoice
+            // 3. Release Proforma Invoice with fees
             $this->orderRepository->createInvoice([
                 'purchase_order_id' => $po->id,
                 'type'              => 'proforma',
-                'amount'            => $poAmount,
+                'amount'            => $fees['total_amount'], // total with fees
+                'base_amount'       => $fees['base_amount'],
+                'platform_fee'      => $fees['platform_fee'],
+                'midtrans_fee'      => $fees['midtrans_fee'],
+                'ppn_fee'           => $fees['ppn_fee'],
+                'total_amount'      => $fees['total_amount'],
                 'status'            => 'unpaid',
             ]);
 

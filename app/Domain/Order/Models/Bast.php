@@ -58,6 +58,11 @@ class Bast extends Model
         return $this->belongsTo(\App\Domain\Receipt\Models\GoodsReceipt::class);
     }
 
+    public function efaktur(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(\App\Domain\EFaktur\Models\EFaktur::class, 'bast_id');
+    }
+
     public function purchaseOrder(): BelongsTo
     {
         return $this->belongsTo(\App\Domain\Order\Models\PurchaseOrder::class, 'po_id');

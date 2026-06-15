@@ -6,11 +6,13 @@ use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Order\Models\PurchaseOrder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 
 class ProcessPoPaymentAction
 {
     public function __construct(
-        private readonly OrderRepositoryInterface $orderRepository
+        private readonly OrderRepositoryInterface $orderRepository,
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction
     ) {}
 
     /**
@@ -62,12 +64,15 @@ class ProcessPoPaymentAction
                 $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
                 $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
+                $this->notifyParties($po, $invoice);
                 return $data;
             }
 
             // Fallback for offline testing / sandbox simulation
             $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
             $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
+
+            $this->notifyParties($po, $invoice);
 
             return [
                 'status_code'        => '200',
@@ -80,7 +85,37 @@ class ProcessPoPaymentAction
             $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
             $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
+            $this->notifyParties($po, $invoice);
+
             return true;
+        }
+    }
+
+    private function notifyParties(PurchaseOrder $po, $invoice): void
+    {
+        // 1. Notify the buyer (requester)
+        $this->broadcastAction->execute(
+            "Payment Successful",
+            "Payment for PO {$po->po_number} has been processed successfully.",
+            'test-channel',
+            true,
+            $po->created_by,
+            "/orders?search={$po->po_number}",
+            ['type' => 'payment_success']
+        );
+
+        // 2. Notify the vendor
+        $vendorUserIds = collect($po->vendor->users->pluck('id'))->push($po->vendor->owner_id)->unique()->filter();
+        foreach ($vendorUserIds as $vendorUserId) {
+            $this->broadcastAction->execute(
+                "Payment Received",
+                "Payment for PO {$po->po_number} has been received. Please proceed with delivery arrangements.",
+                'test-channel',
+                true,
+                $vendorUserId,
+                "/orders?search={$po->po_number}",
+                ['type' => 'payment_received']
+            );
         }
     }
 }

@@ -28,3 +28,5 @@ user_story.md
 .env.production
 .env.staging
 BAST_RETURNS_DEBIT_NOTES_GUIDE.md
+documentation-efaktur.md
+.gitignore

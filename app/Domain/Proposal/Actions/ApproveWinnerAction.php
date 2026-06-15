@@ -125,39 +125,41 @@ class ApproveWinnerAction
                 copy($dummyPath, $targetPath);
             }
 
-            // 3. Notify the buyer (requester)
-            $this->broadcastAction->execute(
-                "Purchase Order Ready",
-                "Your Purchase Order {$poNumber} has been generated and issued to vendor.",
-                'test-channel',
-                true,
-                $rfq->user_id,
-                "/orders?search={$poNumber}",
-                ['type' => 'purchase_order_created']
-            );
-
-            // 4. Notify the vendor
-            $this->broadcastAction->execute(
-                "Purchase Order Generated",
-                "A new Purchase Order {$poNumber} has been generated for your proposal on '{$rfq->title}'.",
-                'test-channel',
-                true,
-                null,
-                "/orders?search={$poNumber}"
-            );
-
-            // Notify vendor users specifically
-            foreach ($proposal->company->users as $vendorUser) {
+            DB::afterCommit(function () use ($rfq, $poNumber, $proposal) {
+                // 3. Notify the buyer (requester)
                 $this->broadcastAction->execute(
-                    "PO Generated: {$poNumber}",
-                    "PO has been generated for RFQ: {$rfq->title}. Please confirm the order.",
+                    "Purchase Order Ready",
+                    "Your Purchase Order {$poNumber} has been generated and issued to vendor.",
                     'test-channel',
                     true,
-                    $vendorUser->id,
+                    $rfq->user_id,
                     "/orders?search={$poNumber}",
                     ['type' => 'purchase_order_created']
                 );
-            }
+
+                // 4. Notify the vendor
+                $this->broadcastAction->execute(
+                    "Purchase Order Generated",
+                    "A new Purchase Order {$poNumber} has been generated for your proposal on '{$rfq->title}'.",
+                    'test-channel',
+                    true,
+                    null,
+                    "/orders?search={$poNumber}"
+                );
+
+                // Notify vendor users specifically
+                foreach ($proposal->company->users as $vendorUser) {
+                    $this->broadcastAction->execute(
+                        "PO Generated: {$poNumber}",
+                        "PO has been generated for RFQ: {$rfq->title}. Please confirm the order.",
+                        'test-channel',
+                        true,
+                        $vendorUser->id,
+                        "/orders?search={$poNumber}",
+                        ['type' => 'purchase_order_created']
+                    );
+                }
+            });
 
             return $proposal->fresh();
         });

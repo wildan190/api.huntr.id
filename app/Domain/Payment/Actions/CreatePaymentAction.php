@@ -17,18 +17,43 @@ class CreatePaymentAction
     {
         $externalId = 'PAY-' . strtoupper(Str::random(10));
         
+        // Use total_amount (includes platform_fee + midtrans_fee + ppn_fee) as the final charge
+        $totalAmount   = (int) ($invoice->total_amount ?: $invoice->amount);
+        $baseAmount    = (int) ($invoice->base_amount ?: $invoice->amount);
+        $platformFee   = (int) ($invoice->platform_fee ?? 0);
+        $midtransFee   = (int) ($invoice->midtrans_fee ?? 0);
+        $ppnFee        = (int) ($invoice->ppn_fee ?? 0);
+
         $payload = [
             'transaction_details' => [
                 'order_id' => $externalId,
-                'gross_amount' => (int) $invoice->amount,
+                'gross_amount' => $totalAmount,
             ],
             'item_details' => [
                 [
-                    'id' => $invoice->id,
-                    'price' => (int) $invoice->amount,
+                    'id'       => $invoice->id . '-base',
+                    'price'    => $baseAmount,
                     'quantity' => 1,
-                    'name' => 'Payment for PO ' . $invoice->purchaseOrder->po_number,
-                ]
+                    'name'     => 'Payment for PO ' . $invoice->purchaseOrder->po_number,
+                ],
+                [
+                    'id'       => $invoice->id . '-platform-fee',
+                    'price'    => $platformFee,
+                    'quantity' => 1,
+                    'name'     => 'Biaya Layanan Platform',
+                ],
+                [
+                    'id'       => $invoice->id . '-midtrans-fee',
+                    'price'    => $midtransFee,
+                    'quantity' => 1,
+                    'name'     => 'Biaya Midtrans',
+                ],
+                [
+                    'id'       => $invoice->id . '-ppn',
+                    'price'    => $ppnFee,
+                    'quantity' => 1,
+                    'name'     => 'PPN 11%',
+                ],
             ],
             'customer_details' => [
                 'first_name' => $invoice->purchaseOrder->buyer?->name ?? 'Buyer',
@@ -83,15 +108,15 @@ class CreatePaymentAction
         $response = $this->midtrans->charge($payload);
 
         return Payment::create([
-            'invoice_id' => $invoice->id,
-            'external_id' => $externalId,
+            'invoice_id'     => $invoice->id,
+            'external_id'    => $externalId,
             'transaction_id' => $response['transaction_id'] ?? null,
-            'amount' => $invoice->amount,
-            'payment_type' => $payload['payment_type'],
+            'amount'         => $totalAmount,
+            'payment_type'   => $payload['payment_type'],
             'payment_method' => $method,
-            'status' => 'pending',
-            'payment_info' => $this->extractPaymentInfo($response, $method),
-            'raw_response' => $response,
+            'status'         => 'pending',
+            'payment_info'   => $this->extractPaymentInfo($response, $method),
+            'raw_response'   => $response,
         ]);
     }
 

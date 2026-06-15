@@ -16,6 +16,11 @@ class Invoice extends Model
         'type', // proforma, final
         'amount',
         'status', // unpaid, paid, pending_finance
+        'base_amount',
+        'platform_fee',
+        'midtrans_fee',
+        'ppn_fee',
+        'total_amount',
     ];
 
     public function purchaseOrder()

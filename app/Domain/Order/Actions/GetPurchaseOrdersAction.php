@@ -5,6 +5,8 @@ namespace App\Domain\Order\Actions;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Company\Models\Company;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Filesystem\FilesystemAdapter;
 
 /**
  * Action to fetch and map purchase orders based on company type and search criteria.
@@ -116,6 +118,7 @@ class GetPurchaseOrdersAction
             if ($po->is_historical) {
                 $mappedItems = $po->historicalItems->map(function ($item) {
                     return [
+                        'id'                  => $item->id,
                         'pr_reference_number' => $item->pr_reference_number,
                         'inventory_code'      => $item->inventory_code,
                         'inventory_name'      => $item->inventory_name,
@@ -152,6 +155,7 @@ class GetPurchaseOrdersAction
                     $qty = $negotiationItem ? $negotiationItem->negotiated_qty : $item->qty;
 
                     return [
+                        'id'                  => $item->id,
                         'pr_reference_number' => 'RFQ-' . $item->rfq_id,
                         'inventory_code'      => $cat?->item_code ?? 'N/A',
                         'inventory_name'      => $cat?->name ?? 'N/A',
@@ -167,6 +171,17 @@ class GetPurchaseOrdersAction
                 $totalAmount = $mappedItems->sum('total_amount');
             }
 
+            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
+            /** @var FilesystemAdapter $storageDisk */
+            $storageDisk = Storage::disk($disk);
+            $buyerLogoUrl = null;
+            if ($po->buyer && $po->buyer->logo_path) {
+                $buyerLogoUrl = $storageDisk->url($po->buyer->logo_path);
+            }
+            $vendorLogoUrl = null;
+            if ($po->vendor && $po->vendor->logo_path) {
+                $vendorLogoUrl = $storageDisk->url($po->vendor->logo_path);
+            }
             return [
                 'id'                => $po->id,
                 'po_number'         => $po->po_number,
@@ -186,6 +201,8 @@ class GetPurchaseOrdersAction
                 'approved_by'       => ($po->relationLoaded('approver') && $po->approver) ? $po->approver->name : ($po->approved_by ?? 'N/A'),
                 'total_amount'      => $totalAmount ?? $po->total_amount,
                 'items'             => $mappedItems,
+                'buyer_logo_url'    => $buyerLogoUrl,
+                'vendor_logo_url'   => $vendorLogoUrl,
                 'delivery_orders'   => $po->deliveryOrders->map(function ($do) {
                     return [
                         'id' => $do->id,

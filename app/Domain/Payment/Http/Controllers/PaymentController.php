@@ -86,9 +86,9 @@ class PaymentController extends \App\Http\Controllers\Controller
     /**
      * Get payment status.
      */
-    public function show($id): JsonResponse
+    public function show($id, \App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction $broadcastAction): JsonResponse
     {
-        $payment = Payment::with('invoice.purchaseOrder')->where('id', $id)->first();
+        $payment = Payment::with(['invoice.purchaseOrder.buyer', 'invoice.purchaseOrder.vendor.users'])->where('id', $id)->first();
         
         if (!$payment) {
             return response()->json([
@@ -115,7 +115,31 @@ class PaymentController extends \App\Http\Controllers\Controller
                             'status' => 'paid',
                             // type stays as-is (proforma remains proforma after payment)
                         ]);
-                        $payment->invoice->purchaseOrder->update(['status' => 'paid']);
+                        $po = $payment->invoice->purchaseOrder;
+                        $po->update(['status' => 'paid']);
+
+                        // 1. Notify the Buyer (The one who paid)
+                        $broadcastAction->execute(
+                            "Payment Successful",
+                            "Your payment for PO {$po->po_number} has been confirmed. Thank you!",
+                            'test-channel',
+                            true,
+                            $po->created_by,
+                            "/orders?search={$po->po_number}"
+                        );
+
+                        // 2. Notify the Vendor (The one receiving money)
+                        $vendorUserIds = collect($po->vendor->users->pluck('id'))->push($po->vendor->owner_id)->unique()->filter();
+                        foreach ($vendorUserIds as $vendorUserId) {
+                            $broadcastAction->execute(
+                                "Payment Received",
+                                "Buyer has completed payment for PO {$po->po_number}. Please prepare for delivery.",
+                                'test-channel',
+                                true,
+                                $vendorUserId,
+                                "/orders?search={$po->po_number}"
+                            );
+                        }
                     }
                 }
             } catch (\Exception $e) {
