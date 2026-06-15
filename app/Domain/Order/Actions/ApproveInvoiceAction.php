@@ -58,7 +58,7 @@ class ApproveInvoiceAction
             'beneficiary_account' => $vendor->bank_account,
             'beneficiary_bank' => strtolower($vendor->bank_name),
             'beneficiary_email' => $vendor->email,
-            'amount' => number_format($invoice->amount, 2, '.', ''),
+            'amount' => number_format($invoice->base_amount ?: $invoice->amount, 2, '.', ''),
             'notes' => "Payout for PO {$safePoNumber}"
         ];
 

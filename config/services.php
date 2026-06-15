@@ -49,4 +49,11 @@ return [
         'iris_merchant_key' => env('MIDTRANS_IRIS_MERCHANT_KEY'),
     ],
 
+    'pajakio' => [
+        'base_url' => env('PAJAKIO_BASE_URL', 'https://sandbox-openapi.pajak.io'),
+        'api_key' => env('PAJAKIO_TOKEN', env('PAJAKIO_API_KEY', '')),
+        'token' => env('PAJAKIO_TOKEN', ''),
+        'passphrase' => env('PAJAKIO_PASSPHRASE', 'ppp123@@'),
+    ],
+
 ];

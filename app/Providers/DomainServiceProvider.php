@@ -54,7 +54,7 @@ class DomainServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $domains = ['Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation'];
+        $domains = ['Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur'];
         foreach ($domains as $domain) {
             $routePath = app_path("Domain/{$domain}/routes/api.php");
             if (file_exists($routePath)) {
