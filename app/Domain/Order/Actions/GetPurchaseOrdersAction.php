@@ -33,6 +33,7 @@ class GetPurchaseOrdersAction
             'invoices', 
             'deliveryOrders', 
             'basts',
+            'efakturs',
             'rfq.items.catalogue', 
             'rfq.proposals' => function($q) {
                 $q->where('status', 'accepted')->with(['items', 'acceptedNegotiation.items']);
@@ -230,6 +231,17 @@ class GetPurchaseOrdersAction
                         'bast_date'     => $bast->bast_date?->format('Y-m-d'),
                         'status'        => $bast->status,
                         'handed_by_name' => $bast->handed_by_name,
+                    ];
+                }),
+                'efakturs'          => $po->efakturs->map(function ($ef) {
+                    return [
+                        'id'            => $ef->id,
+                        'nofa'          => $ef->nofa,
+                        'transaction_id' => $ef->transaction_id,
+                        'status'        => $ef->status,
+                        'tanggal_faktur' => $ef->tanggal_faktur,
+                        'dpp'           => $ef->dpp,
+                        'ppn'           => $ef->ppn,
                     ];
                 }),
             ];
