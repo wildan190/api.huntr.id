@@ -159,7 +159,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Sign Delivery Order as handed-by party (vendor)
      */
-    public function signDoHandedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $do): JsonResponse
+    public function signDoHandedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder): JsonResponse
     {
         $request->validate([
             'handed_by_user_id' => 'required|uuid|exists:users,id',
@@ -185,7 +185,7 @@ class OrderController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Manager can sign documents.'], 403);
         }
 
-        $do->update([
+        $deliveryOrder->update([
             'handed_by_user_id' => $request->input('handed_by_user_id'),
             'handed_by_name' => $request->input('handed_by_name'),
             'handed_by_position' => $request->input('handed_by_position'),
@@ -193,38 +193,38 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         // Refresh to get latest data and load relationships
-        $do->refresh();
-        $do->load(['purchaseOrder', 'handedByUser', 'receivedByUser', 'witnessUser']);
+        $deliveryOrder->refresh();
+        $deliveryOrder->load(['purchaseOrder', 'handedByUser', 'receivedByUser', 'witnessUser']);
 
         return response()->json([
             'message' => 'Signature recorded successfully.',
             'do' => [
-                'id' => $do->id,
-                'do_number' => $do->do_number,
-                'tracking_number' => $do->tracking_number,
-                'status' => $do->status,
-                'handed_by_user_id' => $do->handed_by_user_id,
-                'handed_by_name' => $do->handed_by_name,
-                'handed_by_position' => $do->handed_by_position,
-                'handed_by_signed_at' => $do->handed_by_signed_at?->toIso8601String(),
-                'received_by_user_id' => $do->received_by_user_id,
-                'received_by_name' => $do->received_by_name,
-                'received_by_position' => $do->received_by_position,
-                'received_by_signed_at' => $do->received_by_signed_at?->toIso8601String(),
-                'witness_user_id' => $do->witness_user_id,
-                'witness_name' => $do->witness_name,
-                'witness_position' => $do->witness_position,
-                'witness_signed_at' => $do->witness_signed_at?->toIso8601String(),
-                'purchase_order' => $do->purchaseOrder,
-                'handed_by_user' => $do->handedByUser,
-                'received_by_user' => $do->receivedByUser,
-                'witness_user' => $do->witnessUser,
+                'id' => $deliveryOrder->id,
+                'do_number' => $deliveryOrder->do_number,
+                'tracking_number' => $deliveryOrder->tracking_number,
+                'status' => $deliveryOrder->status,
+                'handed_by_user_id' => $deliveryOrder->handed_by_user_id,
+                'handed_by_name' => $deliveryOrder->handed_by_name,
+                'handed_by_position' => $deliveryOrder->handed_by_position,
+                'handed_by_signed_at' => $deliveryOrder->handed_by_signed_at?->toIso8601String(),
+                'received_by_user_id' => $deliveryOrder->received_by_user_id,
+                'received_by_name' => $deliveryOrder->received_by_name,
+                'received_by_position' => $deliveryOrder->received_by_position,
+                'received_by_signed_at' => $deliveryOrder->received_by_signed_at?->toIso8601String(),
+                'witness_user_id' => $deliveryOrder->witness_user_id,
+                'witness_name' => $deliveryOrder->witness_name,
+                'witness_position' => $deliveryOrder->witness_position,
+                'witness_signed_at' => $deliveryOrder->witness_signed_at?->toIso8601String(),
+                'purchase_order' => $deliveryOrder->purchaseOrder,
+                'handed_by_user' => $deliveryOrder->handedByUser,
+                'received_by_user' => $deliveryOrder->receivedByUser,
+                'witness_user' => $deliveryOrder->witnessUser,
             ],
             'signature_status' => [
-                'handed_by_signed' => $do->handed_by_signed_at !== null,
-                'received_by_signed' => $do->received_by_signed_at !== null,
-                'witness_signed' => $do->witness_signed_at !== null,
-                'fully_signed' => $do->isFullySigned(),
+                'handed_by_signed' => $deliveryOrder->handed_by_signed_at !== null,
+                'received_by_signed' => $deliveryOrder->received_by_signed_at !== null,
+                'witness_signed' => $deliveryOrder->witness_signed_at !== null,
+                'fully_signed' => $deliveryOrder->isFullySigned(),
             ],
         ]);
     }
@@ -232,7 +232,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Sign Delivery Order as received-by party (buyer)
      */
-    public function signDoReceivedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $do): JsonResponse
+    public function signDoReceivedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder): JsonResponse
     {
         $request->validate([
             'received_by_user_id' => 'required|uuid|exists:users,id',
@@ -258,7 +258,7 @@ class OrderController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Manager can sign documents.'], 403);
         }
 
-        $do->update([
+        $deliveryOrder->update([
             'received_by_user_id' => $request->input('received_by_user_id'),
             'received_by_name' => $request->input('received_by_name'),
             'received_by_position' => $request->input('received_by_position'),
@@ -266,38 +266,38 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         // Refresh to get latest data and load relationships
-        $do->refresh();
-        $do->load(['purchaseOrder', 'handedByUser', 'receivedByUser', 'witnessUser']);
+        $deliveryOrder->refresh();
+        $deliveryOrder->load(['purchaseOrder', 'handedByUser', 'receivedByUser', 'witnessUser']);
 
         return response()->json([
             'message' => 'Signature recorded successfully.',
             'do' => [
-                'id' => $do->id,
-                'do_number' => $do->do_number,
-                'tracking_number' => $do->tracking_number,
-                'status' => $do->status,
-                'handed_by_user_id' => $do->handed_by_user_id,
-                'handed_by_name' => $do->handed_by_name,
-                'handed_by_position' => $do->handed_by_position,
-                'handed_by_signed_at' => $do->handed_by_signed_at?->toIso8601String(),
-                'received_by_user_id' => $do->received_by_user_id,
-                'received_by_name' => $do->received_by_name,
-                'received_by_position' => $do->received_by_position,
-                'received_by_signed_at' => $do->received_by_signed_at?->toIso8601String(),
-                'witness_user_id' => $do->witness_user_id,
-                'witness_name' => $do->witness_name,
-                'witness_position' => $do->witness_position,
-                'witness_signed_at' => $do->witness_signed_at?->toIso8601String(),
-                'purchase_order' => $do->purchaseOrder,
-                'handed_by_user' => $do->handedByUser,
-                'received_by_user' => $do->receivedByUser,
-                'witness_user' => $do->witnessUser,
+                'id' => $deliveryOrder->id,
+                'do_number' => $deliveryOrder->do_number,
+                'tracking_number' => $deliveryOrder->tracking_number,
+                'status' => $deliveryOrder->status,
+                'handed_by_user_id' => $deliveryOrder->handed_by_user_id,
+                'handed_by_name' => $deliveryOrder->handed_by_name,
+                'handed_by_position' => $deliveryOrder->handed_by_position,
+                'handed_by_signed_at' => $deliveryOrder->handed_by_signed_at?->toIso8601String(),
+                'received_by_user_id' => $deliveryOrder->received_by_user_id,
+                'received_by_name' => $deliveryOrder->received_by_name,
+                'received_by_position' => $deliveryOrder->received_by_position,
+                'received_by_signed_at' => $deliveryOrder->received_by_signed_at?->toIso8601String(),
+                'witness_user_id' => $deliveryOrder->witness_user_id,
+                'witness_name' => $deliveryOrder->witness_name,
+                'witness_position' => $deliveryOrder->witness_position,
+                'witness_signed_at' => $deliveryOrder->witness_signed_at?->toIso8601String(),
+                'purchase_order' => $deliveryOrder->purchaseOrder,
+                'handed_by_user' => $deliveryOrder->handedByUser,
+                'received_by_user' => $deliveryOrder->receivedByUser,
+                'witness_user' => $deliveryOrder->witnessUser,
             ],
             'signature_status' => [
-                'handed_by_signed' => $do->handed_by_signed_at !== null,
-                'received_by_signed' => $do->received_by_signed_at !== null,
-                'witness_signed' => $do->witness_signed_at !== null,
-                'fully_signed' => $do->isFullySigned(),
+                'handed_by_signed' => $deliveryOrder->handed_by_signed_at !== null,
+                'received_by_signed' => $deliveryOrder->received_by_signed_at !== null,
+                'witness_signed' => $deliveryOrder->witness_signed_at !== null,
+                'fully_signed' => $deliveryOrder->isFullySigned(),
             ],
         ]);
     }
@@ -305,7 +305,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Sign Delivery Order as witness
      */
-    public function signDoWitness(Request $request, \App\Domain\Order\Models\DeliveryOrder $do): JsonResponse
+    public function signDoWitness(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder): JsonResponse
     {
         $request->validate([
             'witness_user_id' => 'required|uuid|exists:users,id',
@@ -331,7 +331,7 @@ class OrderController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Manager can sign documents.'], 403);
         }
 
-        $do->update([
+        $deliveryOrder->update([
             'witness_user_id' => $request->input('witness_user_id'),
             'witness_name' => $request->input('witness_name'),
             'witness_position' => $request->input('witness_position'),
@@ -339,38 +339,38 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         // Refresh to get latest data and load relationships
-        $do->refresh();
-        $do->load(['purchaseOrder', 'handedByUser', 'receivedByUser', 'witnessUser']);
+        $deliveryOrder->refresh();
+        $deliveryOrder->load(['purchaseOrder', 'handedByUser', 'receivedByUser', 'witnessUser']);
 
         return response()->json([
             'message' => 'Witness signature recorded successfully.',
             'do' => [
-                'id' => $do->id,
-                'do_number' => $do->do_number,
-                'tracking_number' => $do->tracking_number,
-                'status' => $do->status,
-                'handed_by_user_id' => $do->handed_by_user_id,
-                'handed_by_name' => $do->handed_by_name,
-                'handed_by_position' => $do->handed_by_position,
-                'handed_by_signed_at' => $do->handed_by_signed_at?->toIso8601String(),
-                'received_by_user_id' => $do->received_by_user_id,
-                'received_by_name' => $do->received_by_name,
-                'received_by_position' => $do->received_by_position,
-                'received_by_signed_at' => $do->received_by_signed_at?->toIso8601String(),
-                'witness_user_id' => $do->witness_user_id,
-                'witness_name' => $do->witness_name,
-                'witness_position' => $do->witness_position,
-                'witness_signed_at' => $do->witness_signed_at?->toIso8601String(),
-                'purchase_order' => $do->purchaseOrder,
-                'handed_by_user' => $do->handedByUser,
-                'received_by_user' => $do->receivedByUser,
-                'witness_user' => $do->witnessUser,
+                'id' => $deliveryOrder->id,
+                'do_number' => $deliveryOrder->do_number,
+                'tracking_number' => $deliveryOrder->tracking_number,
+                'status' => $deliveryOrder->status,
+                'handed_by_user_id' => $deliveryOrder->handed_by_user_id,
+                'handed_by_name' => $deliveryOrder->handed_by_name,
+                'handed_by_position' => $deliveryOrder->handed_by_position,
+                'handed_by_signed_at' => $deliveryOrder->handed_by_signed_at?->toIso8601String(),
+                'received_by_user_id' => $deliveryOrder->received_by_user_id,
+                'received_by_name' => $deliveryOrder->received_by_name,
+                'received_by_position' => $deliveryOrder->received_by_position,
+                'received_by_signed_at' => $deliveryOrder->received_by_signed_at?->toIso8601String(),
+                'witness_user_id' => $deliveryOrder->witness_user_id,
+                'witness_name' => $deliveryOrder->witness_name,
+                'witness_position' => $deliveryOrder->witness_position,
+                'witness_signed_at' => $deliveryOrder->witness_signed_at?->toIso8601String(),
+                'purchase_order' => $deliveryOrder->purchaseOrder,
+                'handed_by_user' => $deliveryOrder->handedByUser,
+                'received_by_user' => $deliveryOrder->receivedByUser,
+                'witness_user' => $deliveryOrder->witnessUser,
             ],
             'signature_status' => [
-                'handed_by_signed' => $do->handed_by_signed_at !== null,
-                'received_by_signed' => $do->received_by_signed_at !== null,
-                'witness_signed' => $do->witness_signed_at !== null,
-                'fully_signed' => $do->isFullySigned(),
+                'handed_by_signed' => $deliveryOrder->handed_by_signed_at !== null,
+                'received_by_signed' => $deliveryOrder->received_by_signed_at !== null,
+                'witness_signed' => $deliveryOrder->witness_signed_at !== null,
+                'fully_signed' => $deliveryOrder->isFullySigned(),
             ],
         ]);
     }
