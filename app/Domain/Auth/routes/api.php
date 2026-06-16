@@ -24,6 +24,7 @@ Route::post('api/admin/auth/login', [AdminController::class, 'login']);
 
 Route::prefix('api/admin')->middleware(['api'])->group(function () {
     Route::get('companies', [AdminController::class, 'listCompanies']);
+    Route::post('companies/{company}/audit', [AdminController::class, 'auditCompany']);
     Route::get('catalogues', [AdminCatalogueController::class, 'index']);
     Route::post('catalogues', [AdminCatalogueController::class, 'store']);
     Route::post('catalogues/{catalogue}', [AdminCatalogueController::class, 'update']);
