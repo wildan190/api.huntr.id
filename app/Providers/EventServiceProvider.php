@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\EFaktur\Listeners\CreateEfakturOnBastCompleted;
+use App\Domain\Order\Events\BastCompletedEvent;
 use App\Domain\Order\Events\BastIssuedEvent;
 use App\Domain\Order\Listeners\SendBastIssuedNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -16,6 +18,9 @@ class EventServiceProvider extends ServiceProvider
     protected $listen = [
         BastIssuedEvent::class => [
             SendBastIssuedNotification::class,
+        ],
+        BastCompletedEvent::class => [
+            CreateEfakturOnBastCompleted::class,
         ],
         \App\Domain\Receipt\Events\GoodsInspected::class => [
             \App\Domain\Receipt\Listeners\SendGoodsInspectedNotification::class,

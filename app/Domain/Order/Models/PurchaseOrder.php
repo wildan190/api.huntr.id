@@ -17,6 +17,7 @@ class PurchaseOrder extends Model
         'buyer_company_id',
         'rfq_id',
         'vendor_id',
+        'proposal_id',
         'po_number',
         'vendor_name',
         'department',

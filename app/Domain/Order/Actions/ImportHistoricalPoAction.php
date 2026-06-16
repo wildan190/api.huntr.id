@@ -96,8 +96,41 @@ class ImportHistoricalPoAction
                 $createdBy        = trim((string) ($firstRow['Created By'] ?? $firstRow['Created by'] ?? $firstRow['created by'] ?? ''));
                 $approvedBy       = trim((string) ($firstRow['Approved by'] ?? $firstRow['Approved By'] ?? $firstRow['approved by'] ?? ''));
 
+                // Calculate total amount first from all rows
+                $totalAmountForPo = 0;
+                $tempItems = [];
+
+                foreach ($poRows as $row) {
+                    $qty          = (float) ($row['Qty'] ?? $row['qty'] ?? 1);
+                    $unitPrice    = $this->cleanDecimal($row['Unit price in original currency'] ?? $row['unit price in original currency'] ?? 0);
+                    if ($unitPrice <= 0) {
+                        $unitPrice = $this->cleanDecimal($row['Orgi Curr Unit Price'] ?? $row['orgi curr unit price'] ?? 0);
+                    }
+                    $amount       = $this->cleanDecimal($row['Amount in original currency'] ?? $row['amount in original currency'] ?? 0);
+                    $taxAmount    = $this->cleanDecimal($row['Tax amount in original currency'] ?? $row['tax amount in original currency'] ?? 0);
+                    $totalAmount  = $this->cleanDecimal($row['Original Currency Total Amount'] ?? $row['original currency total amount'] ?? 0);
+                    
+                    if ($totalAmount <= 0) {
+                        $totalAmount = $amount + $taxAmount;
+                    }
+                    if ($amount <= 0 && $unitPrice > 0) {
+                        $amount = $unitPrice * $qty;
+                    }
+
+                    $totalAmountForPo += $totalAmount;
+                    $tempItems[] = [
+                        'inventoryCode' => trim((string) ($row['Inventory Code'] ?? $row['inventory code'] ?? '')),
+                        'inventoryName' => trim((string) ($row['Inventory name'] ?? $row['inventory name'] ?? $row['Inventory Name'] ?? '')),
+                        'qty' => $qty,
+                        'unitPrice' => $unitPrice,
+                        'amount' => $amount,
+                        'taxAmount' => $taxAmount,
+                        'totalAmount' => $totalAmount,
+                        'row' => $row,
+                    ];
+                }
+
                 // Create or find the PurchaseOrder record scoped by company
-                // Note: vendor_name is stored as string, NOT as a Company entity
                 $po = PurchaseOrder::updateOrCreate(
                     [
                         'buyer_company_id' => $company->id,
@@ -116,54 +149,36 @@ class ImportHistoricalPoAction
                         'is_historical'     => true,
                         'created_by'        => $createdBy,
                         'approved_by'       => $approvedBy,
+                        'total_amount'      => $totalAmountForPo,
                     ]
                 );
 
                 // If updating an existing PO, clear old items first
                 $po->historicalItems()->delete();
 
-                // Create line items
-                foreach ($poRows as $row) {
-                    $inventoryCode = trim((string) ($row['Inventory Code'] ?? $row['inventory code'] ?? ''));
-                    $inventoryName = trim((string) ($row['Inventory name'] ?? $row['inventory name'] ?? $row['Inventory Name'] ?? ''));
-
-                    if (empty($inventoryName)) {
+                // Create line items from temp items
+                foreach ($tempItems as $item) {
+                    if (empty($item['inventoryName'])) {
                         continue;
                     }
 
-                    $qty          = (float) ($row['Qty'] ?? $row['qty'] ?? 1);
-                    $unitPrice    = $this->cleanDecimal($row['Unit price in original currency'] ?? $row['unit price in original currency'] ?? 0);
-                    if ($unitPrice <= 0) {
-                        $unitPrice = $this->cleanDecimal($row['Orgi Curr Unit Price'] ?? $row['orgi curr unit price'] ?? 0);
-                    }
-
-                    $amount       = $this->cleanDecimal($row['Amount in original currency'] ?? $row['amount in original currency'] ?? 0);
-                    $taxAmount    = $this->cleanDecimal($row['Tax amount in original currency'] ?? $row['tax amount in original currency'] ?? 0);
-                    $totalAmount  = $this->cleanDecimal($row['Original Currency Total Amount'] ?? $row['original currency total amount'] ?? 0);
-                    
-                    if ($totalAmount <= 0) {
-                        $totalAmount = $amount + $taxAmount;
-                    }
-                    if ($amount <= 0 && $unitPrice > 0) {
-                        $amount = $unitPrice * $qty;
-                    }
-
+                    $row = $item['row'];
                     $expectedDate = $this->parseDate($row['Expected receiving date'] ?? $row['expected receiving date'] ?? null);
                     $exchangeRate = $this->cleanDecimal($row['Exchange rate'] ?? $row['exchange rate'] ?? 1);
 
                     HistoricalPoItem::create([
                         'purchase_order_id'       => $po->id,
                         'pr_reference_number'     => trim((string) ($row['PR Refference Number'] ?? $row['pr refference number'] ?? $row['PR Reference Number'] ?? '')),
-                        'inventory_code'          => $inventoryCode,
-                        'inventory_name'          => $inventoryName,
+                        'inventory_code'          => $item['inventoryCode'],
+                        'inventory_name'          => $item['inventoryName'],
                         'category'                => trim((string) ($row['Category'] ?? $row['category'] ?? '')),
                         'specifications'          => trim((string) ($row['Specifications'] ?? $row['specifications'] ?? '')),
                         'uom'                     => trim((string) ($row['Primary UOM'] ?? $row['primary uom'] ?? 'Pc')),
-                        'qty'                     => $qty,
-                        'unit_price'              => $unitPrice,
-                        'amount'                  => $amount,
-                        'tax_amount'              => $taxAmount,
-                        'total_amount'            => $totalAmount,
+                        'qty'                     => $item['qty'],
+                        'unit_price'              => $item['unitPrice'],
+                        'amount'                  => $item['amount'],
+                        'tax_amount'              => $item['taxAmount'],
+                        'total_amount'            => $item['totalAmount'],
                         'currency'                => $currency,
                         'exchange_rate'           => $exchangeRate ?: 1,
                         'clerk'                   => trim((string) ($row['Clerk'] ?? $row['clerk'] ?? '')),
