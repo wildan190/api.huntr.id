@@ -31,17 +31,15 @@ class ApproveWinnerAction
         $rfq = $proposal->rfq;
         $poNumber = 'PO-' . date('Ymd') . '-' . strtoupper(substr($proposal->id, 0, 6));
 
-        // 1. Check if PO already exists (case-insensitive check for po_number)
-        $existingPo = \App\Domain\Order\Models\PurchaseOrder::where(function($q) use ($rfq, $proposal) {
-                $q->where('rfq_id', $rfq->id)
-                  ->where('vendor_id', $proposal->company_id);
-            })
-            ->orWhereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])
-            ->first();
+        // Check if a PO for THIS proposal already exists (not just same rfq and vendor)
+        $existingPoForThisProposal = \App\Domain\Order\Models\PurchaseOrder::where('proposal_id', $proposal->id)->first();
+        
+        // Also check for duplicate po_number just in case
+        $existingPoByNumber = \App\Domain\Order\Models\PurchaseOrder::whereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])->first();
 
-        if ($existingPo) {
-            // Update existing PO to ensure it's correct and visible
-            $existingPo->update([
+        if ($existingPoForThisProposal) {
+            // Only update existing PO if it's for THIS proposal
+            $existingPoForThisProposal->update([
                 'vendor_id'        => $proposal->company_id,
                 'buyer_company_id' => $rfq->company_id,
                 'total_amount'     => $proposal->price_offer,
@@ -49,7 +47,6 @@ class ApproveWinnerAction
                 'status'           => 'issued',
             ]);
 
-            // Ensure proposal status is also correct
             if ($proposal->winner_status !== 'approved') {
                 $proposal->update([
                     'status' => 'accepted',
@@ -59,6 +56,13 @@ class ApproveWinnerAction
                 ]);
             }
             return $proposal;
+        } elseif ($existingPoByNumber) {
+            // If duplicate po_number, just increment a suffix
+            $suffix = 2;
+            while (\App\Domain\Order\Models\PurchaseOrder::whereRaw('LOWER(po_number) = ?', [strtolower($poNumber . '-' . $suffix)])->first()) {
+                $suffix++;
+            }
+            $poNumber = $poNumber . '-' . $suffix;
         }
 
         // 2. Verify proposal is in 'awarded' state
@@ -110,6 +114,7 @@ class ApproveWinnerAction
                 'buyer_company_id' => $rfq->company_id,
                 'rfq_id'           => $rfq->id,
                 'vendor_id'        => $proposal->company_id,
+                'proposal_id'      => $proposal->id,
                 'po_number'        => $poNumber,
                 'status'           => 'issued',
                 'order_date'       => now(),
