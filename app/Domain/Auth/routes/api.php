@@ -3,6 +3,7 @@
 use App\Domain\Auth\Http\Controllers\AdminController;
 use App\Domain\Auth\Http\Controllers\AdminCatalogueController;
 use App\Domain\Auth\Http\Controllers\AdminTransactionController;
+use App\Domain\Auth\Http\Controllers\AccountController;
 use Illuminate\Support\Facades\Route;
 use App\Domain\Auth\Http\Controllers\AuthController;
 use App\Domain\Auth\Http\Controllers\RoleSwitchController;
@@ -32,6 +33,13 @@ Route::prefix('api/admin')->middleware(['api'])->group(function () {
     Route::delete('catalogues/{catalogue}', [AdminCatalogueController::class, 'destroy']);
     Route::get('transactions', [AdminTransactionController::class, 'index']);
     Route::get('transactions/escrow-summary', [AdminTransactionController::class, 'escrowSummary']);
+});
+
+Route::prefix('api/account')->middleware(['api', 'auth:api'])->group(function () {
+    Route::put('password', [AccountController::class, 'updatePassword']);
+    Route::put('whatsapp', [AccountController::class, 'updateWhatsapp']);
+    Route::get('sessions', [AccountController::class, 'getSessions']);
+    Route::delete('sessions/{sessionId}', [AccountController::class, 'logoutSession']);
 });
 
 Route::middleware(['api', 'auth:api'])->group(function () {
