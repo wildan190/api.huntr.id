@@ -157,6 +157,7 @@ class Bast extends Model
     {
         if ($this->isFullySigned()) {
             $this->update(['status' => 'completed']);
+            event(new \App\Domain\Order\Events\BastCompletedEvent($this));
         }
     }
 }
