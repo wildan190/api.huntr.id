@@ -6,7 +6,6 @@
     @include('print._styles', ['accentColor' => '#f97316'])
     <style>
         .signatures { display: grid; grid-template-columns: 1fr 1fr; margin-top: 40px; text-align: center; gap: 24px; }
-        .signature-line { border-top: 1px solid #333; margin-top: 70px; width: 70%; margin-left: auto; margin-right: auto; padding-top: 10px; font-size: 12px; }
     </style>
 </head>
 <body onload="window.print()">
@@ -88,15 +87,28 @@
         </tbody>
     </table>
 
-    <div class="signatures">
-        <div>
-            <div><strong>Received By (Buyer)</strong></div>
-            <div class="signature-line">Name / Date</div>
-        </div>
-        <div>
-            <div><strong>Delivered By (Vendor)</strong></div>
-            <div class="signature-line">Name / Date</div>
-        </div>
+    <div class="section-title">Document Signatures</div>
+    <div class="signature-section">
+        @include('print._signature_block', [
+            'docType' => 'do',
+            'docId' => $do->id,
+            'role' => 'received-by',
+            'label' => 'Received By (Buyer)',
+            'signerName' => $do->received_by_name,
+            'signerPosition' => $do->received_by_position,
+            'signedAt' => $do->received_by_signed_at?->toIso8601String(),
+            'signedAtFormatted' => $do->received_by_signed_at?->format('d/m/Y H:i'),
+        ])
+        @include('print._signature_block', [
+            'docType' => 'do',
+            'docId' => $do->id,
+            'role' => 'handed-by',
+            'label' => 'Delivered By (Vendor)',
+            'signerName' => $do->handed_by_name,
+            'signerPosition' => $do->handed_by_position,
+            'signedAt' => $do->handed_by_signed_at?->toIso8601String(),
+            'signedAtFormatted' => $do->handed_by_signed_at?->format('d/m/Y H:i'),
+        ])
     </div>
 
     @include('print._footer')

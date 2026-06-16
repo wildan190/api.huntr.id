@@ -94,6 +94,7 @@ class OrderController extends \App\Http\Controllers\Controller
      */
     public function printDo(\App\Domain\Order\Models\DeliveryOrder $deliveryOrder, GetPurchaseOrdersAction $action)
     {
+        $deliveryOrder->load(['goodsReceipts', 'handedByUser', 'receivedByUser', 'witnessUser']);
         $po = $deliveryOrder->purchaseOrder;
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
