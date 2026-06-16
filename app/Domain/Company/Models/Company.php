@@ -54,6 +54,22 @@ class Company extends Model
         return $this->hasMany(User::class);
     }
 
+    /**
+     * Users who can approve on behalf of this company (managers + owner).
+     */
+    public function approvers()
+    {
+        $users = $this->users()->with('roles')->get()
+            ->filter(fn (User $user) => $user->hasRole('manager'));
+
+        $owner = User::find($this->owner_id);
+        if ($owner && ! $users->contains('id', $owner->id)) {
+            $users->push($owner);
+        }
+
+        return $users->unique('id')->values();
+    }
+
     public function catalogues()
     {
         return $this->hasMany(Catalogue::class);

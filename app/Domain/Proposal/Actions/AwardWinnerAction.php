@@ -6,6 +6,7 @@ use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\Company;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -66,31 +67,55 @@ class AwardWinnerAction
             $rfq->update(['status' => 'awarded']);
 
             DB::afterCommit(function () use ($proposal, $rfq) {
-                // 4. Notify the winning vendor
-                foreach ($proposal->company->users as $vendorUser) {
-                    $this->broadcastAction->execute(
-                        "Proposal Selected as Winner!",
+                $proposal->load(['company.users']);
+                $rfq->load('company');
+                $vendorCompany = $proposal->company;
+                $buyerCompany = $rfq->company;
+
+                // Notify the winning vendor company and its users
+                if ($vendorCompany) {
+                    $vendorCompany->notify(new DatabaseNotification(
+                        'Proposal Selected as Winner!',
                         "Congratulations! Your proposal for RFQ '{$rfq->title}' has been selected as the winner!",
-                        'test-channel',
-                        true,
-                        $vendorUser->id,
-                        "/proposals",
-                        ['type' => 'proposal_awarded']
-                    );
+                        '/proposals',
+                        null,
+                        ['type' => 'proposal_awarded', 'rfq_id' => $rfq->id, 'proposal_id' => $proposal->id]
+                    ));
+
+                    foreach ($vendorCompany->users as $vendorUser) {
+                        $this->broadcastAction->execute(
+                            'Proposal Selected as Winner!',
+                            "Congratulations! Your proposal for RFQ '{$rfq->title}' has been selected as the winner!",
+                            'test-channel',
+                            true,
+                            $vendorUser->id,
+                            '/proposals',
+                            ['type' => 'proposal_awarded', 'rfq_id' => $rfq->id, 'proposal_id' => $proposal->id]
+                        );
+                    }
                 }
 
-                // 5. Notify the buyer managers for approval
-                $managers = $rfq->company->users()->with('roles')->get()->filter(fn($user) => $user->roles->contains('slug', 'manager'));
-                foreach ($managers as $manager) {
-                    $this->broadcastAction->execute(
-                        "Winner Requires Approval",
+                // Notify buyer managers (and owner) for PO approval
+                if ($buyerCompany) {
+                    $buyerCompany->notify(new DatabaseNotification(
+                        'Winner Requires Approval',
                         "A winner has been awarded for RFQ '{$rfq->title}' and requires your approval.",
-                        'test-channel',
-                        true,
-                        $manager->id,
-                        "/approvals",
-                        ['type' => 'winner_approval']
-                    );
+                        '/approvals',
+                        null,
+                        ['type' => 'winner_approval', 'rfq_id' => $rfq->id, 'proposal_id' => $proposal->id]
+                    ));
+
+                    foreach ($buyerCompany->approvers() as $manager) {
+                        $this->broadcastAction->execute(
+                            'Winner Requires Approval',
+                            "A winner has been awarded for RFQ '{$rfq->title}' and requires your approval.",
+                            'test-channel',
+                            true,
+                            $manager->id,
+                            '/approvals',
+                            ['type' => 'winner_approval', 'rfq_id' => $rfq->id, 'proposal_id' => $proposal->id]
+                        );
+                    }
                 }
             });
 
