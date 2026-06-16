@@ -4,6 +4,7 @@ namespace App\Domain\Order\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 /**
  * BAST (Berita Acara Serah Terima - Handover Report)
@@ -110,7 +111,7 @@ class Bast extends Model
         while ($attempt < $maxRetries) {
             try {
                 // Use database lock to prevent race condition
-                return \DB::transaction(function () use ($date) {
+                return DB::transaction(function () use ($date) {
                     // Lock for update - this will wait if another transaction is holding the lock
                     $lastBast = self::where('bast_number', 'like', "BAST-{$date}-%")
                         ->orderBy('bast_number', 'desc')
@@ -146,8 +147,7 @@ class Bast extends Model
     public function isFullySigned(): bool
     {
         return $this->handed_by_signed_at !== null &&
-               $this->received_by_signed_at !== null &&
-               $this->witness_signed_at !== null;
+               $this->received_by_signed_at !== null;
     }
 
     /**

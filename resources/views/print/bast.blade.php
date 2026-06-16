@@ -5,7 +5,7 @@
     <title>BAST - {{ $bast->bast_number }}</title>
     @include('print._styles', ['accentColor' => '#f97316'])
     <style>
-        .signature-section { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+        .signature-section { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
         .signature-box { border-top: 1px solid #999; padding-top: 16px; text-align: center; }
         .signature-box .name { font-weight: 700; margin-top: 36px; font-size: 13px; }
         .signature-box .position { font-size: 11px; color: #666; margin-top: 4px; }
@@ -102,14 +102,6 @@
     <p style="color: #999; font-size: 13px;">No items recorded in this BAST.</p>
     @endif
 
-    @if($bast->witness_name)
-    <div style="margin-bottom: 24px;">
-        <div class="section-title">Witness / Saksi</div>
-        <p class="party-name" style="font-size: 14px;">{{ $bast->witness_name }}</p>
-        <p class="party-detail">{{ $bast->witness_position }}</p>
-    </div>
-    @endif
-
     <div class="signature-section">
         <div class="signature-box">
             <div style="font-size: 12px; font-weight: 700;">Handed By</div>
@@ -126,18 +118,6 @@
             @endif
             <div class="name">{{ $bast->received_by_name }}</div>
             <div class="position">{{ $bast->received_by_position }}</div>
-        </div>
-        <div class="signature-box">
-            <div style="font-size: 12px; font-weight: 700;">Witness</div>
-            @if($bast->witness_name)
-                @if($bast->witness_signed_at)
-                <div style="margin: 24px 0 8px; font-size: 11px; color: #666;">Signed: {{ $bast->witness_signed_at->format('d/m/Y H:i') }}</div>
-                @endif
-                <div class="name">{{ $bast->witness_name }}</div>
-                <div class="position">{{ $bast->witness_position }}</div>
-            @else
-            <div style="margin: 36px 0; font-size: 11px; color: #999;"><em>Not signed</em></div>
-            @endif
         </div>
     </div>
 

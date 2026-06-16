@@ -213,6 +213,18 @@ class GetPurchaseOrdersAction
                         'do_number' => $do->do_number,
                         'tracking_number' => $do->tracking_number,
                         'status' => $do->status,
+                        'handed_by_user_id' => $do->handed_by_user_id,
+                        'handed_by_name' => $do->handed_by_name,
+                        'handed_by_position' => $do->handed_by_position,
+                        'handed_by_signed_at' => $do->handed_by_signed_at?->toIso8601String(),
+                        'received_by_user_id' => $do->received_by_user_id,
+                        'received_by_name' => $do->received_by_name,
+                        'received_by_position' => $do->received_by_position,
+                        'received_by_signed_at' => $do->received_by_signed_at?->toIso8601String(),
+                        'witness_user_id' => $do->witness_user_id,
+                        'witness_name' => $do->witness_name,
+                        'witness_position' => $do->witness_position,
+                        'witness_signed_at' => $do->witness_signed_at?->toIso8601String(),
                     ];
                 }),
                 'invoices'          => $po->invoices->map(function ($inv) {
@@ -226,11 +238,16 @@ class GetPurchaseOrdersAction
                 }),
                 'basts'             => $po->basts->map(function ($bast) {
                     return [
-                        'id'            => $bast->id,
-                        'bast_number'   => $bast->bast_number,
-                        'bast_date'     => $bast->bast_date?->format('Y-m-d'),
-                        'status'        => $bast->status,
-                        'handed_by_name' => $bast->handed_by_name,
+                        'id'                    => $bast->id,
+                        'bast_number'           => $bast->bast_number,
+                        'bast_date'             => $bast->bast_date?->format('Y-m-d'),
+                        'status'                => $bast->status,
+                        'handed_by_name'        => $bast->handed_by_name,
+                        'handed_by_signed_at'   => $bast->handed_by_signed_at?->format('Y-m-d H:i:s'),
+                        'received_by_name'      => $bast->received_by_name,
+                        'received_by_signed_at' => $bast->received_by_signed_at?->format('Y-m-d H:i:s'),
+                        'witness_name'          => $bast->witness_name,
+                        'witness_signed_at'     => $bast->witness_signed_at?->format('Y-m-d H:i:s'),
                     ];
                 }),
                 'efakturs'          => $po->efakturs->map(function ($ef) {

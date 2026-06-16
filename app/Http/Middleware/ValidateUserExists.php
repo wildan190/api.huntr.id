@@ -34,6 +34,17 @@ class ValidateUserExists
                 // For web requests, redirect to login page
                 return redirect('/login');
             }
+            
+            // Force fresh roles from database by unloading and reloading
+            // This ensures we always have the latest role data, especially after role switches
+            $request->user()->unsetRelation('roles');
+            $request->user()->load('roles');
+            
+            \Log::info('ValidateUserExists middleware - roles loaded', [
+                'user_id' => $request->user()->id,
+                'uri' => $request->getRequestUri(),
+                'roles' => $request->user()->roles->pluck('slug')->toArray(),
+            ]);
         }
 
         return $next($request);

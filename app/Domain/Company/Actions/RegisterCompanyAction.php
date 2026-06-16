@@ -12,6 +12,7 @@ class RegisterCompanyAction
 {
     public function __construct(
         private readonly CompanyRepositoryInterface $companyRepository,
+        private readonly \App\Domain\Access\Actions\AssignRoleAction $assignRoleAction,
     ) {}
 
     /**
@@ -66,6 +67,16 @@ class RegisterCompanyAction
                 'user_id' => $user->id,
                 'company_id' => $company->id,
                 'status' => $company->status
+            ]);
+        }
+
+        // Ensure the company owner has manager role
+        // This is important because the user who creates/owns the company should be able to manage it
+        if (!$user->hasRole('manager')) {
+            $this->assignRoleAction->execute($user, 'manager');
+            Log::info('Assigned manager role to company owner', [
+                'user_id' => $user->id,
+                'company_id' => $company->id,
             ]);
         }
 

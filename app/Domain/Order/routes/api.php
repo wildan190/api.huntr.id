@@ -19,8 +19,10 @@ Route::prefix('api/orders')->middleware(['api', 'auth:api'])->group(function () 
     Route::post('{po}/arrange-delivery', [OrderController::class, 'arrangeDelivery']);
 });
 
-Route::prefix('api/do')->middleware(['api'])->group(function () {
+Route::prefix('api/do')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('{deliveryOrder}/print', [OrderController::class, 'printDo'])->withoutMiddleware('auth:api');
+    Route::post('{deliveryOrder}/sign-handed-by', [OrderController::class, 'signDoHandedBy']);
+    Route::post('{deliveryOrder}/sign-received-by', [OrderController::class, 'signDoReceivedBy']);
 });
 
 Route::prefix('api/invoices')->middleware(['api', 'auth:api'])->group(function () {
@@ -58,13 +60,12 @@ Route::prefix('api/debit-notes')->middleware(['api', 'auth:sanctum'])->group(fun
 });
 
 // BAST routes (moved to Order domain as part of PO lifecycle)
-Route::prefix('api/basts')->middleware(['api', 'auth:sanctum'])->group(function () {
+Route::prefix('api/basts')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('', [BastController::class, 'index'])->name('basts.index');
     Route::post('', [BastController::class, 'store'])->name('basts.store');
     Route::get('{id}', [BastController::class, 'show'])->name('basts.show');
     Route::post('{id}/sign-handed-by', [BastController::class, 'signHandedBy'])->name('basts.sign-handed-by');
     Route::post('{id}/sign-received-by', [BastController::class, 'signReceivedBy'])->name('basts.sign-received-by');
-    Route::post('{id}/sign-witness', [BastController::class, 'signWitness'])->name('basts.sign-witness');
 });
 
 // BAST PDF endpoint - no auth middleware (HTML view for printing)
