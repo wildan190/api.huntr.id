@@ -133,6 +133,15 @@
     }
     .powered-by strong { color: {{ $accentColor ?? '#f97316' }}; font-size: 15px; }
 
+    .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 40px; }
+    .signature-block { border-top: 1px solid #999; padding-top: 16px; text-align: center; min-height: 220px; }
+    .signature-block__label { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+    .signature-block__qr { display: block; margin: 8px auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 4px; background: #fff; }
+    .signature-block__meta { font-size: 11px; color: #666; margin: 6px 0; }
+    .signature-block__pending { font-size: 11px; color: #999; margin: 36px 0 12px; font-style: italic; }
+    .signature-block__name { font-weight: 700; margin-top: 8px; font-size: 13px; }
+    .signature-block__position { font-size: 11px; color: #666; margin-top: 4px; }
+
     @media print {
         body { padding: 0; }
         .no-print { display: none; }

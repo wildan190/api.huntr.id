@@ -5,10 +5,6 @@
     <title>BAST - {{ $bast->bast_number }}</title>
     @include('print._styles', ['accentColor' => '#f97316'])
     <style>
-        .signature-section { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        .signature-box { border-top: 1px solid #999; padding-top: 16px; text-align: center; }
-        .signature-box .name { font-weight: 700; margin-top: 36px; font-size: 13px; }
-        .signature-box .position { font-size: 11px; color: #666; margin-top: 4px; }
         .info-field { margin-bottom: 10px; }
         .info-field label { font-size: 10px; color: #999; text-transform: uppercase; display: block; }
         .info-field value { font-size: 13px; font-weight: 600; }
@@ -102,23 +98,28 @@
     <p style="color: #999; font-size: 13px;">No items recorded in this BAST.</p>
     @endif
 
+    <div class="section-title">Document Signatures</div>
     <div class="signature-section">
-        <div class="signature-box">
-            <div style="font-size: 12px; font-weight: 700;">Handed By</div>
-            @if($bast->handed_by_signed_at)
-            <div style="margin: 24px 0 8px; font-size: 11px; color: #666;">Signed: {{ $bast->handed_by_signed_at->format('d/m/Y H:i') }}</div>
-            @endif
-            <div class="name">{{ $bast->handed_by_name }}</div>
-            <div class="position">{{ $bast->handed_by_position }}</div>
-        </div>
-        <div class="signature-box">
-            <div style="font-size: 12px; font-weight: 700;">Received By</div>
-            @if($bast->received_by_signed_at)
-            <div style="margin: 24px 0 8px; font-size: 11px; color: #666;">Signed: {{ $bast->received_by_signed_at->format('d/m/Y H:i') }}</div>
-            @endif
-            <div class="name">{{ $bast->received_by_name }}</div>
-            <div class="position">{{ $bast->received_by_position }}</div>
-        </div>
+        @include('print._signature_block', [
+            'docType' => 'bast',
+            'docId' => $bast->id,
+            'role' => 'handed-by',
+            'label' => 'Handed By (Vendor)',
+            'signerName' => $bast->handed_by_name,
+            'signerPosition' => $bast->handed_by_position,
+            'signedAt' => $bast->handed_by_signed_at?->toIso8601String(),
+            'signedAtFormatted' => $bast->handed_by_signed_at?->format('d/m/Y H:i'),
+        ])
+        @include('print._signature_block', [
+            'docType' => 'bast',
+            'docId' => $bast->id,
+            'role' => 'received-by',
+            'label' => 'Received By (Buyer)',
+            'signerName' => $bast->received_by_name,
+            'signerPosition' => $bast->received_by_position,
+            'signedAt' => $bast->received_by_signed_at?->toIso8601String(),
+            'signedAtFormatted' => $bast->received_by_signed_at?->format('d/m/Y H:i'),
+        ])
     </div>
 
     @include('print._footer', ['footerNote' => 'This is a computer-generated BAST document from Huntr.id Procurement System.'])

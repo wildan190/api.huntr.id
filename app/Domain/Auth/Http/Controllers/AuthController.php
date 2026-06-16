@@ -11,6 +11,7 @@ use App\Domain\Auth\Http\Requests\LoginUserRequest;
 use App\Domain\Auth\Http\Requests\SendOtpRequest;
 use App\Domain\Auth\Http\Requests\VerifyOtpRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * AuthController
@@ -50,5 +51,15 @@ class AuthController extends \App\Http\Controllers\Controller
     public function verifyOtp(VerifyOtpRequest $request, VerifyOtpAction $action): JsonResponse
     {
         return response()->json($action->execute($request->validated()));
+    }
+
+    /**
+     * Revoke the current API token.
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()?->currentAccessToken()?->delete();
+
+        return response()->json(['message' => 'Logged out successfully.']);
     }
 }

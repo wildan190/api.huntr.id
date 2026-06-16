@@ -24,7 +24,7 @@ class LoginUserAction
      */
     public function execute(array $credentials): array
     {
-        $login = $credentials['email'] ?? $credentials['whatsapp'] ?? '';
+        $login = $credentials['login'] ?? $credentials['email'] ?? $credentials['whatsapp'] ?? '';
         $user = $this->userRepository->findByEmailOrWhatsapp($login);
 
         if (!$user || !Hash::check($credentials['password'], $user->password)) {
