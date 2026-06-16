@@ -18,6 +18,7 @@ class AccessControlSeeder extends Seeder
             'staff' => 'Staff',
             'vendor' => 'Vendor Representative',
             'buyer' => 'Buyer Representative',
+            'finance' => 'Finance',
         ];
 
         foreach ($roles as $slug => $name) {

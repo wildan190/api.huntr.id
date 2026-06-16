@@ -41,7 +41,11 @@ trait HasAccess
     {
         $role = Role::where('slug', $roleSlug)->first();
         if ($role) {
-            $this->roles()->syncWithoutDetaching([$role->id]);
+            // Check if role already attached
+            $exists = $this->roles()->where('role_id', $role->id)->exists();
+            if (!$exists) {
+                $this->roles()->attach($role->id);
+            }
         }
     }
 

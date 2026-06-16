@@ -1,45 +1,42 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Http\Request;
-use App\Domain\Auth\Http\Controllers\AuthController;
-use App\Domain\Auth\Http\Controllers\AccountController;
+use App\Domain\Auth\Http\Controllers\RoleSwitchController;
 
-Route::prefix('api/auth')->middleware(['api', 'cors'])->group(function () {
-    Route::post('register', [AuthController::class, 'register']);
-    Route::post('login', [AuthController::class, 'login']);
-    Route::post('logout', function (Request $request) {
-        auth()->logout();
-        return response()->json(['message' => 'Logged out successfully']);
-    });
-    Route::post('otp/send', [AuthController::class, 'sendOtp']);
-    Route::post('otp/verify', [AuthController::class, 'verifyOtp']);
-});
-
-Route::prefix('api/account')->middleware(['api', 'auth:api', 'cors'])->group(function () {
-    Route::put('password', [AccountController::class, 'updatePassword']);
-    Route::put('whatsapp', [AccountController::class, 'updateWhatsapp']);
-    Route::get('sessions', [AccountController::class, 'getSessions']);
-    Route::delete('sessions/{id}', [AccountController::class, 'logoutSession']);
-});
-
-Route::middleware(['api', 'auth:api', 'cors'])->group(function () {
-    Route::get('api/user', function (Request $request) {
-        return $request->user();
-    });
-});
-
-Route::prefix('api/admin')->middleware(['api', 'cors'])->group(function () {
-    Route::post('auth/login', [\App\Domain\Auth\Http\Controllers\AdminController::class, 'login']);
-    Route::get('companies', [\App\Domain\Auth\Http\Controllers\AdminController::class, 'listCompanies']);
-    Route::post('companies/{id}/audit', [\App\Domain\Auth\Http\Controllers\AdminController::class, 'auditCompany']);
+Route::middleware(['api', 'auth:api'])->group(function () {
+    Route::post('/role-switch', [RoleSwitchController::class, 'switch']);
     
-    // Transactions & Escrow
-    Route::get('transactions', [\App\Domain\Auth\Http\Controllers\AdminTransactionController::class, 'index']);
-    Route::get('transactions/escrow-summary', [\App\Domain\Auth\Http\Controllers\AdminTransactionController::class, 'escrowSummary']);
-    
-    // Global Catalogue
-    Route::get('catalogues', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'index']);
-    Route::post('catalogues', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'store']);
-    Route::delete('catalogues/{catalogue}', [\App\Domain\Auth\Http\Controllers\AdminCatalogueController::class, 'destroy']);
+    // Debug endpoint to check current user roles
+    Route::get('/debug-roles', function(\Illuminate\Http\Request $request) {
+        $user = $request->user();
+        
+        // Force fresh from database
+        $user->unsetRelation('roles');
+        $user->load('roles');
+        
+        // Also query directly from database
+        $rolesFromDb = \App\Domain\Access\Models\Role::whereHas('users', function($q) use ($user) {
+            $q->where('model_id', $user->id);
+        })->get();
+        
+        return response()->json([
+            'user_id' => $user->id,
+            'user_name' => $user->name,
+            'user_email' => $user->email,
+            'roles_from_relation' => $user->roles->map(fn($r) => [
+                'id' => $r->id,
+                'name' => $r->name,
+                'slug' => $r->slug,
+            ]),
+            'roles_from_db' => $rolesFromDb->map(fn($r) => [
+                'id' => $r->id,
+                'name' => $r->name,
+                'slug' => $r->slug,
+            ]),
+            'model_roles_table' => \DB::table('model_roles')
+                ->where('model_id', $user->id)
+                ->where('model_type', get_class($user))
+                ->get(),
+        ]);
+    });
 });

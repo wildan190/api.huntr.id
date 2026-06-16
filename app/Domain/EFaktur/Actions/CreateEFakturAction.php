@@ -25,8 +25,8 @@ class CreateEFakturAction
      */
     public function execute(Bast $bast, PurchaseOrder $po, array $extra = []): EFaktur
     {
-        // Load relationships
-        $po->load(['invoices', 'items', 'vendor', 'buyer']);
+        // Load relationships (note: PO doesn't have direct 'items', only historicalItems or rfq.items)
+        $po->load(['invoices', 'historicalItems', 'rfq.items', 'vendor', 'buyer']);
         $bast->load(['vendorCompany', 'buyerCompany']);
 
         $vendor = $po->vendor ?? $bast->vendorCompany;
@@ -169,9 +169,16 @@ class CreateEFakturAction
      */
     private function buildBarangJasa(PurchaseOrder $po, float $baseAmount): array
     {
-        $items = $po->items ?? collect([]);
+        // Get items from either historicalItems or rfq.items
+        $items = null;
+        
+        if ($po->is_historical && $po->historicalItems && $po->historicalItems->isNotEmpty()) {
+            $items = $po->historicalItems;
+        } elseif ($po->rfq && $po->rfq->items && $po->rfq->items->isNotEmpty()) {
+            $items = $po->rfq->items;
+        }
 
-        if ($items->isEmpty()) {
+        if (!$items || $items->isEmpty()) {
             // Fallback single-line faktur from base amount
             $dpp = $baseAmount;
             $ppn = round($dpp * 0.11);
@@ -195,16 +202,33 @@ class CreateEFakturAction
             ]];
         }
 
-        return $items->map(function ($item) {
-            $qty       = (float) ($item['qty'] ?? $item->qty ?? 1);
-            $unitPrice = (float) ($item['unit_price'] ?? $item->unit_price ?? 0);
+        return $items->map(function ($item) use ($po) {
+            // Handle both historicalItems and rfq.items
+            if ($po->is_historical) {
+                // Historical item structure
+                $qty       = (float) ($item->qty ?? 1);
+                $unitPrice = (float) ($item->unit_price ?? 0);
+                $itemName  = $item->inventory_name ?? 'Barang';
+                $itemCode  = $item->inventory_code ?? '000000';
+            } else {
+                // RFQ item structure - need to get price from accepted proposal
+                $qty       = (float) ($item->qty ?? 1);
+                $itemName  = $item->catalogue->name ?? 'Barang';
+                $itemCode  = $item->catalogue->item_code ?? '000000';
+                
+                // Get unit price from proposal (if available)
+                $proposal = $po->rfq->proposals->where('status', 'accepted')->first();
+                $proposalItem = $proposal ? $proposal->items->where('rfq_item_id', $item->id)->first() : null;
+                $unitPrice = (float) ($proposalItem->price_offer ?? $item->catalogue->price ?? 0);
+            }
+            
             $total     = round($qty * $unitPrice);
             $ppn       = round($total * 0.11);
 
             return [
                 'jenis'       => 'BARANG',
-                'nama'        => $item['inventory_name'] ?? $item->inventory_name ?? 'Barang',
-                'kode'        => $item['inventory_code'] ?? $item->inventory_code ?? '000000',
+                'nama'        => $itemName,
+                'kode'        => $itemCode,
                 'jumlah'      => $qty,
                 'kodeSatuan'  => 'UM.0021',
                 'harga'       => $unitPrice,

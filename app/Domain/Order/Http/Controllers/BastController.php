@@ -41,7 +41,7 @@ class BastController extends \App\Http\Controllers\Controller
         try {
             Log::info('BastController.store called', [
                 'po_id' => $request->input('po_id'),
-                'user_id' => auth()->id() ?? $request->user()->id,
+                'user_id' => auth()->id(),
             ]);
 
             $po = PurchaseOrder::findOrFail($request->input('po_id'));
@@ -164,6 +164,24 @@ class BastController extends \App\Http\Controllers\Controller
             'handed_by_position' => 'required|string',
         ]);
 
+        $user = $request->user();
+        
+        // Fresh query to get latest roles from database
+        $user->load('roles');
+        
+        // Check using collection instead of query builder to use loaded data
+        $hasManager = $user->roles->contains('slug', 'manager');
+        
+        \Log::info('signHandedBy role check', [
+            'user_id' => $user->id,
+            'roles' => $user->roles->pluck('slug')->toArray(),
+            'has_manager' => $hasManager,
+        ]);
+        
+        if (!$hasManager) {
+            return response()->json(['message' => 'Only Manager can sign documents.'], 403);
+        }
+
         $bast = Bast::findOrFail($id);
 
         $bast->update([
@@ -194,6 +212,24 @@ class BastController extends \App\Http\Controllers\Controller
             'received_by_position' => 'required|string',
         ]);
 
+        $user = $request->user();
+        
+        // Fresh query to get latest roles from database
+        $user->load('roles');
+        
+        // Check using collection instead of query builder to use loaded data
+        $hasManager = $user->roles->contains('slug', 'manager');
+        
+        \Log::info('signReceivedBy role check', [
+            'user_id' => $user->id,
+            'roles' => $user->roles->pluck('slug')->toArray(),
+            'has_manager' => $hasManager,
+        ]);
+        
+        if (!$hasManager) {
+            return response()->json(['message' => 'Only Manager can sign documents.'], 403);
+        }
+
         $bast = Bast::findOrFail($id);
 
         $bast->update([
@@ -223,6 +259,24 @@ class BastController extends \App\Http\Controllers\Controller
             'witness_name' => 'required|string',
             'witness_position' => 'required|string',
         ]);
+
+        $user = $request->user();
+        
+        // Fresh query to get latest roles from database
+        $user->load('roles');
+        
+        // Check using collection instead of query builder to use loaded data
+        $hasManager = $user->roles->contains('slug', 'manager');
+        
+        \Log::info('signWitness role check', [
+            'user_id' => $user->id,
+            'roles' => $user->roles->pluck('slug')->toArray(),
+            'has_manager' => $hasManager,
+        ]);
+        
+        if (!$hasManager) {
+            return response()->json(['message' => 'Only Manager can sign documents.'], 403);
+        }
 
         $bast = Bast::findOrFail($id);
 
