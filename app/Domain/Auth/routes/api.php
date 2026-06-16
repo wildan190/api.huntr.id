@@ -1,6 +1,8 @@
 <?php
 
 use App\Domain\Auth\Http\Controllers\AdminController;
+use App\Domain\Auth\Http\Controllers\AdminCatalogueController;
+use App\Domain\Auth\Http\Controllers\AdminTransactionController;
 use Illuminate\Support\Facades\Route;
 use App\Domain\Auth\Http\Controllers\AuthController;
 use App\Domain\Auth\Http\Controllers\RoleSwitchController;
@@ -21,10 +23,14 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
 Route::post('api/admin/auth/login', [AdminController::class, 'login']);
 
 Route::prefix('api/admin')->middleware(['api'])->group(function () {
-    Route::get('companies', [AdminController::class, 'companies']);
-    Route::get('catalogues', [AdminController::class, 'catalogues']);
-    Route::get('transactions', [AdminController::class, 'transactions']);
-    Route::get('transactions/escrow-summary', [AdminController::class, 'escrowSummary']);
+    Route::get('companies', [AdminController::class, 'listCompanies']);
+    Route::get('catalogues', [AdminCatalogueController::class, 'index']);
+    Route::post('catalogues', [AdminCatalogueController::class, 'store']);
+    Route::post('catalogues/{catalogue}', [AdminCatalogueController::class, 'update']);
+    Route::match(['put', 'patch'], 'catalogues/{catalogue}', [AdminCatalogueController::class, 'update']);
+    Route::delete('catalogues/{catalogue}', [AdminCatalogueController::class, 'destroy']);
+    Route::get('transactions', [AdminTransactionController::class, 'index']);
+    Route::get('transactions/escrow-summary', [AdminTransactionController::class, 'escrowSummary']);
 });
 
 Route::middleware(['api', 'auth:api'])->group(function () {

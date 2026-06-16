@@ -2,72 +2,39 @@
 
 namespace App\Domain\Auth\Http\Controllers;
 
+use App\Domain\Auth\Actions\DeleteAdminCatalogueAction;
+use App\Domain\Auth\Actions\GetAdminCataloguesAction;
+use App\Domain\Auth\Actions\StoreAdminCatalogueAction;
+use App\Domain\Auth\Actions\UpdateAdminCatalogueAction;
+use App\Domain\Auth\Http\Requests\StoreAdminCatalogueRequest;
+use App\Domain\Auth\Http\Requests\UpdateAdminCatalogueRequest;
 use App\Domain\Catalogue\Models\Catalogue;
-use App\Domain\Company\Models\Company;
-use App\Domain\Auth\Models\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Domain\Catalogue\Actions\CreateCatalogueAction;
 use Illuminate\Validation\ValidationException;
-
-use Illuminate\Support\Str;
 
 class AdminCatalogueController extends Controller
 {
     /**
      * Get all global catalogue items.
      */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, GetAdminCataloguesAction $action): JsonResponse
     {
-        $perPage = $request->query('per_page', 10);
-        $search = $request->query('search', '');
-
-        $query = Catalogue::with('company')->orderBy('created_at', 'desc');
-
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('item_code', 'like', "%{$search}%")
-                  ->orWhereHas('company', function ($c) use ($search) {
-                      $c->where('name', 'like', "%{$search}%");
-                  });
-            });
-        }
-
-        return response()->json($query->paginate($perPage));
+        return response()->json($action->execute(
+            $request->only('search'),
+            (int) $request->query('per_page', 10)
+        ));
     }
 
     /**
      * Store a new catalogue item on behalf of a vendor.
      */
-    public function store(Request $request, CreateCatalogueAction $action): JsonResponse
+    public function store(StoreAdminCatalogueRequest $request, StoreAdminCatalogueAction $action): JsonResponse
     {
-        $data = $request->validate([
-            'company_id' => 'nullable|uuid|exists:companies,id',
-            'item_code' => 'nullable|string|max:255',
-            'name' => 'required|string|max:255',
-            'category' => 'nullable|string|max:255',
-            'specifications' => 'nullable|string',
-            'uom' => 'required|string|max:50',
-            'price' => 'nullable|numeric|min:0',
-            'image' => 'nullable|image|max:2048',
-        ]);
-
-        if (empty($data['item_code'])) {
-            $data['item_code'] = 'GLB-' . strtoupper(Str::random(8));
-        }
-        
-        if (!isset($data['price'])) {
-            $data['price'] = 0;
-        }
-
-        // Create a dummy admin user instance just to pass to the action to bypass Vendor check
-        $admin = new Admin();
-        $admin->id = 1; // dummy
-
         try {
-            $item = $action->execute($admin, $data);
+            $item = $action->execute($request->validated());
+
             return response()->json([
                 'message' => 'Product successfully added to vendor catalog.',
                 'data'    => $item
@@ -78,17 +45,27 @@ class AdminCatalogueController extends Controller
     }
 
     /**
+     * Update an existing catalogue item.
+     */
+    public function update(
+        UpdateAdminCatalogueRequest $request,
+        Catalogue $catalogue,
+        UpdateAdminCatalogueAction $action
+    ): JsonResponse {
+        $item = $action->execute($catalogue, $request->validated());
+
+        return response()->json([
+            'message' => 'Product successfully updated.',
+            'data' => $item,
+        ]);
+    }
+
+    /**
      * Delete a catalogue item.
      */
-    public function destroy(Catalogue $catalogue): JsonResponse
+    public function destroy(Catalogue $catalogue, DeleteAdminCatalogueAction $action): JsonResponse
     {
-        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-
-        if ($catalogue->image_path) {
-            \Illuminate\Support\Facades\Storage::disk($disk)->delete($catalogue->image_path);
-        }
-
-        $catalogue->delete();
+        $action->execute($catalogue);
 
         return response()->json(['message' => 'Product successfully deleted from catalog.']);
     }
