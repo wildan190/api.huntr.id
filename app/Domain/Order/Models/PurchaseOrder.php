@@ -84,4 +84,9 @@ class PurchaseOrder extends Model
     {
         return $this->hasMany(Bast::class, 'po_id');
     }
+
+    public function efakturs()
+    {
+        return $this->hasMany(\App\Domain\EFaktur\Models\EFaktur::class, 'po_id');
+    }
 }

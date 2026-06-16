@@ -66,9 +66,31 @@
                 <td style="text-align: right;">{{ number_format($item['total_amount']) }}</td>
             </tr>
             @endforeach
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">SUBTOTAL (DPP)</td>
+                <td style="text-align: right;">{{ number_format($invoice->base_amount ?? $invoice->amount) }}</td>
+            </tr>
+            @if($invoice->platform_fee > 0)
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">BIAYA PLATFORM</td>
+                <td style="text-align: right;">{{ number_format($invoice->platform_fee) }}</td>
+            </tr>
+            @endif
+            @if($invoice->midtrans_fee > 0)
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">BIAYA ADMIN (MIDTRANS)</td>
+                <td style="text-align: right;">{{ number_format($invoice->midtrans_fee) }}</td>
+            </tr>
+            @endif
+            @if($invoice->ppn_fee > 0)
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">PPN 11%</td>
+                <td style="text-align: right;">{{ number_format($invoice->ppn_fee) }}</td>
+            </tr>
+            @endif
             <tr class="total-row">
                 <td colspan="3" style="text-align: right;">TOTAL PAYABLE ({{ $po['currency'] }})</td>
-                <td style="text-align: right;">{{ number_format($invoice->amount) }}</td>
+                <td style="text-align: right;">{{ number_format($invoice->total_amount ?? $invoice->amount) }}</td>
             </tr>
         </tbody>
     </table>
