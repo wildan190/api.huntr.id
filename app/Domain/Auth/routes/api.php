@@ -1,8 +1,10 @@
 <?php
 
+use App\Domain\Auth\Http\Controllers\AdminController;
 use Illuminate\Support\Facades\Route;
 use App\Domain\Auth\Http\Controllers\AuthController;
 use App\Domain\Auth\Http\Controllers\RoleSwitchController;
+use Illuminate\Support\Facades\DB;
 
 Route::prefix('api/auth')->middleware(['api'])->group(function () {
     Route::post('login', [AuthController::class, 'login']);
@@ -13,6 +15,16 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
     });
+});
+
+//admin auth login
+Route::post('api/admin/auth/login', [AdminController::class, 'login']);
+
+Route::prefix('api/admin')->middleware(['api'])->group(function () {
+    Route::get('companies', [AdminController::class, 'companies']);
+    Route::get('catalogues', [AdminController::class, 'catalogues']);
+    Route::get('transactions', [AdminController::class, 'transactions']);
+    Route::get('transactions/escrow-summary', [AdminController::class, 'escrowSummary']);
 });
 
 Route::middleware(['api', 'auth:api'])->group(function () {
@@ -42,7 +54,7 @@ Route::middleware(['api', 'auth:api'])->group(function () {
                 'name' => $r->name,
                 'slug' => $r->slug,
             ]),
-            'model_roles_table' => \DB::table('model_roles')
+            'model_roles_table' => DB::table('model_roles')
                 ->where('model_id', $user->id)
                 ->where('model_type', get_class($user))
                 ->get(),
