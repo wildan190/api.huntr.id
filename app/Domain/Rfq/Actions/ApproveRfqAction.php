@@ -45,7 +45,8 @@ class ApproveRfqAction
             'test-channel',
             true,
             $rfq->user_id,
-            "/my-pr"
+            "/my-pr",
+            ['type' => 'pr_approved']
         );
 
         // Notify relevant vendors

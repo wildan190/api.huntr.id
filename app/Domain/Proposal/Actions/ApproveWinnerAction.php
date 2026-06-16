@@ -5,6 +5,7 @@ namespace App\Domain\Proposal\Actions;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -126,38 +127,43 @@ class ApproveWinnerAction
             }
 
             DB::afterCommit(function () use ($rfq, $poNumber, $proposal) {
-                // 3. Notify the buyer (requester)
+                $proposal->load(['company.users']);
+                $vendorCompany = $proposal->company;
+                $poUrl = "/orders?search={$poNumber}";
+                $poData = ['type' => 'purchase_order_created', 'po_number' => $poNumber, 'rfq_id' => $rfq->id];
+
+                // Notify the buyer (requester)
                 $this->broadcastAction->execute(
-                    "Purchase Order Ready",
+                    'Purchase Order Ready',
                     "Your Purchase Order {$poNumber} has been generated and issued to vendor.",
                     'test-channel',
                     true,
                     $rfq->user_id,
-                    "/orders?search={$poNumber}",
-                    ['type' => 'purchase_order_created']
+                    $poUrl,
+                    $poData
                 );
 
-                // 4. Notify the vendor
-                $this->broadcastAction->execute(
-                    "Purchase Order Generated",
-                    "A new Purchase Order {$poNumber} has been generated for your proposal on '{$rfq->title}'.",
-                    'test-channel',
-                    true,
-                    null,
-                    "/orders?search={$poNumber}"
-                );
+                // Notify vendor company and its users
+                if ($vendorCompany) {
+                    $vendorCompany->notify(new DatabaseNotification(
+                        'Purchase Order Generated',
+                        "A new Purchase Order {$poNumber} has been generated for your proposal on '{$rfq->title}'.",
+                        $poUrl,
+                        null,
+                        $poData
+                    ));
 
-                // Notify vendor users specifically
-                foreach ($proposal->company->users as $vendorUser) {
-                    $this->broadcastAction->execute(
-                        "PO Generated: {$poNumber}",
-                        "PO has been generated for RFQ: {$rfq->title}. Please confirm the order.",
-                        'test-channel',
-                        true,
-                        $vendorUser->id,
-                        "/orders?search={$poNumber}",
-                        ['type' => 'purchase_order_created']
-                    );
+                    foreach ($vendorCompany->users as $vendorUser) {
+                        $this->broadcastAction->execute(
+                            "PO Generated: {$poNumber}",
+                            "PO has been generated for RFQ: {$rfq->title}. Please confirm the order.",
+                            'test-channel',
+                            true,
+                            $vendorUser->id,
+                            $poUrl,
+                            $poData
+                        );
+                    }
                 }
             });
 

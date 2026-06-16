@@ -6,6 +6,7 @@ use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
 use App\Domain\Company\Models\Company;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Notifications\DatabaseNotification;
 
 class CreateRfqAction
 {
@@ -56,7 +57,7 @@ class CreateRfqAction
             ['type' => 'pr_created']
         );
 
-        $managers = $buyerCompany->users()->with('roles')->get()->filter(fn($user) => $user->roles->contains('slug', 'manager'));
+        $managers = $buyerCompany->approvers();
         foreach ($managers as $manager) {
             $this->broadcastAction->execute(
                 "PR Requires Approval",
@@ -68,6 +69,14 @@ class CreateRfqAction
                 ['type' => 'pending_approval']
             );
         }
+
+        $buyerCompany->notify(new DatabaseNotification(
+            'PR Requires Approval',
+            "PR '{$title}' has been submitted and requires your approval.",
+            '/approvals',
+            null,
+            ['type' => 'pending_approval', 'rfq_id' => $rfq->id]
+        ));
 
         if ($status === 'active') {
             $this->notifyVendorsAction->execute($rfq);
