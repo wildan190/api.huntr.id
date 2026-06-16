@@ -3,6 +3,7 @@
 namespace App\Domain\Auth\Http\Controllers;
 
 use App\Domain\Auth\Actions\AdminLoginAction;
+use App\Domain\Auth\Http\Requests\AuditCompanyRequest;
 use App\Domain\Company\Actions\AuditCompanyAction;
 use App\Domain\Company\Models\Company;
 use App\Domain\Company\Repositories\CompanyRepositoryInterface;
@@ -32,17 +33,11 @@ class AdminController extends \App\Http\Controllers\Controller
         return response()->json(array_merge($companies->toArray(), ['stats' => $stats]));
     }
 
-    public function auditCompany(Request $request, AuditCompanyAction $action, string $id): JsonResponse
+    public function auditCompany(AuditCompanyRequest $request, AuditCompanyAction $action, Company $company): JsonResponse
     {
-        $request->validate([
-            'action' => 'required|in:approve,decline',
-            'notes'  => 'nullable|string',
-        ]);
-
-        $company = Company::findOrFail($id);
         $updatedCompany = $action->execute(
-            $company, 
-            $request->input('action'), 
+            $company,
+            $request->input('action'),
             $request->input('notes')
         );
 
