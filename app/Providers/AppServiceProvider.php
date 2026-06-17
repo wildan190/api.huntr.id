@@ -6,6 +6,7 @@ use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Horizon\Horizon;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -27,5 +28,16 @@ class AppServiceProvider extends ServiceProvider
                 SecurityScheme::http('bearer')
             );
         });
+    }
+
+    protected function gate()
+    {
+        Horizon::auth(function ($request) {
+            $allowedIps = [
+                '36.69.86.104', // IP Publik Mac Anda saat ini
+            ];
+
+            return in_array($request->ip(), $allowedIps);
+    });
     }
 }
