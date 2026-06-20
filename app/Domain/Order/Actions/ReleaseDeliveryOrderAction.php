@@ -44,11 +44,22 @@ class ReleaseDeliveryOrderAction
 
         // 2. Generate Delivery Order
         $doNumber = 'DO-' . date('Ymd') . '-' . str_pad($po->id, 4, '0', STR_PAD_LEFT);
+        $buyerAddress = $po->buyer?->address;
+        if ($po->buyer) {
+            $buyerAddress = collect(array_filter([
+                $po->buyer->address,
+                $po->buyer->city,
+                $po->buyer->regency,
+                $po->buyer->provincy_country,
+                $po->buyer->zip_code,
+            ]))->implode(', ');
+        }
 
         $do = $this->orderRepository->createDeliveryOrder([
             'purchase_order_id' => $po->id,
             'do_number'         => $doNumber,
             'tracking_number'   => $trackingNumber,
+            'delivery_address'  => $buyerAddress,
             'status'            => 'shipped',
         ]);
 

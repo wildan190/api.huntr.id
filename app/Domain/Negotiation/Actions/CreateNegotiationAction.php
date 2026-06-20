@@ -6,6 +6,7 @@ use App\Domain\Negotiation\Models\Negotiation;
 use App\Domain\Negotiation\Models\NegotiationItem;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -13,7 +14,8 @@ use Illuminate\Support\Facades\Auth;
 class CreateNegotiationAction
 {
     public function __construct(
-        protected BroadcastWebsocketNotificationAction $broadcastAction
+        protected BroadcastWebsocketNotificationAction $broadcastAction,
+        protected SendWhatsAppNotificationAction $whatsAppAction
     ) {}
 
     public function execute(Proposal $proposal, array $data): Negotiation
@@ -81,6 +83,12 @@ class CreateNegotiationAction
                         ['type' => 'negotiation_started']
                     );
                 }
+
+                $this->whatsAppAction->toCompany(
+                    $proposal->company,
+                    "Negosiasi baru masuk untuk proposal Anda pada RFQ: " . ($proposal->rfq->title ?? 'Untitled RFQ') . ". Silakan review dan respons.",
+                    false
+                );
             }
 
             return $negotiation->load('items.proposalItem.rfqItem.catalogue');

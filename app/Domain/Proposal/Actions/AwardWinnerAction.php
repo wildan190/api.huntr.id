@@ -6,6 +6,7 @@ use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\Company;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -13,7 +14,8 @@ use Illuminate\Validation\ValidationException;
 class AwardWinnerAction
 {
     public function __construct(
-        private readonly BroadcastWebsocketNotificationAction $broadcastAction
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction,
+        private readonly SendWhatsAppNotificationAction $whatsAppAction
     ) {}
 
     /**
@@ -93,6 +95,12 @@ class AwardWinnerAction
                             ['type' => 'proposal_awarded', 'rfq_id' => $rfq->id, 'proposal_id' => $proposal->id]
                         );
                     }
+
+                    $this->whatsAppAction->toCompany(
+                        $vendorCompany,
+                        "Selamat! Proposal Anda untuk RFQ '{$rfq->title}' terpilih sebagai pemenang. Silakan cek dashboard untuk proses berikutnya.",
+                        false
+                    );
                 }
 
                 // Notify buyer managers (and owner) for PO approval

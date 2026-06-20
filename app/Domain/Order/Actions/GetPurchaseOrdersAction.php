@@ -212,6 +212,7 @@ class GetPurchaseOrdersAction
                         'id' => $do->id,
                         'do_number' => $do->do_number,
                         'tracking_number' => $do->tracking_number,
+                        'delivery_address' => $do->delivery_address,
                         'status' => $do->status,
                         'handed_by_user_id' => $do->handed_by_user_id,
                         'handed_by_name' => $do->handed_by_name,

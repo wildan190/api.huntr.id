@@ -4,13 +4,15 @@ namespace App\Domain\Negotiation\Actions;
 
 use App\Domain\Negotiation\Models\Negotiation;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
 use App\Domain\Proposal\Models\ProposalItem;
 use Illuminate\Support\Facades\DB;
 
 class RespondToNegotiationAction
 {
     public function __construct(
-        protected BroadcastWebsocketNotificationAction $broadcastAction
+        protected BroadcastWebsocketNotificationAction $broadcastAction,
+        protected SendWhatsAppNotificationAction $whatsAppAction
     ) {}
 
     public function execute(Negotiation $negotiation, string $status, ?string $vendorRemarks = null): Negotiation
@@ -95,6 +97,15 @@ class RespondToNegotiationAction
                     $targetUserId,
                     "/negotiation",
                     ['type' => 'negotiation_response']
+                );
+            }
+
+            $vendorCompany = $negotiation->proposal?->company;
+            if ($vendorCompany) {
+                $this->whatsAppAction->toCompany(
+                    $vendorCompany->loadMissing('users'),
+                    "Negosiasi Anda untuk RFQ '" . ($negotiation->proposal->rfq->title ?? 'Untitled RFQ') . "' telah " . ($status === 'accepted' ? 'disetujui' : 'ditolak') . " oleh buyer.",
+                    false
                 );
             }
 

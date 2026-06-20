@@ -5,6 +5,7 @@ namespace App\Domain\Proposal\Actions;
 use App\Domain\Proposal\Models\Proposal;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -13,7 +14,8 @@ class ApproveWinnerAction
 {
     public function __construct(
         private readonly OrderRepositoryInterface $orderRepository,
-        private readonly BroadcastWebsocketNotificationAction $broadcastAction
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction,
+        private readonly SendWhatsAppNotificationAction $whatsAppAction
     ) {}
 
     /**
@@ -169,6 +171,12 @@ class ApproveWinnerAction
                             $poData
                         );
                     }
+
+                    $this->whatsAppAction->toCompany(
+                        $vendorCompany,
+                        "Purchase Order {$poNumber} telah disetujui dan dibuat untuk RFQ '{$rfq->title}'. Silakan lanjutkan proses pengiriman.",
+                        false
+                    );
                 }
             });
 

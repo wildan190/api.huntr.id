@@ -16,6 +16,7 @@ class DeliveryOrder extends Model
         'purchase_order_id',
         'do_number',
         'tracking_number',
+        'delivery_address',
         'status', // shipped, delivered, received
         'handed_by_user_id',
         'handed_by_name',

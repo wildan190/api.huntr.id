@@ -3,6 +3,7 @@
 namespace App\Domain\Catalogue\Actions;
 
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Support\KeywordNormalizer;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
@@ -32,10 +33,27 @@ class GetCataloguesAction
 
         if (!empty($params['search'])) {
             $search = $params['search'];
-            $query->where(function($q) use ($search) {
+            $tokens = KeywordNormalizer::tokensFromText($search);
+
+            $query->where(function($q) use ($search, $tokens) {
                 $q->where('name', 'ilike', "%{$search}%")
                   ->orWhere('item_code', 'ilike', "%{$search}%")
-                  ->orWhere('category', 'ilike', "%{$search}%");
+                  ->orWhere('category', 'ilike', "%{$search}%")
+                  ->orWhere('brand', 'ilike', "%{$search}%")
+                  ->orWhere('specifications', 'ilike', "%{$search}%");
+
+                foreach ($tokens as $token) {
+                    $q->orWhereJsonContains('keywords', $token);
+                }
+
+                $q->orWhereHas('company', function ($cq) use ($search, $tokens) {
+                    $cq->where('name', 'ilike', "%{$search}%")
+                        ->orWhere('industry_type', 'ilike', "%{$search}%");
+
+                    foreach ($tokens as $token) {
+                        $cq->orWhereJsonContains('keywords', $token);
+                    }
+                });
             });
         }
 
