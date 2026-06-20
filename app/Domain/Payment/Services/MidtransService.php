@@ -59,6 +59,7 @@ class MidtransService
             $status = $response->status();
             $body = $response->json();
             $msg = $body['status_message'] ?? 'Unknown error';
+            $validation = $body['validation_messages'] ?? $body['validation_errors'] ?? null;
             
             Log::error('Midtrans Charge Failed', [
                 'status' => $status,
@@ -71,6 +72,10 @@ class MidtransService
             // Add debug info to the exception message if it's a 401/Unknown Merchant
             if (str_contains($msg, 'Unknown Merchant') || $status === 401) {
                 $msg .= " (Key: " . substr($this->serverKey, 0, 7) . "..., Len: " . strlen($this->serverKey) . ", Env: " . ($this->isProduction ? 'PROD' : 'SANDBOX') . ")";
+            }
+
+            if ($validation) {
+                $msg .= ' | Validation: ' . json_encode($validation);
             }
 
             throw new \Exception('Payment initiation failed: ' . $msg);

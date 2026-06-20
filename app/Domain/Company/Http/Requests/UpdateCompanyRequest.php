@@ -2,6 +2,7 @@
 
 namespace App\Domain\Company\Http\Requests;
 
+use App\Support\KeywordNormalizer;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateCompanyRequest extends FormRequest
@@ -9,6 +10,15 @@ class UpdateCompanyRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('keywords')) {
+            $this->merge([
+                'keywords' => KeywordNormalizer::normalize($this->input('keywords')),
+            ]);
+        }
     }
 
     public function rules(): array
@@ -28,6 +38,8 @@ class UpdateCompanyRequest extends FormRequest
             'bank_account'      => ['nullable', 'string'],
             'bank_account_name' => ['nullable', 'string'],
             'about'             => ['nullable', 'string'],
+            'keywords'          => ['nullable', 'array'],
+            'keywords.*'        => ['string', 'max:100'],
             'industry_type'     => ['nullable', 'string'],
         ];
 

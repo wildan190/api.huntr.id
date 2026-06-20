@@ -19,8 +19,13 @@ class Catalogue extends Model
         'category',
         'brand',
         'specifications',
+        'keywords',
         'uom',
         'image_path',
+    ];
+
+    protected $casts = [
+        'keywords' => 'array',
     ];
 
     public function company()

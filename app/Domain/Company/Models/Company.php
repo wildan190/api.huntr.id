@@ -35,8 +35,13 @@ class Company extends Model
         'bank_account',
         'bank_account_name',
         'about',
+        'keywords',
         'industry_type',
         'logo_path',
+    ];
+
+    protected $casts = [
+        'keywords' => 'array',
     ];
 
     protected $appends = ['formatted_tax_id'];

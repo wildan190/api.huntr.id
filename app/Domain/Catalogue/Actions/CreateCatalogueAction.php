@@ -64,6 +64,7 @@ class CreateCatalogueAction
             'category' => $data['category'] ?? null,
             'brand' => $data['brand'] ?? null,
             'specifications' => $data['specifications'] ?? null,
+            'keywords' => $data['keywords'] ?? null,
             'uom' => $data['uom'],
             'price' => $data['price'],
             'image_path' => $imagePath,
