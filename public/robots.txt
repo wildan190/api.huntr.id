@@ -1,2 +1,9 @@
 User-agent: *
-Disallow:
+Allow: /
+
+# Disallow API and Admin areas
+Disallow: /api/auth/
+Disallow: /api/admin/
+Disallow: /admin/
+
+Sitemap: https://app.huntr.id/sitemap.xml

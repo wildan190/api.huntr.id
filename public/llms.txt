@@ -1,0 +1,12 @@
+# Huntr Catalogue
+
+> Huntr is a B2B Procurement and Marketplace Platform. Discover products, vendors, and raise RFQs seamlessly.
+
+## Main Directory
+
+- [Home Page](https://app.huntr.id/)
+- [Catalogue Index](https://app.huntr.id/catalogues)
+
+## Products and Services
+
+- [Awesome Product A](https://app.huntr.id/catalogues/019eea63-7e47-7388-bb61-91e8e8f5d082) - Brand: Brand X. Category: Category Y. Offered by: Test Vendor Corp. Specs: High quality widgets.
