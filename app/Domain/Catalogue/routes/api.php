@@ -7,6 +7,8 @@ Route::prefix('api/catalogues')->middleware(['api', 'cors'])->group(function () 
     // Public endpoints
     Route::get('', [CatalogueController::class, 'index']);
     Route::get('{catalogue}', [CatalogueController::class, 'show']);
+    Route::get('{catalogue}/seo', [\App\Domain\Catalogue\Http\Controllers\SeoController::class, 'show']);
+
     
     // Protected endpoints (require authentication)
     Route::middleware('auth:api')->group(function () {
