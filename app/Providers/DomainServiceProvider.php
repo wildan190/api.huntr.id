@@ -61,13 +61,6 @@ class DomainServiceProvider extends ServiceProvider
                 $this->loadRoutesFrom($routePath);
             }
 
-            // Load additional api_returns.php for Order domain
-            if ($domain === 'Order') {
-                $returnsRoutePath = app_path("Domain/{$domain}/routes/api_returns.php");
-                if (file_exists($returnsRoutePath)) {
-                    $this->loadRoutesFrom($returnsRoutePath);
-                }
-            }
         }
     }
 }

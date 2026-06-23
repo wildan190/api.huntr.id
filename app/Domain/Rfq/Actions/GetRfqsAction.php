@@ -22,7 +22,7 @@ class GetRfqsAction
         $userId = $params['user_id'] ?? null;
         $status = $params['status'] ?? null;
         
-        $query = Rfq::with(['items.catalogue.company', 'company', 'user']);
+        $query = Rfq::with(['items.catalogue.company', 'company', 'user', 'proposals.company']);
         
         // Data Isolation: If status is not 'active' (Global RFQ), company_id MUST be provided
         // to prevent companies from seeing each other's private data.

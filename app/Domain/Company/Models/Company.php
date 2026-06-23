@@ -38,10 +38,12 @@ class Company extends Model
         'keywords',
         'industry_type',
         'logo_path',
+        'hq_addresses',
     ];
 
     protected $casts = [
         'keywords' => 'array',
+        'hq_addresses' => 'array',
     ];
 
     protected $appends = ['formatted_tax_id'];

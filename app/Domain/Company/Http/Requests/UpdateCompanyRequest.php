@@ -41,6 +41,8 @@ class UpdateCompanyRequest extends FormRequest
             'keywords'          => ['nullable', 'array'],
             'keywords.*'        => ['string', 'max:100'],
             'industry_type'     => ['nullable', 'string'],
+            'hq_addresses'      => ['nullable', 'array'],
+            'hq_addresses.*'    => ['string'],
         ];
 
         // TIN/NPWP is required only for Indonesia
