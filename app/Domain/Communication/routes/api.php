@@ -8,6 +8,7 @@ Route::prefix('api/notifications')->middleware('api')->group(function () {
     Route::get('', [NotificationController::class, 'index']);
     Route::post('{id}/read', [NotificationController::class, 'markAsRead']);
     Route::post('read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::post('clear-all', [NotificationController::class, 'clearAll']);
 });
 
 Route::prefix('api/communication')->middleware('api')->group(function () {

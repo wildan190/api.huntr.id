@@ -112,4 +112,29 @@ class NotificationController extends Controller
 
         return response()->json(['message' => 'All notifications marked as read']);
     }
+
+    /**
+     * Delete (clear) all notifications for the user and company.
+     */
+    public function clearAll(Request $request): JsonResponse
+    {
+        $userId    = $request->input('user_id');
+        $companyId = $request->input('company_id');
+
+        if (!$userId) {
+            return response()->json(['message' => 'User ID is required'], 400);
+        }
+
+        $user = \App\Domain\Auth\Models\User::findOrFail($userId);
+        $user->notifications()->delete();
+
+        if ($companyId) {
+            $company = \App\Domain\Company\Models\Company::find($companyId);
+            if ($company) {
+                $company->notifications()->delete();
+            }
+        }
+
+        return response()->json(['message' => 'All notifications cleared']);
+    }
 }
