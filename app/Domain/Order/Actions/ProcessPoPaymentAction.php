@@ -62,6 +62,7 @@ class ProcessPoPaymentAction
 
             if ($status === 200 || $status === 201) {
                 $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
+                $this->recordPaidTimeline($po);
                 $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
                 $this->notifyParties($po, $invoice);
@@ -70,6 +71,7 @@ class ProcessPoPaymentAction
 
             // Fallback for offline testing / sandbox simulation
             $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
+            $this->recordPaidTimeline($po);
             $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
             $this->notifyParties($po, $invoice);
@@ -83,12 +85,27 @@ class ProcessPoPaymentAction
             Log::error("ProcessPoPaymentAction Failed: " . $e->getMessage());
 
             $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
+            $this->recordPaidTimeline($po);
             $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
             $this->notifyParties($po, $invoice);
 
             return true;
         }
+    }
+
+    private function recordPaidTimeline(PurchaseOrder $po): void
+    {
+        $timeline = $po->tracking_timeline ?? [];
+        $timeline[] = [
+            'status'     => 'paid',
+            'label'      => 'Payment Received',
+            'timestamp'  => now()->toIso8601String(),
+            'actor_name' => $po->buyer?->name ?? 'Buyer',
+            'actor_type' => 'buyer',
+            'note'       => null,
+        ];
+        $po->update(['tracking_timeline' => $timeline]);
     }
 
     private function notifyParties(PurchaseOrder $po, $invoice): void

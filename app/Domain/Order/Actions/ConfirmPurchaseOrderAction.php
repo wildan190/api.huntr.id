@@ -49,9 +49,21 @@ class ConfirmPurchaseOrderAction
                 $updateData['purchase_type'] = $winningProposal->payment_term;
             }
 
+            // Record 'confirmed' in tracking timeline
+            $timeline = $po->tracking_timeline ?? [];
+            $timeline[] = [
+                'status'     => 'confirmed',
+                'label'      => 'PO Confirmed',
+                'timestamp'  => now()->toIso8601String(),
+                'actor_name' => $vendorCompany->name,
+                'actor_type' => 'vendor',
+                'note'       => null,
+            ];
+            $updateData['tracking_timeline'] = $timeline;
+
             $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
 
-            // 3. Release Proforma Invoice with fees
+            // 3. Release Proforma Invoice with fees + auto vendor signature
             $this->orderRepository->createInvoice([
                 'purchase_order_id' => $po->id,
                 'type'              => 'proforma',
@@ -62,6 +74,9 @@ class ConfirmPurchaseOrderAction
                 'ppn_fee'           => $fees['ppn_fee'],
                 'total_amount'      => $fees['total_amount'],
                 'status'            => 'unpaid',
+                // Auto-fill vendor signature — vendor confirms by accepting this PO
+                'vendor_signed_name' => $vendorCompany->name,
+                'vendor_signed_at'   => now(),
             ]);
 
             // Generate placeholder PDF for the proforma invoice

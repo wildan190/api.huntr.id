@@ -107,7 +107,26 @@
     </div>
     @endif
 
-    @include('print._footer', ['footerNote' => 'This is a computer-generated ' . ($isPaid ? 'tax' : 'proforma') . ' invoice. No signature is required.'])
+    {{-- Vendor Signature Block --}}
+    <div class="section-title" style="margin-top: 32px;">Document Signature</div>
+    <div class="signature-section" style="display: flex; justify-content: flex-start;">
+        @php
+            $invoiceSignedAt = $invoice->vendor_signed_at?->toIso8601String();
+            $invoiceSignedAtFormatted = $invoice->vendor_signed_at?->format('d/m/Y H:i');
+        @endphp
+        @include('print._signature_block', [
+            'docType'           => 'invoice',
+            'docId'             => $invoice->id,
+            'role'              => 'vendor',
+            'label'             => 'Issued & Authorized By (Vendor)',
+            'signerName'        => $invoice->vendor_signed_name ?? ($po['vendor_name'] ?? null),
+            'signerPosition'    => 'Vendor Representative',
+            'signedAt'          => $invoiceSignedAt,
+            'signedAtFormatted' => $invoiceSignedAtFormatted,
+        ])
+    </div>
+
+    @include('print._footer', ['footerNote' => 'This is a computer-generated ' . ($isPaid ? 'tax' : 'proforma') . ' invoice. Scan QR code to verify authenticity.'])
 </div>
 </body>
 </html>

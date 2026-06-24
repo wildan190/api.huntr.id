@@ -21,6 +21,12 @@ class Invoice extends Model
         'midtrans_fee',
         'ppn_fee',
         'total_amount',
+        'vendor_signed_name',
+        'vendor_signed_at',
+    ];
+
+    protected $casts = [
+        'vendor_signed_at' => 'datetime',
     ];
 
     public function purchaseOrder()
