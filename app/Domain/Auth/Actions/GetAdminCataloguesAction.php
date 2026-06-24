@@ -15,10 +15,10 @@ class GetAdminCataloguesAction
             $search = $filters['search'];
 
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('item_code', 'like', "%{$search}%")
+                $q->where('name', 'ilike', "%{$search}%")
+                  ->orWhere('item_code', 'ilike', "%{$search}%")
                   ->orWhereHas('company', function ($c) use ($search) {
-                      $c->where('name', 'like', "%{$search}%");
+                      $c->where('name', 'ilike', "%{$search}%");
                   });
             });
         }
