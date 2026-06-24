@@ -28,6 +28,10 @@ class AppServiceProvider extends ServiceProvider
                 SecurityScheme::http('bearer')
             );
         });
+
+        if (app()->environment('production')) {
+            \URL::forceScheme('https');
+        }
     }
 
     protected function gate()
@@ -38,6 +42,6 @@ class AppServiceProvider extends ServiceProvider
             ];
 
             return in_array($request->ip(), $allowedIps);
-    });
+        });
     }
 }
