@@ -49,6 +49,18 @@ class ConfirmPurchaseOrderAction
                 $updateData['purchase_type'] = $winningProposal->payment_term;
             }
 
+            // Record 'confirmed' in tracking timeline
+            $timeline = $po->tracking_timeline ?? [];
+            $timeline[] = [
+                'status'     => 'confirmed',
+                'label'      => 'PO Confirmed',
+                'timestamp'  => now()->toIso8601String(),
+                'actor_name' => $vendorCompany->name,
+                'actor_type' => 'vendor',
+                'note'       => null,
+            ];
+            $updateData['tracking_timeline'] = $timeline;
+
             $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
 
             // 3. Release Proforma Invoice with fees

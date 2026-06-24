@@ -262,6 +262,7 @@ class GetPurchaseOrdersAction
                         'ppn'           => $ef->ppn,
                     ];
                 }),
+                'tracking_timeline' => $po->tracking_timeline ?? [],
             ];
         }, $items);
     }

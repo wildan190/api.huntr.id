@@ -29,6 +29,7 @@ class PurchaseOrder extends Model
         'expected_receiving_date',
         'status',
         'delivery_status',
+        'tracking_timeline',
         'is_historical',
         'created_by',
         'approved_by',
@@ -38,6 +39,7 @@ class PurchaseOrder extends Model
         'order_date'              => 'date',
         'expected_receiving_date' => 'date',
         'is_historical'           => 'boolean',
+        'tracking_timeline'       => 'array',
     ];
 
     public function creator()
