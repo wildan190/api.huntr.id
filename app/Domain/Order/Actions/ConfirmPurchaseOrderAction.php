@@ -63,7 +63,7 @@ class ConfirmPurchaseOrderAction
 
             $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
 
-            // 3. Release Proforma Invoice with fees
+            // 3. Release Proforma Invoice with fees + auto vendor signature
             $this->orderRepository->createInvoice([
                 'purchase_order_id' => $po->id,
                 'type'              => 'proforma',
@@ -74,6 +74,9 @@ class ConfirmPurchaseOrderAction
                 'ppn_fee'           => $fees['ppn_fee'],
                 'total_amount'      => $fees['total_amount'],
                 'status'            => 'unpaid',
+                // Auto-fill vendor signature — vendor confirms by accepting this PO
+                'vendor_signed_name' => $vendorCompany->name,
+                'vendor_signed_at'   => now(),
             ]);
 
             // Generate placeholder PDF for the proforma invoice

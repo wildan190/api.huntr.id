@@ -24,6 +24,9 @@ Route::prefix('api/orders')->middleware(['api', 'auth:api'])->group(function () 
 // Public tracking — no auth required
 Route::get('api/track', [OrderController::class, 'publicTrack'])->middleware('api');
 
+// Public signature verification — no auth required (QR scan target)
+Route::get('api/verify', [OrderController::class, 'verifySignature'])->middleware('api');
+
 Route::prefix('api/do')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('{deliveryOrder}/print', [OrderController::class, 'printDo'])->withoutMiddleware('auth:api');
     Route::post('{deliveryOrder}/sign-handed-by', [OrderController::class, 'signDoHandedBy']);

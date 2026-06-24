@@ -10,6 +10,7 @@ use App\Domain\Order\Http\Requests\AwardVendorRequest;
 use App\Domain\Order\Http\Requests\GetPurchaseOrdersRequest;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Order\Models\DeliveryOrder;
+use App\Domain\Order\Models\Invoice;
 use App\Domain\Company\Models\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,7 +42,7 @@ class OrderController extends \App\Http\Controllers\Controller
         $rfq = Rfq::findOrFail($request->input('rfq_id'));
         $proposal = Proposal::findOrFail($request->input('proposal_id'));
         $manager = User::findOrFail($request->input('manager_id'));
-        
+
         return response()->json([
             'po' => $action->execute($manager, $rfq, $proposal)
         ]);
@@ -58,7 +59,7 @@ class OrderController extends \App\Http\Controllers\Controller
         }
 
         $vendorCompany = Company::findOrFail($vendorCompanyId);
-        
+
         return response()->json([
             'po' => $action->execute($vendorCompany, $po)
         ]);
@@ -72,7 +73,8 @@ class OrderController extends \App\Http\Controllers\Controller
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
 
-        if (!$poData) abort(404);
+        if (!$poData)
+            abort(404);
 
         return view('print.po', ['po' => $poData]);
     }
@@ -86,7 +88,8 @@ class OrderController extends \App\Http\Controllers\Controller
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
 
-        if (!$poData) abort(404);
+        if (!$poData)
+            abort(404);
 
         return view('print.invoice', ['invoice' => $invoice, 'po' => $poData]);
     }
@@ -101,7 +104,8 @@ class OrderController extends \App\Http\Controllers\Controller
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
 
-        if (!$poData) abort(404);
+        if (!$poData)
+            abort(404);
 
         return view('print.do', ['do' => $deliveryOrder, 'po' => $poData]);
     }
@@ -112,7 +116,7 @@ class OrderController extends \App\Http\Controllers\Controller
     public function arrangeDelivery(Request $request, PurchaseOrder $po, \App\Domain\Order\Actions\ReleaseDeliveryOrderAction $action): JsonResponse
     {
         $vendorCompanyId = $request->input('company_id');
-        $trackingNumber  = $request->input('tracking_number');
+        $trackingNumber = $request->input('tracking_number');
 
         if (!$vendorCompanyId) {
             return response()->json(['message' => 'Company ID is required.'], 400);
@@ -171,19 +175,19 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         $user = $request->user();
-        
+
         // Fresh query to get latest roles from database
         $user->load('roles');
-        
+
         // Check using collection instead of query builder to use loaded data
         $hasManager = $user->roles->contains('slug', 'manager');
-        
+
         \Log::info('signDoHandedBy role check', [
             'user_id' => $user->id,
             'roles' => $user->roles->pluck('slug')->toArray(),
             'has_manager' => $hasManager,
         ]);
-        
+
         if (!$hasManager) {
             return response()->json(['message' => 'Only Manager can sign documents.'], 403);
         }
@@ -245,19 +249,19 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         $user = $request->user();
-        
+
         // Fresh query to get latest roles from database
         $user->load('roles');
-        
+
         // Check using collection instead of query builder to use loaded data
         $hasManager = $user->roles->contains('slug', 'manager');
-        
+
         \Log::info('signDoReceivedBy role check', [
             'user_id' => $user->id,
             'roles' => $user->roles->pluck('slug')->toArray(),
             'has_manager' => $hasManager,
         ]);
-        
+
         if (!$hasManager) {
             return response()->json(['message' => 'Only Manager can sign documents.'], 403);
         }
@@ -313,8 +317,8 @@ class OrderController extends \App\Http\Controllers\Controller
     public function updateTrackingStatus(Request $request, PurchaseOrder $po, UpdatePoTrackingStatusAction $action): JsonResponse
     {
         $vendorCompanyId = $request->input('company_id');
-        $newStatus       = $request->input('status');
-        $note            = $request->input('note');
+        $newStatus = $request->input('status');
+        $note = $request->input('note');
 
         if (!$vendorCompanyId) {
             return response()->json(['message' => 'Company ID is required.'], 400);
@@ -336,7 +340,7 @@ class OrderController extends \App\Http\Controllers\Controller
      */
     public function publicTrack(Request $request): JsonResponse
     {
-        $poNumber       = $request->query('po_number');
+        $poNumber = $request->query('po_number');
         $trackingNumber = $request->query('tracking_number');
 
         if (!$poNumber && !$trackingNumber) {
@@ -364,16 +368,16 @@ class OrderController extends \App\Http\Controllers\Controller
 
         // Build status labels map
         $statusLabels = [
-            'issued'     => 'PO Issued',
-            'published'  => 'PO Issued',
-            'confirmed'  => 'PO Confirmed',
-            'paid'       => 'Payment Received',
-            'packing'    => 'Goods Being Packed',
+            'issued' => 'PO Issued',
+            'published' => 'PO Issued',
+            'confirmed' => 'PO Confirmed',
+            'paid' => 'Payment Received',
+            'packing' => 'Goods Being Packed',
             'in_transit' => 'Goods In Transit',
-            'delivery'   => 'Goods In Transit',
-            'delivered'  => 'Goods Delivered',
-            'completed'  => 'Order Completed',
-            'done'       => 'Order Completed',
+            'delivery' => 'Goods In Transit',
+            'delivered' => 'Goods Delivered',
+            'completed' => 'Order Completed',
+            'done' => 'Order Completed',
         ];
 
         // Reconstruct a normalized timeline
@@ -383,12 +387,12 @@ class OrderController extends \App\Http\Controllers\Controller
         $existingStatuses = collect($timeline)->pluck('status')->toArray();
 
         $baseSteps = [
-            ['status' => 'issued',     'label' => 'PO Issued',          'timestamp' => $po->created_at->toIso8601String()],
-            ['status' => 'confirmed',  'label' => 'PO Confirmed',        'timestamp' => null],
-            ['status' => 'paid',       'label' => 'Payment Received',    'timestamp' => null],
-            ['status' => 'packing',    'label' => 'Goods Being Packed',  'timestamp' => null],
-            ['status' => 'in_transit', 'label' => 'Goods In Transit',    'timestamp' => null],
-            ['status' => 'delivered',  'label' => 'Goods Delivered',     'timestamp' => null],
+            ['status' => 'issued', 'label' => 'PO Issued', 'timestamp' => $po->created_at->toIso8601String()],
+            ['status' => 'confirmed', 'label' => 'PO Confirmed', 'timestamp' => null],
+            ['status' => 'paid', 'label' => 'Payment Received', 'timestamp' => null],
+            ['status' => 'packing', 'label' => 'Goods Being Packed', 'timestamp' => null],
+            ['status' => 'in_transit', 'label' => 'Goods In Transit', 'timestamp' => null],
+            ['status' => 'delivered', 'label' => 'Goods Delivered', 'timestamp' => null],
         ];
 
         // Merge timeline data into base steps
@@ -397,34 +401,34 @@ class OrderController extends \App\Http\Controllers\Controller
 
         foreach ($baseSteps as &$step) {
             if (isset($timelineMap[$step['status']])) {
-                $step['timestamp']  = $timelineMap[$step['status']]['timestamp'];
+                $step['timestamp'] = $timelineMap[$step['status']]['timestamp'];
                 $step['actor_name'] = $timelineMap[$step['status']]['actor_name'] ?? null;
-                $step['note']       = $timelineMap[$step['status']]['note'] ?? null;
-                $step['completed']  = true;
+                $step['note'] = $timelineMap[$step['status']]['note'] ?? null;
+                $step['completed'] = true;
             } else {
                 // Derive from PO status for older POs without timeline
                 $step['completed'] = $this->isStatusReached($po->status, $step['status']);
                 $step['actor_name'] = null;
-                $step['note']       = null;
+                $step['note'] = null;
             }
 
             // Attach tracking number info for in_transit step
             if ($step['status'] === 'in_transit' && $deliveryOrders->isNotEmpty()) {
                 $step['tracking_numbers'] = $deliveryOrders->pluck('tracking_number')->filter()->values()->toArray();
-                $step['do_numbers']       = $deliveryOrders->pluck('do_number')->filter()->values()->toArray();
+                $step['do_numbers'] = $deliveryOrders->pluck('do_number')->filter()->values()->toArray();
             }
         }
         unset($step);
 
         return response()->json([
-            'po_number'      => $po->po_number,
+            'po_number' => $po->po_number,
             'current_status' => $po->status,
-            'current_label'  => $statusLabels[$po->status] ?? ucfirst($po->status),
-            'vendor_name'    => $po->vendor?->name ?? $po->vendor_name ?? 'N/A',
-            'buyer_name'     => $po->buyer?->name ?? 'N/A',
-            'order_date'     => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
+            'current_label' => $statusLabels[$po->status] ?? ucfirst($po->status),
+            'vendor_name' => $po->vendor?->name ?? $po->vendor_name ?? 'N/A',
+            'buyer_name' => $po->buyer?->name ?? 'N/A',
+            'order_date' => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
             'tracking_numbers' => $deliveryOrders->pluck('tracking_number')->filter()->values()->toArray(),
-            'timeline'       => $baseSteps,
+            'timeline' => $baseSteps,
         ]);
     }
 
@@ -435,9 +439,131 @@ class OrderController extends \App\Http\Controllers\Controller
     {
         $order = ['issued', 'published', 'confirmed', 'paid', 'packing', 'in_transit', 'delivery', 'delivered', 'completed', 'done'];
         $currentIdx = array_search($currentStatus, $order);
-        $targetIdx  = array_search($targetStatus, $order);
+        $targetIdx = array_search($targetStatus, $order);
 
-        if ($currentIdx === false || $targetIdx === false) return false;
+        if ($currentIdx === false || $targetIdx === false)
+            return false;
         return $currentIdx >= $targetIdx;
+    }
+
+    /**
+     * Public endpoint: verify a document signature by type + id + role.
+     * Used by the Trust Page (/verify) after scanning a QR code.
+     */
+    public function verifySignature(Request $request): JsonResponse
+    {
+        $docType = $request->query('type');  // invoice | do | bast
+        $docId = $request->query('id');
+        $role = $request->query('role');  // vendor | received-by | handed-by | etc.
+
+        if (!$docType || !$docId) {
+            return response()->json(['message' => 'Missing required parameters: type, id'], 400);
+        }
+
+        switch ($docType) {
+            case 'invoice':
+                $invoice = Invoice::with('purchaseOrder.vendor', 'purchaseOrder.buyer')->find($docId);
+                if (!$invoice) {
+                    return response()->json(['valid' => false, 'message' => 'Invoice not found'], 404);
+                }
+                $po = $invoice->purchaseOrder;
+                return response()->json([
+                    'valid' => true,
+                    'doc_type' => 'invoice',
+                    'doc_number' => $po?->po_number ?? $invoice->id,
+                    'doc_label' => $invoice->type === 'proforma' ? 'Proforma Invoice' : 'Tax Invoice',
+                    'issued_at' => $invoice->created_at?->toIso8601String(),
+                    'status' => $invoice->status,
+                    'vendor_name' => $po?->vendor?->name ?? $po?->vendor_name ?? 'N/A',
+                    'buyer_name' => $po?->buyer?->name ?? 'N/A',
+                    'signatures' => [
+                        [
+                            'role' => 'vendor',
+                            'label' => 'Issued By (Vendor)',
+                            'signer_name' => $invoice->vendor_signed_name,
+                            'signed_at' => $invoice->vendor_signed_at?->toIso8601String(),
+                            'is_signed' => !empty($invoice->vendor_signed_at),
+                        ],
+                    ],
+                ]);
+
+            case 'do':
+                $do = DeliveryOrder::with('purchaseOrder.vendor', 'purchaseOrder.buyer')->find($docId);
+                if (!$do) {
+                    return response()->json(['valid' => false, 'message' => 'Delivery Order not found'], 404);
+                }
+                $po = $do->purchaseOrder;
+                return response()->json([
+                    'valid' => true,
+                    'doc_type' => 'do',
+                    'doc_number' => $do->do_number,
+                    'doc_label' => 'Delivery Order',
+                    'issued_at' => $do->created_at?->toIso8601String(),
+                    'status' => $do->status,
+                    'tracking_number' => $do->tracking_number,
+                    'vendor_name' => $po?->vendor?->name ?? 'N/A',
+                    'buyer_name' => $po?->buyer?->name ?? 'N/A',
+                    'signatures' => [
+                        [
+                            'role' => 'handed-by',
+                            'label' => 'Delivered By (Vendor)',
+                            'signer_name' => $do->handed_by_name,
+                            'signer_position' => $do->handed_by_position,
+                            'signed_at' => $do->handed_by_signed_at?->toIso8601String(),
+                            'is_signed' => !empty($do->handed_by_signed_at),
+                        ],
+                        [
+                            'role' => 'received-by',
+                            'label' => 'Received By (Buyer)',
+                            'signer_name' => $do->received_by_name,
+                            'signer_position' => $do->received_by_position,
+                            'signed_at' => $do->received_by_signed_at?->toIso8601String(),
+                            'is_signed' => !empty($do->received_by_signed_at),
+                        ],
+                    ],
+                ]);
+
+            case 'bast':
+                // Try to find BAST model dynamically
+                $bastModel = '\\App\\Domain\\Order\\Models\\Bast';
+                if (!class_exists($bastModel)) {
+                    return response()->json(['valid' => false, 'message' => 'BAST not supported'], 404);
+                }
+                $bast = $bastModel::with('purchaseOrder', 'vendorCompany', 'buyerCompany')->find($docId);
+                if (!$bast) {
+                    return response()->json(['valid' => false, 'message' => 'BAST not found'], 404);
+                }
+                return response()->json([
+                    'valid' => true,
+                    'doc_type' => 'bast',
+                    'doc_number' => $bast->bast_number,
+                    'doc_label' => 'Berita Acara Serah Terima (BAST)',
+                    'issued_at' => $bast->created_at?->toIso8601String(),
+                    'status' => $bast->status,
+                    'vendor_name' => $bast->vendorCompany?->name ?? 'N/A',
+                    'buyer_name' => $bast->buyerCompany?->name ?? 'N/A',
+                    'signatures' => [
+                        [
+                            'role' => 'handed-by',
+                            'label' => 'Handed By (Vendor)',
+                            'signer_name' => $bast->handed_by_name,
+                            'signer_position' => $bast->handed_by_position,
+                            'signed_at' => $bast->handed_by_signed_at?->toIso8601String(),
+                            'is_signed' => !empty($bast->handed_by_signed_at),
+                        ],
+                        [
+                            'role' => 'received-by',
+                            'label' => 'Received By (Buyer)',
+                            'signer_name' => $bast->received_by_name,
+                            'signer_position' => $bast->received_by_position,
+                            'signed_at' => $bast->received_by_signed_at?->toIso8601String(),
+                            'is_signed' => !empty($bast->received_by_signed_at),
+                        ],
+                    ],
+                ]);
+
+            default:
+                return response()->json(['valid' => false, 'message' => 'Unknown document type'], 400);
+        }
     }
 }
