@@ -15,7 +15,7 @@ class ImportHistoricalDataRequest extends FormRequest
     {
         return [
             'company_id' => ['required', 'exists:companies,id'],
-            'csv' => ['required', 'file', 'mimes:csv,txt,xlsx,xls'],
+            'csv' => ['required', 'file', 'mimes:csv,txt,xlsx,xls,xlsm,ods'],
         ];
     }
 }
