@@ -155,10 +155,10 @@ class CatalogueCacheService
     /**
      * Get details cache key
      *
-     * @param int $catalogueId
+     * @param int|string $catalogueId
      * @return string
      */
-    private function getDetailsCacheKey(int $catalogueId): string
+    private function getDetailsCacheKey(int|string $catalogueId): string
     {
         return "catalogue:detail:{$catalogueId}";
     }
@@ -184,10 +184,10 @@ class CatalogueCacheService
     /**
      * Get SEO cache key
      *
-     * @param int $catalogueId
+     * @param int|string $catalogueId
      * @return string
      */
-    private function getSeoCacheKey(int $catalogueId): string
+    private function getSeoCacheKey(int|string $catalogueId): string
     {
         return "catalogue:seo:{$catalogueId}";
     }
