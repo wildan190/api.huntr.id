@@ -8,6 +8,7 @@ use App\Domain\Catalogue\Http\Requests\CreateCatalogueRequest;
 use App\Domain\Catalogue\Http\Requests\ImportHistoricalDataRequest;
 use App\Domain\Catalogue\Jobs\ImportCatalogueJob;
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Domain\Catalogue\Services\CatalogueCacheService;
 use App\Domain\Company\Models\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,9 +32,12 @@ class CatalogueController extends \App\Http\Controllers\Controller
     /**
      * Store a new product in the catalogue.
      */
-    public function store(CreateCatalogueRequest $request, CreateCatalogueAction $action): JsonResponse
+    public function store(CreateCatalogueRequest $request, CreateCatalogueAction $action, CatalogueCacheService $cacheService): JsonResponse
     {
         $item = $action->execute($request->user(), $request->validated());
+        
+        // Clear all catalogue listing caches since we added new product
+        $cacheService->invalidateAll();
 
         return response()->json([
             'message' => 'Product successfully added to catalogue.',
@@ -84,7 +88,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
     /**
      * Update product information in the catalogue.
      */
-    public function update(CreateCatalogueRequest $request, Catalogue $catalogue): JsonResponse
+    public function update(CreateCatalogueRequest $request, Catalogue $catalogue, CatalogueCacheService $cacheService): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
 
@@ -100,6 +104,13 @@ class CatalogueController extends \App\Http\Controllers\Controller
         }
 
         $catalogue->update($data);
+        
+        // Clear cache for this specific catalogue
+        $cacheService->invalidateDetails($catalogue);
+        $cacheService->invalidateSeoData($catalogue);
+        
+        // Clear all catalogue listing caches (since this might affect listings)
+        $cacheService->invalidateAll();
 
         return response()->json([
             'message' => 'Catalogue product successfully updated.',
@@ -110,8 +121,22 @@ class CatalogueController extends \App\Http\Controllers\Controller
     /**
      * Display product catalogue detail.
      */
-    public function show(Catalogue $catalogue): JsonResponse
+    public function show(Catalogue $catalogue, CatalogueCacheService $cacheService): JsonResponse
     {
-        return response()->json(['data' => $catalogue->load('company')], 200);
+        // Try to get from cache first
+        $cachedData = $cacheService->getDetails($catalogue);
+        
+        if ($cachedData) {
+            return response()->json(['data' => $cachedData], 200);
+        }
+        
+        // If not in cache, load fresh data
+        $catalogue->load('company');
+        $data = $catalogue->toArray();
+        
+        // Store in cache for future requests
+        $cacheService->storeDetails($catalogue, $data);
+        
+        return response()->json(['data' => $data], 200);
     }
 }

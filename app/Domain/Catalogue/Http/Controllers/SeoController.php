@@ -3,6 +3,7 @@
 namespace App\Domain\Catalogue\Http\Controllers;
 
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Domain\Catalogue\Services\CatalogueCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 
@@ -11,8 +12,15 @@ class SeoController extends \App\Http\Controllers\Controller
     /**
      * Get SEO metadata and Schema Markup for a catalogue item.
      */
-    public function show(Catalogue $catalogue): JsonResponse
+    public function show(Catalogue $catalogue, CatalogueCacheService $cacheService): JsonResponse
     {
+        // Try to get from cache first
+        $cachedData = $cacheService->getSeoData($catalogue);
+        
+        if ($cachedData) {
+            return response()->json($cachedData, 200);
+        }
+        
         $catalogue->load('company');
         
         $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://app.huntr.id')), '/');
@@ -84,7 +92,7 @@ class SeoController extends \App\Http\Controllers\Controller
             ]
         ];
 
-        return response()->json([
+        $responseData = [
             'data' => [
                 'id' => $catalogue->id,
                 'title' => $title,
@@ -94,7 +102,12 @@ class SeoController extends \App\Http\Controllers\Controller
                 'image_url' => $imageUrl,
                 'schema_markup' => $schema,
             ]
-        ]);
+        ];
+        
+        // Store in cache for future requests
+        $cacheService->storeSeoData($catalogue, $responseData);
+        
+        return response()->json($responseData);
     }
 
     private function getImageUrl(string $path): string

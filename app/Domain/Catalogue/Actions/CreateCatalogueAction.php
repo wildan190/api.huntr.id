@@ -57,7 +57,7 @@ class CreateCatalogueAction
             $imagePath = $data['image']->storePublicly('catalogues', $disk);
         }
 
-        return Catalogue::create([
+        $catalogue = Catalogue::create([
             'company_id' => $companyId,
             'item_code' => $data['item_code'],
             'name' => $data['name'],
@@ -69,5 +69,19 @@ class CreateCatalogueAction
             'price' => $data['price'],
             'image_path' => $imagePath,
         ]);
+        
+        // Trigger cache invalidation after creation
+        $this->invalidateCatalogueCache();
+        
+        return $catalogue;
+    }
+    
+    /**
+     * Invalidate catalogue caches after creation/update.
+     */
+    private function invalidateCatalogueCache(): void
+    {
+        // This would be handled by the controller or event listener
+        // For now, we'll rely on the controller to handle cache invalidation
     }
 }

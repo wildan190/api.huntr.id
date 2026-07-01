@@ -15,6 +15,7 @@ use App\Domain\Company\Repositories\EloquentCompanyRepository;
 // Catalogue
 use App\Domain\Catalogue\Repositories\CatalogueRepositoryInterface;
 use App\Domain\Catalogue\Repositories\EloquentCatalogueRepository;
+use App\Domain\Catalogue\Services\CatalogueCacheService;
 
 // Rfq
 use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
@@ -47,6 +48,9 @@ class DomainServiceProvider extends ServiceProvider
         $this->app->bind(ProposalRepositoryInterface::class, EloquentProposalRepository::class);
         $this->app->bind(OrderRepositoryInterface::class, EloquentOrderRepository::class);
         $this->app->bind(ReceiptRepositoryInterface::class, EloquentReceiptRepository::class);
+        
+        // Register catalogue cache service as singleton for better performance
+        $this->app->singleton(CatalogueCacheService::class);
     }
 
     /**

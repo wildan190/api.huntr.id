@@ -24,6 +24,7 @@ class Rfq extends Model
         'duration_days',
         'approved_by',
         'approved_at',
+        'delivery_point',
     ];
 
     protected $casts = [
