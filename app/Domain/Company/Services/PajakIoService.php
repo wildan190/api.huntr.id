@@ -4,6 +4,7 @@ namespace App\Domain\Company\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class PajakIoService
 {
@@ -116,6 +117,13 @@ class PajakIoService
         }
 
         try {
+            $cacheKey = 'pajakio_npwp_' . preg_replace('/[^0-9]/', '', $npwp);
+
+            if (Cache::has($cacheKey)) {
+                Log::info("Pajak.io Cache hit for NPWP:", ['npwp' => $npwp]);
+                return Cache::get($cacheKey);
+            }
+
             // Encode token to Base64 as per documentation
             $encodedToken = base64_encode($this->token);
 
@@ -135,7 +143,9 @@ class PajakIoService
             ]);
 
             if ($response->successful()) {
-                return $response->json();
+                $data = $response->json();
+                Cache::put($cacheKey, $data, now()->addDays(30));
+                return $data;
             }
 
             Log::error("Pajak.io API Failed:", [

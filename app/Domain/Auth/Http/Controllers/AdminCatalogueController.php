@@ -9,6 +9,7 @@ use App\Domain\Auth\Actions\UpdateAdminCatalogueAction;
 use App\Domain\Auth\Http\Requests\StoreAdminCatalogueRequest;
 use App\Domain\Auth\Http\Requests\UpdateAdminCatalogueRequest;
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Domain\Catalogue\Services\CatalogueCacheService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,10 +31,13 @@ class AdminCatalogueController extends Controller
     /**
      * Store a new catalogue item on behalf of a vendor.
      */
-    public function store(StoreAdminCatalogueRequest $request, StoreAdminCatalogueAction $action): JsonResponse
+    public function store(StoreAdminCatalogueRequest $request, StoreAdminCatalogueAction $action, CatalogueCacheService $cacheService): JsonResponse
     {
         try {
             $item = $action->execute($request->validated());
+            
+            // Invalidate all catalogue caches since we added new product
+            $cacheService->invalidateAll();
 
             return response()->json([
                 'message' => 'Product successfully added to vendor catalog.',
@@ -50,9 +54,15 @@ class AdminCatalogueController extends Controller
     public function update(
         UpdateAdminCatalogueRequest $request,
         Catalogue $catalogue,
-        UpdateAdminCatalogueAction $action
+        UpdateAdminCatalogueAction $action,
+        CatalogueCacheService $cacheService
     ): JsonResponse {
         $item = $action->execute($catalogue, $request->validated());
+        
+        // Invalidate cache for updated catalogue
+        $cacheService->invalidateDetails($catalogue);
+        $cacheService->invalidateSeoData($catalogue);
+        $cacheService->invalidateAll();
 
         return response()->json([
             'message' => 'Product successfully updated.',
@@ -63,9 +73,14 @@ class AdminCatalogueController extends Controller
     /**
      * Delete a catalogue item.
      */
-    public function destroy(Catalogue $catalogue, DeleteAdminCatalogueAction $action): JsonResponse
+    public function destroy(Catalogue $catalogue, DeleteAdminCatalogueAction $action, CatalogueCacheService $cacheService): JsonResponse
     {
         $action->execute($catalogue);
+        
+        // Invalidate cache for deleted catalogue
+        $cacheService->invalidateDetails($catalogue);
+        $cacheService->invalidateSeoData($catalogue);
+        $cacheService->invalidateAll();
 
         return response()->json(['message' => 'Product successfully deleted from catalog.']);
     }

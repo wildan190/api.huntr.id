@@ -3,6 +3,7 @@
 namespace App\Domain\Catalogue\Actions;
 
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Domain\Catalogue\Services\CatalogueCacheService;
 use App\Support\KeywordNormalizer;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -12,6 +13,21 @@ use Illuminate\Pagination\LengthAwarePaginator;
 class GetCataloguesAction
 {
     /**
+     * @var CatalogueCacheService
+     */
+    private $cacheService;
+
+    /**
+     * Constructor
+     *
+     * @param CatalogueCacheService $cacheService
+     */
+    public function __construct(CatalogueCacheService $cacheService)
+    {
+        $this->cacheService = $cacheService;
+    }
+
+    /**
      * Execute the action.
      *
      * @param array $params
@@ -19,6 +35,13 @@ class GetCataloguesAction
      */
     public function execute(array $params): LengthAwarePaginator
     {
+        // Try to get from cache first
+        $cachedData = $this->cacheService->getListing($params);
+        
+        if ($cachedData) {
+            return $this->paginateFromCache($cachedData, $params);
+        }
+        
         $query = Catalogue::query()->with('company');
 
         if (!empty($params['company_id'])) {
@@ -61,6 +84,41 @@ class GetCataloguesAction
             $query->where('category', $params['category']);
         }
 
-        return $query->orderBy('id', 'desc')->paginate($params['per_page'] ?? 20);
+        $page = $params['page'] ?? 1;
+        $perPage = $params['per_page'] ?? 20;
+        
+        $result = $query->orderBy('id', 'desc')->paginate($perPage, ['*'], 'page', $page);
+        
+        // Store in cache for future requests
+        $this->cacheService->storeListing($params, [
+            'data' => $result->items(),
+            'total' => $result->total(),
+            'per_page' => $result->perPage(),
+            'current_page' => $result->currentPage(),
+            'last_page' => $result->lastPage()
+        ]);
+        
+        return $result;
+    }
+    
+    /**
+     * Create paginator from cached data.
+     *
+     * @param array $cachedData
+     * @param array $params
+     * @return LengthAwarePaginator
+     */
+    private function paginateFromCache(array $cachedData, array $params): LengthAwarePaginator
+    {
+        $page = $params['page'] ?? 1;
+        $perPage = $params['per_page'] ?? 20;
+        
+        return new LengthAwarePaginator(
+            $cachedData['data'],
+            $cachedData['total'],
+            $cachedData['per_page'],
+            $page,
+            ['path' => request()->url()]
+        );
     }
 }
