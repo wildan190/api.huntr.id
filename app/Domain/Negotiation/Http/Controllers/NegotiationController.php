@@ -5,6 +5,8 @@ namespace App\Domain\Negotiation\Http\Controllers;
 use App\Domain\Negotiation\Models\Negotiation;
 use App\Domain\Negotiation\Actions\CreateNegotiationAction;
 use App\Domain\Negotiation\Actions\RespondToNegotiationAction;
+use App\Domain\Negotiation\Http\Requests\StoreNegotiationRequest;
+use App\Domain\Negotiation\Http\Requests\RespondNegotiationRequest;
 use App\Domain\Proposal\Models\Proposal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,37 +40,21 @@ class NegotiationController extends Controller
     /**
      * Buyer submits a negotiation.
      */
-    public function store(Request $request, CreateNegotiationAction $action): JsonResponse
+    public function store(StoreNegotiationRequest $request, CreateNegotiationAction $action): JsonResponse
     {
-        $request->validate([
-            'proposal_id' => 'required|exists:proposals,id',
-            'payment_scheme' => 'nullable|string',
-            'delivery_terms' => 'nullable|string',
-            'buyer_remarks' => 'nullable|string',
-            'items' => 'required|array',
-            'items.*.proposal_item_id' => 'required',
-            'items.*.negotiated_price' => 'required|numeric',
-            'items.*.negotiated_qty' => 'required|integer',
-        ]);
-
         $proposal = Proposal::with('rfq', 'company.users')->findOrFail($request->proposal_id);
         
         return response()->json([
             'message' => 'Negotiation submitted successfully.',
-            'negotiation' => $action->execute($proposal, $request->all())
+            'negotiation' => $action->execute($proposal, $request->validated())
         ]);
     }
 
     /**
      * Vendor responds to negotiation (Accept/Decline).
      */
-    public function respond(Request $request, Negotiation $negotiation, RespondToNegotiationAction $action): JsonResponse
+    public function respond(RespondNegotiationRequest $request, Negotiation $negotiation, RespondToNegotiationAction $action): JsonResponse
     {
-        $request->validate([
-            'status' => 'required|in:accepted,declined',
-            'vendor_remarks' => 'nullable|string',
-        ]);
-
         return response()->json([
             'message' => 'Negotiation status updated to ' . $request->status,
             'negotiation' => $action->execute($negotiation, $request->status, $request->vendor_remarks)

@@ -166,4 +166,30 @@ class CompanyController extends \App\Http\Controllers\Controller
             'members' => $members
         ]);
     }
+
+    /**
+     * Get invitation info by token (public endpoint)
+     */
+    public function invitationInfo(Request $request): JsonResponse
+    {
+        $request->validate([
+            'token' => 'required|string',
+        ]);
+
+        $invitation = \App\Domain\Company\Models\CompanyInvitation::where('token', $request->token)
+            ->where('status', 'pending')
+            ->where('expires_at', '>', now())
+            ->with('company:id,name')
+            ->first();
+
+        if (!$invitation) {
+            return response()->json(['message' => 'Invitation is invalid or has expired.'], 404);
+        }
+
+        return response()->json([
+            'company' => $invitation->company->name,
+            'whatsapp' => $invitation->whatsapp,
+            'role' => $invitation->role,
+        ]);
+    }
 }

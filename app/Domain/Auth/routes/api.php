@@ -20,7 +20,6 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
     });
 });
 
-//admin auth login
 Route::post('api/admin/auth/login', [AdminController::class, 'login']);
 
 Route::prefix('api/admin')->middleware(['api'])->group(function () {
@@ -59,12 +58,12 @@ Route::middleware(['api', 'auth:api'])->group(function () {
             'user_id' => $user->id,
             'user_name' => $user->name,
             'user_email' => $user->email,
-            'roles_from_relation' => $user->roles->map(fn ($r) => [
+            'roles_from_relation' => $user->roles->map(fn($r) => [
                 'id' => $r->id,
                 'name' => $r->name,
                 'slug' => $r->slug,
             ]),
-            'roles_from_db' => $rolesFromDb->map(fn ($r) => [
+            'roles_from_db' => $rolesFromDb->map(fn($r) => [
                 'id' => $r->id,
                 'name' => $r->name,
                 'slug' => $r->slug,
