@@ -110,4 +110,28 @@ class RfqController extends \App\Http\Controllers\Controller
 
         return response()->json(['rankings' => $rankings], 200);
     }
+
+    /**
+     * Mengundang vendor untuk ikut serta dalam RFQ.
+     */
+    public function inviteVendor(Request $request, Rfq $rfq): JsonResponse
+    {
+        $request->validate([
+            'whatsapp' => 'required|string',
+        ]);
+
+        $whatsapp = preg_replace('/[^0-9]/', '', $request->input('whatsapp'));
+        
+        $frontendUrl = config('app.frontend_url', 'https://app.huntr.id');
+        $rfqLink = $frontendUrl . "/rfq/" . $rfq->id;
+
+        $message = "Hello! You have been invited to submit a quotation for RFQ #{$rfq->id} - {$rfq->title}.\n\nRegister on Huntr.id to view the details and submit your proposal:\n{$rfqLink}";
+        
+        $whatsappLink = "https://wa.me/" . $whatsapp . "?text=" . urlencode($message);
+
+        return response()->json([
+            'message' => 'Invitation link generated successfully.',
+            'whatsapp_link' => $whatsappLink
+        ], 200);
+    }
 }
