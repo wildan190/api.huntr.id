@@ -37,6 +37,13 @@ class SubmitProposalAction
             ]);
         }
 
+        // Check if RFQ tender deadline has expired
+        if ($this->isTenderExpired($rfq)) {
+            throw ValidationException::withMessages([
+                'rfq' => ['The tender period for this RFQ has expired. No more proposals can be submitted.'],
+            ]);
+        }
+
         if ($this->proposalRepository->hasSubmittedForRfq($rfq, $vendorCompany)) {
             throw ValidationException::withMessages([
                 'rfq' => ['Your company has already submitted a proposal for this RFQ.'],
@@ -110,5 +117,20 @@ class SubmitProposalAction
 
             return $proposal;
         });
+    }
+
+    /**
+     * Check if RFQ tender deadline has expired
+     */
+    private function isTenderExpired(Rfq $rfq): bool
+    {
+        if (!$rfq->approved_at) {
+            return false; // If not approved yet, not expired
+        }
+
+        $duration = $rfq->duration_days ?? 7;
+        $endDate = $rfq->approved_at->copy()->addDays($duration);
+        
+        return now() > $endDate;
     }
 }
