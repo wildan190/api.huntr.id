@@ -171,9 +171,7 @@ class CatalogueCacheService
      */
     private function getListingCacheKey(array $params): string
     {
-        // Remove page from cache key as it affects pagination
         $cacheParams = $params;
-        unset($cacheParams['page']);
         
         // Sort parameters for consistent cache keys
         ksort($cacheParams);
