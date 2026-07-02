@@ -23,6 +23,8 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
 Route::post('api/admin/auth/login', [AdminController::class, 'login']);
 
 Route::prefix('api/admin')->middleware(['api'])->group(function () {
+    Route::get('admins', [AdminController::class, 'listAdmins']);
+    Route::post('admins', [AdminController::class, 'createAdmin']);
     Route::get('companies', [AdminController::class, 'listCompanies']);
     Route::post('companies/{company}/audit', [AdminController::class, 'auditCompany']);
     Route::get('catalogues', [AdminCatalogueController::class, 'index']);
