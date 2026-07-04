@@ -16,7 +16,11 @@ class AcceptInvitationAction
         $invitation = CompanyInvitation::where('token', $token)
             ->where('status', 'pending')
             ->where('expires_at', '>', now())
+            ->with('company')
             ->firstOrFail();
+
+        // Validate role matches company type before accepting
+        $this->validateRoleForCompanyType($invitation->role, $invitation->company->type);
 
         // Update user's company and assign role via Access domain
         $user->update([
@@ -31,5 +35,22 @@ class AcceptInvitationAction
             'user' => $user->fresh(),
             'company' => $invitation->company,
         ];
+    }
+
+    /**
+     * Validate that the role is appropriate for the company type.
+     */
+    private function validateRoleForCompanyType(string $role, string $companyType): void
+    {
+        $buyerRoles = ['buyer', 'manager', 'finance'];
+        $vendorRoles = ['admin', 'manager', 'finance'];
+
+        if ($companyType === 'buyer' && !in_array($role, $buyerRoles)) {
+            throw new \Exception("Role '{$role}' is not valid for buyer companies. Valid roles: " . implode(', ', $buyerRoles));
+        }
+
+        if ($companyType === 'vendor' && !in_array($role, $vendorRoles)) {
+            throw new \Exception("Role '{$role}' is not valid for vendor companies. Valid roles: " . implode(', ', $vendorRoles));
+        }
     }
 }

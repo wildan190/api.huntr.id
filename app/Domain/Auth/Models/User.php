@@ -77,4 +77,12 @@ class User extends Authenticatable
     {
         return $this->hasMany(\App\Domain\Company\Models\Company::class, 'owner_id');
     }
+
+    /**
+     * Get the company this user belongs to.
+     */
+    public function company()
+    {
+        return $this->belongsTo(\App\Domain\Company\Models\Company::class);
+    }
 }

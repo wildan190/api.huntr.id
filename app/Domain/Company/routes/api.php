@@ -16,4 +16,5 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->gro
     Route::post('invite', [CompanyController::class, 'invite']);
     Route::post('accept-invitation', [CompanyController::class, 'acceptInvitation']);
     Route::get('{company}/members', [CompanyController::class, 'teamMembers']);
+    Route::get('{company}/diagnose-roles', [CompanyController::class, 'diagnoseRoles']);
 });
