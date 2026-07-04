@@ -37,12 +37,10 @@ class RejectRfqAction
         }
 
         // Validate that the user has permission to reject
-        $company = $rfq->company;
-        $approvers = $company->approvers();
-        $isAuthorized = $approvers->contains('id', $rejector->id);
-
-        if (!$isAuthorized) {
-            throw new \Exception('You do not have permission to reject this RFQ.');
+        $isOwner = $rfq->company->owner_id === $rejector->id;
+        
+        if (!$rejector->hasRole('manager') && !$isOwner) {
+            throw new \Exception('Only purchasing managers or company owners can reject RFQs.');
         }
 
         return DB::transaction(function () use ($rfq, $rejector, $reason) {
