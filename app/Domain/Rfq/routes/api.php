@@ -9,5 +9,6 @@ Route::prefix('api/rfqs')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('{rfq}/rankings', [RfqController::class, 'rankings']);
     Route::post('', [RfqController::class, 'store']);
     Route::post('{rfq}/approve', [RfqController::class, 'approve']);
+    Route::post('{rfq}/reject', [RfqController::class, 'reject']);
     Route::post('{rfq}/invite-vendor', [RfqController::class, 'inviteVendor']);
 });

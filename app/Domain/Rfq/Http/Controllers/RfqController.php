@@ -4,6 +4,7 @@ namespace App\Domain\Rfq\Http\Controllers;
 
 use App\Domain\Rfq\Actions\CreateRfqAction;
 use App\Domain\Rfq\Actions\ApproveRfqAction;
+use App\Domain\Rfq\Actions\RejectRfqAction;
 use App\Domain\Rfq\Actions\GetRfqsAction;
 use App\Domain\Rfq\Http\Requests\CreateRfqRequest;
 use App\Domain\Rfq\Models\Rfq;
@@ -89,6 +90,62 @@ class RfqController extends \App\Http\Controllers\Controller
         return response()->json([
             'rfq' => $action->execute($manager, $rfq)
         ], 200);
+    }
+
+    /**
+     * Menolak RFQ oleh manajer/approver yang berwenang.
+     */
+    public function reject(Request $request, Rfq $rfq, RejectRfqAction $action): JsonResponse
+    {
+        try {
+            // Get the authenticated user from the request context
+            $rejector = $request->user();
+            
+            if (!$rejector) {
+                return response()->json([
+                    'message' => 'Authentication required.',
+                    'error' => 'User not authenticated'
+                ], 401);
+            }
+            
+            // Debug: Log the authenticated user info
+            \Log::info('Reject RFQ by user:', ['user_id' => $rejector->id, 'user_name' => $rejector->name]);
+            
+            $validation = $request->validate([
+                'reason' => 'nullable|string|max:1000'
+            ]);
+            
+            $reason = $request->input('reason');
+            
+            $rejectedRfq = $action->execute($rejector, $rfq, $reason);
+            
+            return response()->json([
+                'message' => 'RFQ has been rejected successfully.',
+                'rfq' => $rejectedRfq->load(['company', 'user'])
+            ], 200);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('Validation error in reject RFQ:', [
+                'errors' => $e->errors(),
+                'request_data' => $request->all()
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to reject RFQ.',
+                'error' => 'Validation failed: ' . implode(', ', array_flatten($e->errors())),
+                'validation_errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Error rejecting RFQ:', [
+                'message' => $e->getMessage(),
+                'authenticated_user' => $request->user()?->id
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to reject RFQ.',
+                'error' => $e->getMessage()
+            ], 422);
+        }
     }
 
     /**
