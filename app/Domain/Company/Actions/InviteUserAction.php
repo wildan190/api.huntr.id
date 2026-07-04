@@ -22,6 +22,9 @@ class InviteUserAction
             throw new \Exception("Unauthorized to invite users to this company.");
         }
 
+        // Validate role matches company type
+        $this->validateRoleForCompanyType($data['role'], $company->type);
+
         $token = Str::random(32);
         
         $invitation = CompanyInvitation::create([
@@ -46,5 +49,22 @@ class InviteUserAction
             'whatsapp_link' => $whatsappLink,
             'message' => $message,
         ];
+    }
+
+    /**
+     * Validate that the role is appropriate for the company type.
+     */
+    private function validateRoleForCompanyType(string $role, string $companyType): void
+    {
+        $buyerRoles = ['buyer', 'manager', 'finance'];
+        $vendorRoles = ['admin', 'manager', 'finance'];
+
+        if ($companyType === 'buyer' && !in_array($role, $buyerRoles)) {
+            throw new \Exception("Role '{$role}' is not valid for buyer companies. Valid roles: " . implode(', ', $buyerRoles));
+        }
+
+        if ($companyType === 'vendor' && !in_array($role, $vendorRoles)) {
+            throw new \Exception("Role '{$role}' is not valid for vendor companies. Valid roles: " . implode(', ', $vendorRoles));
+        }
     }
 }

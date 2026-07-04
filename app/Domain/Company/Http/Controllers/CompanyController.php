@@ -168,6 +168,19 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Diagnose role inconsistencies in the company.
+     */
+    public function diagnoseRoles(Company $company, \App\Domain\Company\Actions\DiagnoseRoleInconsistenciesAction $action): JsonResponse
+    {
+        $user = auth()->user();
+        if ($user->company_id !== $company->id && $company->owner_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        return response()->json($action->execute($user));
+    }
+
+    /**
      * Get invitation info by token (public endpoint)
      */
     public function invitationInfo(Request $request): JsonResponse
