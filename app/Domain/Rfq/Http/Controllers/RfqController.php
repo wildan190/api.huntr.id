@@ -85,7 +85,15 @@ class RfqController extends \App\Http\Controllers\Controller
      */
     public function approve(Request $request, Rfq $rfq, ApproveRfqAction $action): JsonResponse
     {
-        $manager = User::findOrFail($request->input('manager_id'));
+        // Use authenticated user instead of manager_id from request
+        $manager = $request->user();
+        
+        if (!$manager) {
+            return response()->json([
+                'message' => 'Authentication required.',
+                'error' => 'User not authenticated'
+            ], 401);
+        }
         
         return response()->json([
             'rfq' => $action->execute($manager, $rfq)

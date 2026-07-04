@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(\App\Http\Middleware\CheckCompanyApproved::class);
         $middleware->alias([
             'cors' => \App\Http\Middleware\HandleCors::class,
+            'manager.only' => \App\Http\Middleware\ManagerOnly::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
