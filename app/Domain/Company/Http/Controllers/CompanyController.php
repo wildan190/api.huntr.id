@@ -289,16 +289,24 @@ class CompanyController extends \App\Http\Controllers\Controller
         }
 
         try {
-            // Remove existing roles
+            // Remove existing roles first
             $targetUser->roles()->detach();
             
             // Assign new role
             $targetUser->assignRole($newRole);
+            
+            // Refresh the user model to ensure role is properly loaded
+            $targetUser->refresh();
+            $targetUser->load('roles'); // Ensure roles relationship is fresh
+            
+            // Get the actual role from the model (using accessor)
+            $actualRole = $targetUser->role;
 
             \Log::info('User role updated successfully', [
                 'company_id' => $company->id,
                 'target_user_id' => $targetUser->id,
-                'new_role' => $newRole,
+                'requested_role' => $newRole,
+                'actual_role' => $actualRole,
                 'updated_by' => $requestingUser->id
             ]);
 
@@ -308,7 +316,7 @@ class CompanyController extends \App\Http\Controllers\Controller
                     'id' => $targetUser->id,
                     'name' => $targetUser->name,
                     'email' => $targetUser->email,
-                    'role' => $newRole
+                    'role' => $actualRole // Use actual role from model
                 ]
             ]);
 
