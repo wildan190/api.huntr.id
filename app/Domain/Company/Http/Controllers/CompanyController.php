@@ -292,6 +292,21 @@ class CompanyController extends \App\Http\Controllers\Controller
             // Remove existing roles first
             $targetUser->roles()->detach();
             
+            // Verify role exists before assignment
+            $roleExists = \App\Domain\Access\Models\Role::where('slug', $newRole)->first();
+            if (!$roleExists) {
+                \Log::error('Role not found during assignment', [
+                    'requested_role' => $newRole,
+                    'company_id' => $company->id,
+                    'target_user_id' => $targetUser->id
+                ]);
+                
+                return response()->json([
+                    'message' => "Role '{$newRole}' not found in database. Please contact administrator.",
+                    'error' => 'role_not_found'
+                ], 422);
+            }
+            
             // Assign new role
             $targetUser->assignRole($newRole);
             
@@ -307,6 +322,7 @@ class CompanyController extends \App\Http\Controllers\Controller
                 'target_user_id' => $targetUser->id,
                 'requested_role' => $newRole,
                 'actual_role' => $actualRole,
+                'roles_count' => $targetUser->roles()->count(),
                 'updated_by' => $requestingUser->id
             ]);
 
@@ -323,6 +339,7 @@ class CompanyController extends \App\Http\Controllers\Controller
         } catch (\Exception $e) {
             \Log::error('Error updating user role', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
                 'company_id' => $company->id,
                 'target_user_id' => $targetUser->id,
                 'new_role' => $newRole
@@ -330,7 +347,12 @@ class CompanyController extends \App\Http\Controllers\Controller
 
             return response()->json([
                 'message' => 'Failed to update user role.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'debug_info' => [
+                    'role_exists' => \App\Domain\Access\Models\Role::where('slug', $newRole)->exists(),
+                    'user_exists' => !is_null($targetUser),
+                    'requested_role' => $newRole
+                ]
             ], 500);
         }
     }
