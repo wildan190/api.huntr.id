@@ -33,8 +33,16 @@ class LoginUserAction
             ]);
         }
 
-        // Auto-fix missing roles for existing users before proceeding
-        $user->ensureCompanyOwnerRole();
+        // Critical: Fix user roles BEFORE creating token and returning data
+        try {
+            $user->ensureCompanyOwnerRole();
+            $user->refresh(); // Ensure we have fresh data from DB
+        } catch (\Exception $e) {
+            \Log::warning('Role fix failed during login', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+        }
         
         Auth::login($user);
 
@@ -43,9 +51,6 @@ class LoginUserAction
             $credentials['device_name'] ?? 'Web Browser', 
             $credentials['remember_me'] ?? false
         );
-
-        // Refresh user model after potential role assignment
-        $user->refresh();
         
         $userData = $user->toArray();
         $userData['token'] = $token;
