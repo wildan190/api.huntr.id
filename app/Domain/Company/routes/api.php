@@ -19,4 +19,47 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->gro
     Route::put('{company}/users/role', [CompanyController::class, 'updateUserRole']);
     Route::get('{company}/diagnose-roles', [CompanyController::class, 'diagnoseRoles']);
     Route::post('{company}/fix-owner-role', [CompanyController::class, 'fixCompanyOwnerRole']);
+    
+    // Debug endpoints untuk role troubleshooting
+    Route::prefix('debug')->group(function () {
+        Route::get('my-role', function(\Illuminate\Http\Request $request) {
+            $user = $request->user();
+            if (!$user) return response()->json(['error' => 'Not authenticated'], 401);
+            
+            return response()->json([
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'current_role' => $user->role,
+                'all_roles' => $user->roles()->pluck('slug')->toArray(),
+                'company_id' => $user->company_id,
+                'owned_companies' => \App\Domain\Company\Models\Company::where('owner_id', $user->id)->pluck('name', 'id')->toArray(),
+                'needs_fix' => \App\Domain\Auth\Services\RoleFixService::needsRoleFix($user)
+            ]);
+        });
+        
+        Route::post('fix-my-role', function(\Illuminate\Http\Request $request) {
+            $user = $request->user();
+            if (!$user) return response()->json(['error' => 'Not authenticated'], 401);
+            
+            $before = $user->role;
+            $beforeRoles = $user->roles()->pluck('slug')->toArray();
+            
+            $fixed = \App\Domain\Auth\Services\RoleFixService::fixUserRole($user);
+            $user->refresh();
+            
+            $after = $user->role;
+            $afterRoles = $user->roles()->pluck('slug')->toArray();
+            
+            return response()->json([
+                'success' => $fixed,
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'role_before' => $before,
+                'role_after' => $after,
+                'roles_before' => $beforeRoles,
+                'roles_after' => $afterRoles,
+                'message' => $fixed ? 'Role fixed successfully' : 'No fix needed or failed'
+            ]);
+        });
+    });
 });
