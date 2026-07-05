@@ -33,6 +33,9 @@ class LoginUserAction
             ]);
         }
 
+        // Auto-fix missing roles for existing users before proceeding
+        $user->ensureCompanyOwnerRole();
+        
         Auth::login($user);
 
         $token = $this->tokenAction->execute(
@@ -41,6 +44,9 @@ class LoginUserAction
             $credentials['remember_me'] ?? false
         );
 
+        // Refresh user model after potential role assignment
+        $user->refresh();
+        
         $userData = $user->toArray();
         $userData['token'] = $token;
 

@@ -231,4 +231,41 @@ class DebugRoleController extends Controller
             ]
         ]);
     }
+
+    /**
+     * Refresh user session - auto-fix roles and return current user data
+     * Useful for frontend to call after potential role fixes
+     */
+    public function refreshSession(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        
+        if (!$user) {
+            return response()->json(['error' => 'Not authenticated'], 401);
+        }
+
+        // Trigger any auto-fixes by accessing role attribute
+        $currentRole = $user->role; // This triggers getRoleAttribute() which may auto-fix
+        
+        // Refresh user model to ensure latest data
+        $user->refresh();
+        
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'whatsapp' => $user->whatsapp,
+                'role' => $user->role,
+                'company_id' => $user->company_id,
+                'two_factor_confirmed_at' => $user->two_factor_confirmed_at,
+            ],
+            'message' => 'Session refreshed successfully',
+            'debug' => [
+                'roles_count' => $user->roles()->count(),
+                'owned_companies' => $user->companies()->count(),
+                'needs_fix' => RoleFixService::needsRoleFix($user),
+            ]
+        ]);
+    }
 }
