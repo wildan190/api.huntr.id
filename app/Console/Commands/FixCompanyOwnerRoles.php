@@ -79,7 +79,16 @@ class FixCompanyOwnerRoles extends Command
                 $this->newLine();
                 $this->info('📊 Summary:');
                 $this->line("   Already correct: {$results['already_correct']}");
-                $this->info("   Fixed: {$results['fixed']}");
+                if (isset($results['fixed_roles']) && isset($results['fixed_assignments'])) {
+                    $this->info("   Roles fixed: {$results['fixed_roles']}");
+                    $this->info("   Company assignments fixed: {$results['fixed_assignments']}");
+                    $totalFixed = $results['fixed_roles'] + $results['fixed_assignments'];
+                    $this->info("   Total fixes: {$totalFixed}");
+                } else {
+                    // Fallback for old format
+                    $fixed = $results['fixed'] ?? 0;
+                    $this->info("   Fixed: {$fixed}");
+                }
                 if ($results['errors'] > 0) {
                     $this->error("   Errors: {$results['errors']}");
                 }

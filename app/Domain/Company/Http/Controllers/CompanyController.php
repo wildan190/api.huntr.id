@@ -196,6 +196,17 @@ class CompanyController extends \App\Http\Controllers\Controller
                     'error' => $e->getMessage()
                 ]);
             }
+            
+            // Auto-fix company assignment for company owners
+            if ($company->owner_id === $user->id && $user->company_id !== $company->id) {
+                $user->update(['company_id' => $company->id]);
+                $user->refresh();
+                
+                Log::info('Auto-fixed company_id for company owner in teamMembers', [
+                    'user_id' => $user->id,
+                    'company_id' => $company->id
+                ]);
+            }
         }
         
         $members = $company->users()
@@ -224,6 +235,18 @@ class CompanyController extends \App\Http\Controllers\Controller
         ]);
 
         $requestingUser = $request->user();
+        
+        // Auto-fix: If user owns this company but company_id doesn't match, fix it
+        if ($company->owner_id === $requestingUser->id && $requestingUser->company_id !== $company->id) {
+            $requestingUser->update(['company_id' => $company->id]);
+            $requestingUser->refresh();
+            
+            \Log::info('Auto-fixed company_id for company owner', [
+                'user_id' => $requestingUser->id,
+                'old_company_id' => $requestingUser->company_id,
+                'new_company_id' => $company->id
+            ]);
+        }
         
         // Check if requesting user has permission (must be manager or company owner)
         if ($requestingUser->company_id !== $company->id) {
