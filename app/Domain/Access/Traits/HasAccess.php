@@ -40,13 +40,18 @@ trait HasAccess
     public function assignRole(string $roleSlug): void
     {
         $role = Role::where('slug', $roleSlug)->first();
-        if ($role) {
-            // Check if role already attached
-            $exists = $this->roles()->where('role_id', $role->id)->exists();
-            if (!$exists) {
-                $this->roles()->attach($role->id);
-            }
+        if (!$role) {
+            throw new \Exception("Role '{$roleSlug}' not found.");
         }
+        
+        // Remove all existing roles first to ensure clean assignment
+        $this->roles()->detach();
+        
+        // Attach the new role
+        $this->roles()->attach($role->id);
+        
+        // Clear any cached role relationships
+        $this->unsetRelation('roles');
     }
 
     /**
