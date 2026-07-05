@@ -71,13 +71,31 @@ class User extends Authenticatable
         $role = $this->roles()->first()?->slug;
         
         // Auto-fix users without roles (primarily for existing production users)
-        if (!$role && $this->id) {
-            $this->ensureCompanyOwnerRole();
-            $role = $this->roles()->first()?->slug;
+        if (!$role && $this->id && !$this->roleFixAttempted) {
+            try {
+                $this->roleFixAttempted = true; // Prevent infinite recursion
+                $fixed = $this->ensureCompanyOwnerRole();
+                
+                if ($fixed) {
+                    // Reload relationship to get fresh role data
+                    $this->load('roles');
+                    $role = $this->roles()->first()?->slug;
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Auto role fix failed in getRoleAttribute', [
+                    'user_id' => $this->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
         }
         
         return $role;
     }
+
+    /**
+     * Prevent infinite recursion in role fix
+     */
+    protected $roleFixAttempted = false;
 
     /**
      * Get the companies associated with this user.
