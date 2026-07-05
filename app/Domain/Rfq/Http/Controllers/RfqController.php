@@ -31,18 +31,41 @@ class RfqController extends \App\Http\Controllers\Controller
 
     /**
      * Menampilkan detail RFQ beserta item dan proposalnya.
+     * Items dengan gambar diprioritaskan untuk ditampilkan lebih dulu.
      */
     public function show(Rfq $rfq): JsonResponse
     {
-        return response()->json([
-            'rfq' => $rfq->load([
-                'items.catalogue.company', 
-                'company', 
-                'user', 
-                'proposals' => function($query) {
-                    $query->with('company');
+        // Load RFQ dengan relasi yang diperlukan
+        $rfqData = $rfq->load([
+            'company', 
+            'user', 
+            'proposals' => function($query) {
+                $query->with('company');
+            }
+        ]);
+
+        // Load items dengan prioritas berdasarkan ketersediaan gambar
+        $items = $rfq->items()
+            ->with(['catalogue.company'])
+            ->get()
+            ->sortBy([
+                // Prioritas 1: Items dengan gambar (image_path tidak null dan tidak empty)
+                function ($item) {
+                    $hasImage = !empty($item->catalogue->image_path);
+                    return $hasImage ? 0 : 1; // 0 = tinggi, 1 = rendah
+                },
+                // Prioritas 2: Urutkan berdasarkan nama katalog untuk konsistensi
+                function ($item) {
+                    return $item->catalogue->name;
                 }
             ])
+            ->values(); // Reset array keys setelah sorting
+
+        // Set items yang sudah diurutkan ke RFQ
+        $rfqData->setRelation('items', $items);
+
+        return response()->json([
+            'rfq' => $rfqData
         ], 200);
     }
 

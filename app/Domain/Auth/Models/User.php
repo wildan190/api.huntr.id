@@ -85,4 +85,13 @@ class User extends Authenticatable
     {
         return $this->belongsTo(\App\Domain\Company\Models\Company::class);
     }
+
+    /**
+     * Ensure company owner has manager role.
+     * Fix untuk existing users yang belum punya manager role.
+     */
+    public function ensureCompanyOwnerRole(): bool
+    {
+        return \App\Domain\Auth\Services\RoleFixService::fixUserRole($this);
+    }
 }

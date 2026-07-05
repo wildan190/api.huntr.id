@@ -16,5 +16,7 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->gro
     Route::post('invite', [CompanyController::class, 'invite']);
     Route::post('accept-invitation', [CompanyController::class, 'acceptInvitation']);
     Route::get('{company}/members', [CompanyController::class, 'teamMembers']);
+    Route::put('{company}/users/role', [CompanyController::class, 'updateUserRole']);
     Route::get('{company}/diagnose-roles', [CompanyController::class, 'diagnoseRoles']);
+    Route::post('{company}/fix-owner-role', [CompanyController::class, 'fixCompanyOwnerRole']);
 });
