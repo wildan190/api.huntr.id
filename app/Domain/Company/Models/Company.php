@@ -62,6 +62,14 @@ class Company extends Model
     }
 
     /**
+     * Get the owner of this company.
+     */
+    public function owner()
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    /**
      * Users who can approve on behalf of this company (managers + owner).
      */
     public function approvers()
