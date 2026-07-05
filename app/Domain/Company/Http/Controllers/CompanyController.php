@@ -36,8 +36,15 @@ class CompanyController extends \App\Http\Controllers\Controller
      */
     public function myCompanies(Request $request, GetMyCompaniesAction $action): JsonResponse
     {
+        $user = $request->user();
+        
+        // Auto-fix role untuk existing company owners
+        if ($user) {
+            $user->ensureCompanyOwnerRole();
+        }
+        
         return response()->json([
-            'companies' => $action->execute($request->user())
+            'companies' => $action->execute($user)
         ], 200);
     }
 
@@ -152,6 +159,13 @@ class CompanyController extends \App\Http\Controllers\Controller
      */
     public function teamMembers(Company $company): JsonResponse
     {
+        $user = auth()->user();
+        
+        // Auto-fix role untuk existing company owners
+        if ($user) {
+            $user->ensureCompanyOwnerRole();
+        }
+        
         $members = $company->users()
             ->select('users.id', 'users.name', 'users.email', 'users.whatsapp')
             ->with('roles')
@@ -168,6 +182,97 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Update user role in the company.
+     */
+    public function updateUserRole(Request $request, Company $company): JsonResponse
+    {
+        $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'role' => 'required|string',
+        ]);
+
+        $requestingUser = $request->user();
+        
+        // Check if requesting user has permission (must be manager or company owner)
+        if ($requestingUser->company_id !== $company->id) {
+            return response()->json(['message' => 'You are not authorized to manage this company.'], 403);
+        }
+
+        if (!in_array($requestingUser->role, ['manager']) && $company->owner_id !== $requestingUser->id) {
+            return response()->json(['message' => 'Only managers and company owners can change user roles.'], 403);
+        }
+
+        $targetUser = \App\Domain\Auth\Models\User::findOrFail($request->user_id);
+        
+        // Check if target user belongs to this company
+        if ($targetUser->company_id !== $company->id) {
+            return response()->json(['message' => 'User does not belong to this company.'], 403);
+        }
+
+        // Prevent changing company owner's role unless they are changing their own
+        if ($company->owner_id === $targetUser->id && $requestingUser->id !== $targetUser->id) {
+            return response()->json(['message' => 'Company owner role cannot be changed by others.'], 403);
+        }
+
+        $newRole = $request->role;
+
+        // Validate role based on company type
+        $validRoles = [];
+        if ($company->type === 'buyer') {
+            $validRoles = ['buyer', 'manager', 'finance'];
+        } elseif ($company->type === 'vendor') {
+            $validRoles = ['admin', 'manager', 'finance'];
+        } else {
+            return response()->json(['message' => 'Invalid company type for role assignment.'], 422);
+        }
+
+        if (!in_array($newRole, $validRoles)) {
+            $validRolesStr = implode(', ', $validRoles);
+            return response()->json([
+                'message' => "Invalid role for {$company->type} company. Valid roles: {$validRolesStr}"
+            ], 422);
+        }
+
+        try {
+            // Remove existing roles
+            $targetUser->roles()->detach();
+            
+            // Assign new role
+            $targetUser->assignRole($newRole);
+
+            \Log::info('User role updated successfully', [
+                'company_id' => $company->id,
+                'target_user_id' => $targetUser->id,
+                'new_role' => $newRole,
+                'updated_by' => $requestingUser->id
+            ]);
+
+            return response()->json([
+                'message' => 'User role updated successfully.',
+                'user' => [
+                    'id' => $targetUser->id,
+                    'name' => $targetUser->name,
+                    'email' => $targetUser->email,
+                    'role' => $newRole
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error updating user role', [
+                'error' => $e->getMessage(),
+                'company_id' => $company->id,
+                'target_user_id' => $targetUser->id,
+                'new_role' => $newRole
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to update user role.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Diagnose role inconsistencies in the company.
      */
     public function diagnoseRoles(Company $company, \App\Domain\Company\Actions\DiagnoseRoleInconsistenciesAction $action): JsonResponse
@@ -178,6 +283,56 @@ class CompanyController extends \App\Http\Controllers\Controller
         }
 
         return response()->json($action->execute($user));
+    }
+
+    /**
+     * Fix role untuk company owner yang belum punya manager role.
+     * Endpoint untuk admin atau debugging.
+     */
+    public function fixCompanyOwnerRole(Company $company): JsonResponse
+    {
+        $user = auth()->user();
+        
+        // Hanya owner company atau admin yang bisa akses
+        if ($company->owner_id !== $user->id && !$user->hasRole('admin')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        if (!$company->owner) {
+            return response()->json(['message' => 'Company owner not found'], 404);
+        }
+
+        $owner = $company->owner;
+        $needsFix = \App\Domain\Auth\Services\RoleFixService::needsRoleFix($owner);
+        
+        if (!$needsFix) {
+            return response()->json([
+                'message' => 'Company owner already has correct role',
+                'owner' => [
+                    'id' => $owner->id,
+                    'email' => $owner->email,
+                    'current_role' => $owner->role
+                ]
+            ]);
+        }
+
+        $fixed = \App\Domain\Auth\Services\RoleFixService::fixUserRole($owner);
+        
+        if ($fixed) {
+            return response()->json([
+                'message' => 'Manager role assigned successfully',
+                'owner' => [
+                    'id' => $owner->id,
+                    'email' => $owner->email,
+                    'new_role' => 'manager'
+                ]
+            ]);
+        } else {
+            return response()->json([
+                'message' => 'Failed to assign manager role',
+                'error' => 'See logs for details'
+            ], 500);
+        }
     }
 
     /**

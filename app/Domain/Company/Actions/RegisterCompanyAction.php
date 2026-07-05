@@ -80,6 +80,16 @@ class RegisterCompanyAction
             ]);
         }
 
+        // If user doesn't have an active company yet, make this their active company
+        // This ensures the registerer has immediate full access to their company
+        if (!$user->company_id) {
+            $user->update(['company_id' => $company->id]);
+            Log::info('Set registered company as user active company', [
+                'user_id' => $user->id,
+                'company_id' => $company->id,
+            ]);
+        }
+
         Log::info('Final company ID: ' . $company->id, [
             'status' => $company->status,
             'about' => $company->about,
