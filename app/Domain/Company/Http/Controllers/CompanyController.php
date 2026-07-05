@@ -38,9 +38,25 @@ class CompanyController extends \App\Http\Controllers\Controller
     {
         $user = $request->user();
         
-        // Auto-fix role untuk existing company owners
+        // Auto-fix role untuk existing company owners - Enhanced
         if ($user) {
-            $user->ensureCompanyOwnerRole();
+            try {
+                $fixed = $user->ensureCompanyOwnerRole();
+                if ($fixed) {
+                    Log::info('Auto-fixed role in myCompanies endpoint', [
+                        'user_id' => $user->id,
+                        'user_email' => $user->email
+                    ]);
+                    
+                    // Refresh user untuk memastikan role ter-update
+                    $user->refresh();
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to auto-fix role in myCompanies', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
         }
         
         return response()->json([
@@ -161,9 +177,25 @@ class CompanyController extends \App\Http\Controllers\Controller
     {
         $user = auth()->user();
         
-        // Auto-fix role untuk existing company owners
+        // Auto-fix role untuk existing company owners - Enhanced
         if ($user) {
-            $user->ensureCompanyOwnerRole();
+            try {
+                $fixed = $user->ensureCompanyOwnerRole();
+                if ($fixed) {
+                    Log::info('Auto-fixed role in teamMembers endpoint', [
+                        'user_id' => $user->id,
+                        'company_id' => $company->id
+                    ]);
+                    
+                    // Refresh user untuk memastikan role ter-update
+                    $user->refresh();
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to auto-fix role in teamMembers', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
         }
         
         $members = $company->users()
