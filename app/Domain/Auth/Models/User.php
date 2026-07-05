@@ -64,10 +64,19 @@ class User extends Authenticatable
 
     /**
      * Get the first role slug (for backward compatibility).
+     * Auto-fixes missing roles for existing users.
      */
     public function getRoleAttribute(): ?string
     {
-        return $this->roles()->first()?->slug;
+        $role = $this->roles()->first()?->slug;
+        
+        // Auto-fix users without roles (primarily for existing production users)
+        if (!$role && $this->id) {
+            $this->ensureCompanyOwnerRole();
+            $role = $this->roles()->first()?->slug;
+        }
+        
+        return $role;
     }
 
     /**

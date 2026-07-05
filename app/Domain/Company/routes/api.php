@@ -61,5 +61,34 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->gro
                 'message' => $fixed ? 'Role fixed successfully' : 'No fix needed or failed'
             ]);
         });
+        
+        Route::get('refresh-session', function(\Illuminate\Http\Request $request) {
+            $user = $request->user();
+            if (!$user) return response()->json(['error' => 'Not authenticated'], 401);
+            
+            // Trigger any auto-fixes by accessing role attribute
+            $currentRole = $user->role; // This triggers getRoleAttribute() which may auto-fix
+            
+            // Refresh user model to ensure latest data
+            $user->refresh();
+            
+            return response()->json([
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'whatsapp' => $user->whatsapp,
+                    'role' => $user->role,
+                    'company_id' => $user->company_id,
+                    'two_factor_confirmed_at' => $user->two_factor_confirmed_at,
+                ],
+                'message' => 'Session refreshed successfully',
+                'debug' => [
+                    'roles_count' => $user->roles()->count(),
+                    'owned_companies' => $user->companies()->count(),
+                    'needs_fix' => \App\Domain\Auth\Services\RoleFixService::needsRoleFix($user),
+                ]
+            ]);
+        });
     });
 });
