@@ -11,6 +11,49 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/documents/rfq/{rfqId}', [App\Http\Controllers\DocumentController::class, 'downloadRfqDocument']);
     Route::get('/documents/company/{documentId}', [App\Http\Controllers\DocumentController::class, 'downloadCompanyDocument']);
     Route::get('/assets/url', [App\Http\Controllers\DocumentController::class, 'getAssetUrl']);
+    
+    // Debug role endpoints
+    Route::prefix('debug/roles')->group(function () {
+        Route::get('/me', [App\Http\Controllers\DebugRoleController::class, 'debugCurrentUser']);
+        Route::post('/fix-me', [App\Http\Controllers\DebugRoleController::class, 'forceFixCurrentUser']);
+        Route::get('/company/{companyId}/team', [App\Http\Controllers\DebugRoleController::class, 'debugCompanyTeam']);
+        Route::post('/mass-fix', [App\Http\Controllers\DebugRoleController::class, 'massFixCompanyOwners']);
+        Route::post('/user-by-email', [App\Http\Controllers\DebugRoleController::class, 'debugUserByEmail']);
+    });
+    
+    // Simple web-accessible debug endpoints (untuk quick testing)
+    Route::get('/debug-user-role', function(Request $request) {
+        $user = $request->user();
+        if (!$user) return response()->json(['error' => 'Not authenticated'], 401);
+        
+        return response()->json([
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'current_role' => $user->role,
+            'all_roles' => $user->roles()->pluck('slug')->toArray(),
+            'company_id' => $user->company_id,
+            'owned_companies' => \App\Domain\Company\Models\Company::where('owner_id', $user->id)->pluck('name', 'id')->toArray()
+        ]);
+    });
+    
+    Route::post('/force-fix-role', function(Request $request) {
+        $user = $request->user();
+        if (!$user) return response()->json(['error' => 'Not authenticated'], 401);
+        
+        $before = $user->role;
+        $fixed = \App\Domain\Auth\Services\RoleFixService::fixUserRole($user);
+        $user->refresh();
+        $after = $user->role;
+        
+        return response()->json([
+            'success' => $fixed,
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'role_before' => $before,
+            'role_after' => $after,
+            'message' => $fixed ? 'Role fixed successfully' : 'No fix needed or failed'
+        ]);
+    });
 });
 
 // Dynamic SEO & Sitemap fallbacks
