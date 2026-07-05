@@ -90,5 +90,52 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->gro
                 ]
             ]);
         });
+        
+        Route::get('{company}/debug-role-update-auth', function(\Illuminate\Http\Request $request, $companyId) {
+            $user = $request->user();
+            if (!$user) return response()->json(['error' => 'Not authenticated'], 401);
+            
+            $company = \App\Domain\Company\Models\Company::find($companyId);
+            if (!$company) return response()->json(['error' => 'Company not found'], 404);
+            
+            // Check all authorization conditions
+            $userRole = $user->role;
+            $userCompanyId = $user->company_id;
+            $companyOwnerId = $company->owner_id;
+            $isOwner = $companyOwnerId === $user->id;
+            $companyMatches = $userCompanyId === $company->id;
+            $hasManagerRole = $userRole === 'manager';
+            $canUpdateRoles = $hasManagerRole || $isOwner;
+            
+            return response()->json([
+                'user_info' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $userRole,
+                    'company_id' => $userCompanyId,
+                    'raw_roles' => $user->roles()->pluck('slug')->toArray(),
+                ],
+                'company_info' => [
+                    'id' => $company->id,
+                    'name' => $company->name,
+                    'owner_id' => $companyOwnerId,
+                    'type' => $company->type,
+                ],
+                'authorization_check' => [
+                    'company_matches' => $companyMatches,
+                    'is_company_owner' => $isOwner,
+                    'has_manager_role' => $hasManagerRole,
+                    'can_update_roles' => $canUpdateRoles,
+                    'would_be_blocked_by_company_check' => !$companyMatches,
+                    'would_be_blocked_by_role_check' => !$canUpdateRoles,
+                ],
+                'debug_info' => [
+                    'auth_condition_1' => "company_id match: {$userCompanyId} === {$company->id} = " . ($companyMatches ? 'true' : 'false'),
+                    'auth_condition_2' => "role check: role={$userRole} is manager OR owner_id={$companyOwnerId} === user_id={$user->id} = " . ($canUpdateRoles ? 'true' : 'false'),
+                    'overall_authorized' => $companyMatches && $canUpdateRoles ? 'YES' : 'NO',
+                ]
+            ]);
+        });
     });
 });
