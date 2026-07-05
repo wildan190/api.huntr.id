@@ -66,61 +66,74 @@ class RoleFixService
             'details' => []
         ];
 
-        $companies = Company::whereNotNull('owner_id')->with('owner')->get();
-        
-        foreach ($companies as $company) {
-            if (!$company->owner) {
-                $results['errors']++;
-                $results['details'][] = [
-                    'company_id' => $company->id,
-                    'company_name' => $company->name,
-                    'status' => 'error',
-                    'message' => 'Owner user not found'
-                ];
-                continue;
-            }
+        try {
+            $companies = Company::whereNotNull('owner_id')->with('owner')->get();
             
-            $owner = $company->owner;
-            
-            if ($owner->hasRole('manager')) {
-                $results['already_correct']++;
-                $results['details'][] = [
-                    'user_id' => $owner->id,
-                    'user_email' => $owner->email,
-                    'company_name' => $company->name,
-                    'status' => 'already_correct'
-                ];
-                continue;
+            foreach ($companies as $company) {
+                if (!$company->owner) {
+                    $results['errors']++;
+                    $results['details'][] = [
+                        'company_id' => $company->id,
+                        'company_name' => $company->name,
+                        'status' => 'error',
+                        'message' => 'Owner user not found'
+                    ];
+                    continue;
+                }
+                
+                $owner = $company->owner;
+                
+                if ($owner->hasRole('manager')) {
+                    $results['already_correct']++;
+                    $results['details'][] = [
+                        'user_id' => $owner->id,
+                        'user_email' => $owner->email,
+                        'company_name' => $company->name,
+                        'status' => 'already_correct'
+                    ];
+                    continue;
+                }
+                
+                // Fix role
+                if (self::fixUserRole($owner)) {
+                    $results['fixed']++;
+                    $results['details'][] = [
+                        'user_id' => $owner->id,
+                        'user_email' => $owner->email,
+                        'company_name' => $company->name,
+                        'status' => 'fixed'
+                    ];
+                } else {
+                    $results['errors']++;
+                    $results['details'][] = [
+                        'user_id' => $owner->id,
+                        'user_email' => $owner->email,
+                        'company_name' => $company->name,
+                        'status' => 'error',
+                        'message' => 'Failed to assign role'
+                    ];
+                }
             }
-            
-            // Fix role
-            if (self::fixUserRole($owner)) {
-                $results['fixed']++;
-                $results['details'][] = [
-                    'user_id' => $owner->id,
-                    'user_email' => $owner->email,
-                    'company_name' => $company->name,
-                    'status' => 'fixed'
-                ];
-            } else {
-                $results['errors']++;
-                $results['details'][] = [
-                    'user_id' => $owner->id,
-                    'user_email' => $owner->email,
-                    'company_name' => $company->name,
-                    'status' => 'error',
-                    'message' => 'Failed to assign role'
-                ];
-            }
-        }
 
-        Log::info('RoleFixService: Batch fix completed', [
-            'results' => [
-                'fixed' => $results['fixed'],
-                'already_correct' => $results['already_correct'],
-                'errors' => $results['errors']
-            ]
-        ]);
+            Log::info('RoleFixService: Batch fix completed', [
+                'results' => [
+                    'fixed' => $results['fixed'],
+                    'already_correct' => $results['already_correct'],
+                    'errors' => $results['errors']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('RoleFixService: Database error during batch fix', [
+                'error' => $e->getMessage()
+            ]);
+            
+            $results['errors']++;
+            $results['details'][] = [
+                'status' => 'error',
+                'message' => 'Database connection error: ' . $e->getMessage()
+            ];
+        }
 
         return $results;
     }
