@@ -169,17 +169,18 @@ class BastController extends \App\Http\Controllers\Controller
         // Fresh query to get latest roles from database
         $user->load('roles');
         
-        // Check using collection instead of query builder to use loaded data
-        $hasManager = $user->roles->contains('slug', 'manager');
+        // Allow multiple roles to sign
+        $allowedRoles = ['super-admin', 'admin', 'manager', 'staff', 'vendor', 'buyer', 'finance'];
+        $hasAllowedRole = $user->roles->whereIn('slug', $allowedRoles)->isNotEmpty();
         
-        \Log::info('signHandedBy role check', [
+        Log::info('signHandedBy role check', [
             'user_id' => $user->id,
             'roles' => $user->roles->pluck('slug')->toArray(),
-            'has_manager' => $hasManager,
+            'has_allowed_role' => $hasAllowedRole,
         ]);
         
-        if (!$hasManager) {
-            return response()->json(['message' => 'Only Manager can sign documents.'], 403);
+        if (!$hasAllowedRole) {
+            return response()->json(['message' => 'Unauthorized to sign documents.'], 403);
         }
 
         $bast = Bast::findOrFail($id);
@@ -217,17 +218,18 @@ class BastController extends \App\Http\Controllers\Controller
         // Fresh query to get latest roles from database
         $user->load('roles');
         
-        // Check using collection instead of query builder to use loaded data
-        $hasManager = $user->roles->contains('slug', 'manager');
+        // Allow multiple roles to sign
+        $allowedRoles = ['super-admin', 'admin', 'manager', 'staff', 'vendor', 'buyer', 'finance'];
+        $hasAllowedRole = $user->roles->whereIn('slug', $allowedRoles)->isNotEmpty();
         
-        \Log::info('signReceivedBy role check', [
+        Log::info('signReceivedBy role check', [
             'user_id' => $user->id,
             'roles' => $user->roles->pluck('slug')->toArray(),
-            'has_manager' => $hasManager,
+            'has_allowed_role' => $hasAllowedRole,
         ]);
         
-        if (!$hasManager) {
-            return response()->json(['message' => 'Only Manager can sign documents.'], 403);
+        if (!$hasAllowedRole) {
+            return response()->json(['message' => 'Unauthorized to sign documents.'], 403);
         }
 
         $bast = Bast::findOrFail($id);
@@ -268,7 +270,7 @@ class BastController extends \App\Http\Controllers\Controller
         // Check using collection instead of query builder to use loaded data
         $hasManager = $user->roles->contains('slug', 'manager');
         
-        \Log::info('signWitness role check', [
+        Log::info('signWitness role check', [
             'user_id' => $user->id,
             'roles' => $user->roles->pluck('slug')->toArray(),
             'has_manager' => $hasManager,

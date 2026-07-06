@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Route;
 use App\Domain\Auth\Http\Controllers\RoleSwitchController;
 
 Route::get('/user', function (Request $request) {
