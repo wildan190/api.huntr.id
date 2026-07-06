@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Log;
 
 class ValidateUserExists
 {
@@ -22,17 +23,12 @@ class ValidateUserExists
             // Check if user still exists in database
             if (!$request->user()->exists) {
                 // User does not exist, logout
-                auth()->logout();
+                auth()->guard('api')->logout();
                 
-                // Always return JSON for API routes (started with /api)
-                if ($request->is('api/*') || $request->expectsJson()) {
-                    return response()->json([
-                        'message' => 'User not found. Please log in again.'
-                    ], 401);
-                }
-                
-                // For web requests, redirect to login page
-                return redirect('/login');
+                // Always return JSON for this API-only app
+                return response()->json([
+                    'message' => 'User not found. Please log in again.'
+                ], 401);
             }
             
             // Force fresh roles from database by unloading and reloading
@@ -40,7 +36,7 @@ class ValidateUserExists
             $request->user()->unsetRelation('roles');
             $request->user()->load('roles');
             
-            \Log::info('ValidateUserExists middleware - roles loaded', [
+            Log::info('ValidateUserExists middleware - roles loaded', [
                 'user_id' => $request->user()->id,
                 'uri' => $request->getRequestUri(),
                 'roles' => $request->user()->roles->pluck('slug')->toArray(),
