@@ -25,6 +25,14 @@ trait HasAccess
     }
 
     /**
+     * Check if the model has any of the given roles.
+     */
+    public function hasAnyRole(array $roleSlugs): bool
+    {
+        return $this->roles()->whereIn('slug', $roleSlugs)->exists();
+    }
+
+    /**
      * Check if the model has a specific permission.
      */
     public function hasPermission(string $permissionSlug): bool

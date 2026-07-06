@@ -23,30 +23,8 @@ class DocumentController extends Controller
     public function downloadRfqDocument(Request $request, $rfqId)
     {
         try {
-            Log::info('Download RFQ document called', [
-                'path' => $request->path(),
-                'has_token_query' => $request->has('token'),
-                'has_auth_header' => $request->hasHeader('Authorization'),
-            ]);
-            
-            // Coba autentikasi via header terlebih dahulu, lalu via query param
             $user = $request->user();
-            Log::info('User from request', ['user_id' => $user?->id]);
-            
-            if (!$user && $request->has('token')) {
-                Log::info('Trying token from query parameter');
-                $token = \Laravel\Sanctum\PersonalAccessToken::findToken($request->token);
-                if ($token) {
-                    Log::info('Found token', ['token_id' => $token->id, 'tokenable_id' => $token->tokenable_id]);
-                    $user = $token->tokenable;
-                    Auth::login($user);
-                } else {
-                    Log::warning('No token found for query parameter');
-                }
-            }
-            
             if (!$user) {
-                Log::warning('User not authenticated for document download');
                 return response()->json(['message' => 'Authentication required'], 401);
             }
 
@@ -62,10 +40,11 @@ class DocumentController extends Controller
             Log::error('Error downloading RFQ document:', [
                 'error' => $e->getMessage(),
                 'rfq_id' => $rfqId,
-                'user_id' => $request->user()?->id
+                'user_id' => $request->user()?->id,
+                'trace' => $e->getTraceAsString()
             ]);
             
-            return response()->json(['message' => 'Error accessing document'], 500);
+            return response()->json(['message' => 'Error accessing document: ' . $e->getMessage()], 500);
         }
     }
 
@@ -75,30 +54,8 @@ class DocumentController extends Controller
     public function downloadCompanyDocument(Request $request, $documentId)
     {
         try {
-            Log::info('Download Company document called', [
-                'path' => $request->path(),
-                'has_token_query' => $request->has('token'),
-                'has_auth_header' => $request->hasHeader('Authorization'),
-            ]);
-            
-            // Coba autentikasi via header terlebih dahulu, lalu via query param
             $user = $request->user();
-            Log::info('User from request', ['user_id' => $user?->id]);
-            
-            if (!$user && $request->has('token')) {
-                Log::info('Trying token from query parameter');
-                $token = \Laravel\Sanctum\PersonalAccessToken::findToken($request->token);
-                if ($token) {
-                    Log::info('Found token', ['token_id' => $token->id, 'tokenable_id' => $token->tokenable_id]);
-                    $user = $token->tokenable;
-                    Auth::login($user);
-                } else {
-                    Log::warning('No token found for query parameter');
-                }
-            }
-            
             if (!$user) {
-                Log::warning('User not authenticated for company document download');
                 return response()->json(['message' => 'Authentication required'], 401);
             }
 
@@ -110,10 +67,11 @@ class DocumentController extends Controller
             Log::error('Error downloading company document:', [
                 'error' => $e->getMessage(),
                 'document_id' => $documentId,
-                'user_id' => $request->user()?->id
+                'user_id' => $request->user()?->id,
+                'trace' => $e->getTraceAsString()
             ]);
             
-            return response()->json(['message' => 'Error accessing document'], 500);
+            return response()->json(['message' => 'Error accessing document: ' . $e->getMessage()], 500);
         }
     }
 
@@ -135,49 +93,46 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Document not found'], 404);
         }
 
-        // Untuk S3, redirect ke signed URL atau stream langsung
+        // Untuk S3, redirect ke signed URL
         if ($disk === 's3') {
             try {
-                // Generate signed URL yang berlaku selama 1 jam
                 $signedUrl = $storage->temporaryUrl($path, now()->addHours(1));
                 Log::info('Generated S3 signed URL', ['url' => $signedUrl]);
-                
                 return redirect()->away($signedUrl);
-                
             } catch (\Exception $e) {
                 Log::error('Error generating S3 signed URL:', [
                     'error' => $e->getMessage(),
                     'path' => $path,
                     'trace' => $e->getTraceAsString()
                 ]);
-                
                 return response()->json(['message' => 'Error generating download URL: ' . $e->getMessage()], 500);
             }
         }
 
-        // Untuk local storage, stream file langsung
+        // Untuk local storage, gunakan Laravel's download atau file response
         try {
-            $fileContent = $storage->get($path);
-            $mimeType = $storage->mimeType($path);
             $filename = basename($path);
-
+            $mimeType = $storage->mimeType($path);
+            
             Log::info('Serving local file', [
                 'path' => $path,
                 'mime_type' => $mimeType,
                 'filename' => $filename
             ]);
 
-            return response($fileContent)
-                ->header('Content-Type', $mimeType)
-                ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
-                
+            return response()->file(
+                $storage->path($path),
+                [
+                    'Content-Type' => $mimeType,
+                    'Content-Disposition' => 'inline; filename="' . $filename . '"'
+                ]
+            );
         } catch (\Exception $e) {
             Log::error('Error serving local file:', [
                 'error' => $e->getMessage(),
                 'path' => $path,
                 'trace' => $e->getTraceAsString()
             ]);
-            
             return response()->json(['message' => 'Error serving document: ' . $e->getMessage()], 500);
         }
     }
