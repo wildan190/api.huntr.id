@@ -4,8 +4,8 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
 
 class ValidateUserExists
 {
@@ -22,10 +22,7 @@ class ValidateUserExists
         if ($request->user()) {
             // Check if user still exists in database
             if (!$request->user()->exists) {
-                // User does not exist, logout
-                auth()->guard('api')->logout();
-                
-                // Always return JSON for this API-only app
+                // User does not exist, return JSON response
                 return response()->json([
                     'message' => 'User not found. Please log in again.'
                 ], 401);
