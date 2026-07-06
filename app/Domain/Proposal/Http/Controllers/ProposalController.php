@@ -12,6 +12,7 @@ use App\Domain\Proposal\Http\Requests\SubmitProposalRequest;
 use App\Domain\Proposal\Models\Proposal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Domain\Company\Models\Company;
 use App\Domain\Rfq\Models\Rfq;
 use Illuminate\Http\Request;
@@ -103,19 +104,47 @@ class ProposalController extends \App\Http\Controllers\Controller
      */
     public function awardWinner(Request $request, Proposal $proposal, AwardWinnerAction $action): JsonResponse
     {
-        $rfq = Rfq::findOrFail($request->input('rfq_id'));
-        $userId = Auth::id() ?: $request->input('user_id');
+        try {
+            Log::info('Award winner request received', [
+                'proposal_id' => $proposal->id,
+                'request_input' => $request->all(),
+                'auth_id' => Auth::id()
+            ]);
 
-        if (!$userId) {
-            return response()->json(['message' => 'User ID is required for awarding.'], 401);
+            $rfqId = $request->input('rfq_id');
+            if (!$rfqId) {
+                Log::warning('Missing rfq_id in request');
+                return response()->json(['message' => 'rfq_id is required'], 400);
+            }
+
+            $rfq = Rfq::findOrFail($rfqId);
+            $userId = Auth::id() ?: $request->input('user_id');
+
+            Log::info('Award winner params', [
+                'rfq_id' => $rfqId,
+                'user_id' => $userId
+            ]);
+
+            if (!$userId) {
+                return response()->json(['message' => 'User ID is required for awarding.'], 401);
+            }
+
+            $awardedProposal = $action->execute($proposal, $userId, $rfq);
+
+            return response()->json([
+                'message' => 'Proposal awarded as winner. Sending to manager for approval.',
+                'proposal' => $awardedProposal->load('rfq', 'company'),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error in awardWinner', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_input' => $request->all()
+            ]);
+            return response()->json([
+                'message' => 'Error awarding proposal: ' . $e->getMessage()
+            ], 400);
         }
-
-        $awardedProposal = $action->execute($proposal, $userId, $rfq);
-
-        return response()->json([
-            'message' => 'Proposal awarded as winner. Sending to manager for approval.',
-            'proposal' => $awardedProposal->load('rfq', 'company'),
-        ]);
     }
 
     /**

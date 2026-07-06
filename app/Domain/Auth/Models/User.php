@@ -10,6 +10,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use App\Domain\Access\Traits\HasAccess;
+use Illuminate\Support\Facades\Log;
 
 class User extends Authenticatable
 {
@@ -82,7 +83,7 @@ class User extends Authenticatable
                     $role = $this->roles()->first()?->slug;
                 }
             } catch (\Exception $e) {
-                \Log::warning('Auto role fix failed in getRoleAttribute', [
+                Log::warning('Auto role fix failed in getRoleAttribute', [
                     'user_id' => $this->id,
                     'error' => $e->getMessage()
                 ]);
