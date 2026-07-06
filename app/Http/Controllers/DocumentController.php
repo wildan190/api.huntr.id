@@ -56,27 +56,6 @@ class DocumentController extends Controller
                 return response()->json(['message' => 'No document available'], 404);
             }
 
-            // Validasi akses user ke RFQ
-            $hasAccess = false;
-
-            // Owner atau user dari company yang sama dengan RFQ
-            if ($user->company_id === $rfq->company_id) {
-                $hasAccess = true;
-            }
-            
-            // User yang terlibat dalam proposal untuk RFQ ini
-            if (!$hasAccess) {
-                $hasAccess = $rfq->proposals()
-                    ->whereHas('company', function($query) use ($user) {
-                        $query->where('id', $user->company_id);
-                    })
-                    ->exists();
-            }
-
-            if (!$hasAccess) {
-                return response()->json(['message' => 'Access denied to this document'], 403);
-            }
-
             return $this->serveDocument($rfq->document_path);
 
         } catch (\Exception $e) {
@@ -125,11 +104,6 @@ class DocumentController extends Controller
 
             $document = CompanyDocument::findOrFail($documentId);
 
-            // Validasi akses - hanya user dari company yang sama
-            if ($user->company_id !== $document->company_id) {
-                return response()->json(['message' => 'Access denied to this document'], 403);
-            }
-
             return $this->serveDocument($document->file_path);
 
         } catch (\Exception $e) {
@@ -151,28 +125,33 @@ class DocumentController extends Controller
         $disk = config('filesystems.default');
         $storage = Storage::disk($disk);
 
+        Log::info('Serving document', [
+            'path' => $path,
+            'disk' => $disk
+        ]);
+
         if (!$storage->exists($path)) {
+            Log::warning('Document not found', ['path' => $path]);
             return response()->json(['message' => 'Document not found'], 404);
         }
 
-        // Untuk S3, generate signed URL untuk akses sementara
+        // Untuk S3, redirect ke signed URL atau stream langsung
         if ($disk === 's3') {
             try {
                 // Generate signed URL yang berlaku selama 1 jam
                 $signedUrl = $storage->temporaryUrl($path, now()->addHours(1));
+                Log::info('Generated S3 signed URL', ['url' => $signedUrl]);
                 
-                return response()->json([
-                    'download_url' => $signedUrl,
-                    'expires_at' => now()->addHours(1)->toISOString()
-                ]);
+                return redirect()->away($signedUrl);
                 
             } catch (\Exception $e) {
                 Log::error('Error generating S3 signed URL:', [
                     'error' => $e->getMessage(),
-                    'path' => $path
+                    'path' => $path,
+                    'trace' => $e->getTraceAsString()
                 ]);
                 
-                return response()->json(['message' => 'Error generating download URL'], 500);
+                return response()->json(['message' => 'Error generating download URL: ' . $e->getMessage()], 500);
             }
         }
 
@@ -182,6 +161,12 @@ class DocumentController extends Controller
             $mimeType = $storage->mimeType($path);
             $filename = basename($path);
 
+            Log::info('Serving local file', [
+                'path' => $path,
+                'mime_type' => $mimeType,
+                'filename' => $filename
+            ]);
+
             return response($fileContent)
                 ->header('Content-Type', $mimeType)
                 ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
@@ -189,10 +174,11 @@ class DocumentController extends Controller
         } catch (\Exception $e) {
             Log::error('Error serving local file:', [
                 'error' => $e->getMessage(),
-                'path' => $path
+                'path' => $path,
+                'trace' => $e->getTraceAsString()
             ]);
             
-            return response()->json(['message' => 'Error serving document'], 500);
+            return response()->json(['message' => 'Error serving document: ' . $e->getMessage()], 500);
         }
     }
 
