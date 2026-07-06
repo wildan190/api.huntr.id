@@ -6,12 +6,7 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-// Document download routes - require authentication
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/documents/rfq/{rfqId}', [App\Http\Controllers\DocumentController::class, 'downloadRfqDocument']);
-    Route::get('/documents/company/{documentId}', [App\Http\Controllers\DocumentController::class, 'downloadCompanyDocument']);
-    Route::get('/assets/url', [App\Http\Controllers\DocumentController::class, 'getAssetUrl']);
-});
+
 
 // Dynamic SEO & Sitemap fallbacks
 Route::get('/robots.txt', function() {

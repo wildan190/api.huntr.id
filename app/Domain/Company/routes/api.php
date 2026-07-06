@@ -2,11 +2,19 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Domain\Company\Http\Controllers\CompanyController;
+use App\Http\Controllers\DocumentController;
 
 // Public: get invitation info by token (no auth needed — used by register page to pre-fill phone)
 Route::get('api/invitations/info', [CompanyController::class, 'invitationInfo'])->middleware(['api', 'cors']);
 
-Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:sanctum'])->group(function () {
+// Document download routes - require authentication
+Route::prefix('api/documents')->middleware(['api', 'auth:api'])->group(function () {
+    Route::get('/rfq/{rfqId}', [DocumentController::class, 'downloadRfqDocument']);
+    Route::get('/company/{documentId}', [DocumentController::class, 'downloadCompanyDocument']);
+    Route::get('/assets/url', [DocumentController::class, 'getAssetUrl']);
+});
+
+Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:api'])->group(function () {
     Route::post('', [CompanyController::class, 'store']);
     Route::post('verify-npwp', [CompanyController::class, 'verifyNpwp']);
     Route::put('{company}', [CompanyController::class, 'update']);

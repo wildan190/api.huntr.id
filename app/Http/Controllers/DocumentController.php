@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\CompanyDocument;
 
@@ -23,8 +23,30 @@ class DocumentController extends Controller
     public function downloadRfqDocument(Request $request, $rfqId)
     {
         try {
+            Log::info('Download RFQ document called', [
+                'path' => $request->path(),
+                'has_token_query' => $request->has('token'),
+                'has_auth_header' => $request->hasHeader('Authorization'),
+            ]);
+            
+            // Coba autentikasi via header terlebih dahulu, lalu via query param
             $user = $request->user();
+            Log::info('User from request', ['user_id' => $user?->id]);
+            
+            if (!$user && $request->has('token')) {
+                Log::info('Trying token from query parameter');
+                $token = \Laravel\Sanctum\PersonalAccessToken::findToken($request->token);
+                if ($token) {
+                    Log::info('Found token', ['token_id' => $token->id, 'tokenable_id' => $token->tokenable_id]);
+                    $user = $token->tokenable;
+                    Auth::login($user);
+                } else {
+                    Log::warning('No token found for query parameter');
+                }
+            }
+            
             if (!$user) {
+                Log::warning('User not authenticated for document download');
                 return response()->json(['message' => 'Authentication required'], 401);
             }
 
@@ -74,8 +96,30 @@ class DocumentController extends Controller
     public function downloadCompanyDocument(Request $request, $documentId)
     {
         try {
+            Log::info('Download Company document called', [
+                'path' => $request->path(),
+                'has_token_query' => $request->has('token'),
+                'has_auth_header' => $request->hasHeader('Authorization'),
+            ]);
+            
+            // Coba autentikasi via header terlebih dahulu, lalu via query param
             $user = $request->user();
+            Log::info('User from request', ['user_id' => $user?->id]);
+            
+            if (!$user && $request->has('token')) {
+                Log::info('Trying token from query parameter');
+                $token = \Laravel\Sanctum\PersonalAccessToken::findToken($request->token);
+                if ($token) {
+                    Log::info('Found token', ['token_id' => $token->id, 'tokenable_id' => $token->tokenable_id]);
+                    $user = $token->tokenable;
+                    Auth::login($user);
+                } else {
+                    Log::warning('No token found for query parameter');
+                }
+            }
+            
             if (!$user) {
+                Log::warning('User not authenticated for company document download');
                 return response()->json(['message' => 'Authentication required'], 401);
             }
 
