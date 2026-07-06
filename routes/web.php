@@ -79,7 +79,9 @@ Route::get('/sitemap-products.xml', function() {
                 $imgUrl = $path;
             } else {
                 $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-                $imgUrl = \Illuminate\Support\Facades\Storage::disk($disk)->url($path);
+                /** @var \Illuminate\Filesystem\FilesystemAdapter $storageDisk */
+                $storageDisk = \Illuminate\Support\Facades\Storage::disk($disk);
+                $imgUrl = $storageDisk->url($path);
 
             }
             $xml .= "        <image:image>\n";

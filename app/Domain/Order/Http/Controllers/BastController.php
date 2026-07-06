@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Filesystem\FilesystemAdapter;
 
 /**
@@ -41,7 +42,7 @@ class BastController extends \App\Http\Controllers\Controller
         try {
             Log::info('BastController.store called', [
                 'po_id' => $request->input('po_id'),
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
             ]);
 
             $po = PurchaseOrder::findOrFail($request->input('po_id'));
@@ -307,16 +308,16 @@ class BastController extends \App\Http\Controllers\Controller
         $bast = Bast::with('purchaseOrder', 'buyerCompany', 'vendorCompany')
             ->findOrFail($id);
 
-        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
+        $disk = config('filesystems.default');
         /** @var FilesystemAdapter $storageDisk */
         $storageDisk = Storage::disk($disk);
         $buyerLogoUrl = null;
         if ($bast->buyerCompany && $bast->buyerCompany->logo_path) {
-            $buyerLogoUrl = $storageDisk->url($bast->buyerCompany->logo_path);
+            $buyerLogoUrl = $this->getAssetUrl($storageDisk, $bast->buyerCompany->logo_path);
         }
         $vendorLogoUrl = null;
         if ($bast->vendorCompany && $bast->vendorCompany->logo_path) {
-            $vendorLogoUrl = $storageDisk->url($bast->vendorCompany->logo_path);
+            $vendorLogoUrl = $this->getAssetUrl($storageDisk, $bast->vendorCompany->logo_path);
         }
 
         // Return view directly for browser display (user can Ctrl+P)
@@ -325,5 +326,29 @@ class BastController extends \App\Http\Controllers\Controller
             'buyer_logo_url' => $buyerLogoUrl,
             'vendor_logo_url' => $vendorLogoUrl,
         ]);
+    }
+
+    /**
+     * Helper to get asset URL with support for S3 temporary URLs
+     */
+    private function getAssetUrl(FilesystemAdapter $storage, string $path): string
+    {
+        if (filter_var($path, FILTER_VALIDATE_URL)) {
+            return $path;
+        }
+
+        $diskName = config('filesystems.default');
+        if (in_array($diskName, ['s3', 'spaces', 'gcs', 'azure'])) {
+            try {
+                return $storage->temporaryUrl($path, now()->addHours(1));
+            } catch (\Exception $e) {
+                Log::warning('Failed to generate temporary URL, falling back to public URL', [
+                    'error' => $e->getMessage(),
+                    'path' => $path
+                ]);
+            }
+        }
+
+        return $storage->url($path);
     }
 }

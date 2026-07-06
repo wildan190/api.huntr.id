@@ -5,9 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\CompanyDocument;
+use Illuminate\Filesystem\FilesystemAdapter;
 
 /**
  * DocumentController
@@ -20,7 +20,7 @@ class DocumentController extends Controller
     /**
      * Download RFQ document dengan validasi akses
      */
-    public function downloadRfqDocument(Request $request, $rfqId)
+    public function downloadRfqDocument(Request $request, string $rfqId)
     {
         try {
             $user = $request->user();
@@ -51,7 +51,7 @@ class DocumentController extends Controller
     /**
      * Download company document dengan validasi akses
      */
-    public function downloadCompanyDocument(Request $request, $documentId)
+    public function downloadCompanyDocument(Request $request, string $documentId)
     {
         try {
             $user = $request->user();
@@ -77,10 +77,12 @@ class DocumentController extends Controller
 
     /**
      * Serve document dari storage dengan dukungan S3 signed URLs
+     * @param string $path
      */
-    private function serveDocument($path)
+    private function serveDocument(string $path)
     {
         $disk = config('filesystems.default');
+        /** @var FilesystemAdapter $storage */
         $storage = Storage::disk($disk);
 
         Log::info('Serving document', [
@@ -93,14 +95,14 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Document not found'], 404);
         }
 
-        // Untuk S3, redirect ke signed URL
-        if ($disk === 's3') {
+        // For S3 or any other remote disk, redirect to temporary URL
+        if (in_array($disk, ['s3', 'spaces', 'gcs', 'azure'])) {
             try {
                 $signedUrl = $storage->temporaryUrl($path, now()->addHours(1));
-                Log::info('Generated S3 signed URL', ['url' => $signedUrl]);
+                Log::info('Generated signed URL', ['url' => $signedUrl, 'disk' => $disk]);
                 return redirect()->away($signedUrl);
             } catch (\Exception $e) {
-                Log::error('Error generating S3 signed URL:', [
+                Log::error('Error generating signed URL:', [
                     'error' => $e->getMessage(),
                     'path' => $path,
                     'trace' => $e->getTraceAsString()
@@ -109,10 +111,10 @@ class DocumentController extends Controller
             }
         }
 
-        // Untuk local storage, gunakan Laravel's download atau file response
+        // For local disk (public or local), serve directly
         try {
             $filename = basename($path);
-            $mimeType = $storage->mimeType($path);
+            $mimeType = $storage->mimeType($path) ?: 'application/octet-stream';
             
             Log::info('Serving local file', [
                 'path' => $path,
@@ -148,6 +150,7 @@ class DocumentController extends Controller
         }
 
         $disk = config('filesystems.default');
+        /** @var FilesystemAdapter $storage */
         $storage = Storage::disk($disk);
 
         if (!$storage->exists($path)) {
