@@ -23,11 +23,6 @@ class DocumentController extends Controller
     public function downloadRfqDocument(Request $request, string $rfqId)
     {
         try {
-            $user = $request->user();
-            if (!$user) {
-                return response()->json(['message' => 'Authentication required'], 401);
-            }
-
             $rfq = Rfq::findOrFail($rfqId);
             
             if (!$rfq->document_path) {
@@ -54,11 +49,6 @@ class DocumentController extends Controller
     public function downloadCompanyDocument(Request $request, string $documentId)
     {
         try {
-            $user = $request->user();
-            if (!$user) {
-                return response()->json(['message' => 'Authentication required'], 401);
-            }
-
             $document = CompanyDocument::findOrFail($documentId);
 
             return $this->serveDocument($document->file_path);
