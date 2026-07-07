@@ -44,7 +44,7 @@ class LoginUserAction
             ]);
         }
         
-        Auth::login($user);
+        Auth::setUser($user);
 
         $token = $this->tokenAction->execute(
             $user, 
