@@ -24,19 +24,11 @@
         margin-bottom: 24px;
     }
     .platform-brand { display: flex; align-items: center; gap: 14px; }
-    .platform-emblem {
-        width: 52px;
-        height: 52px;
-        border-radius: 12px;
-        background: linear-gradient(135deg, #f97316 0%, #fbbf24 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        font-weight: 900;
-        font-size: 22px;
-        letter-spacing: -0.5px;
+    .platform-logo {
+        height: 48px;
+        width: auto;
         flex-shrink: 0;
+        object-fit: contain;
     }
     .platform-name { font-size: 22px; font-weight: 900; color: #111827; letter-spacing: -0.4px; }
     .platform-tagline { font-size: 11px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
