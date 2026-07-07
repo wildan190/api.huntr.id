@@ -6,10 +6,6 @@
 <div class="platform-header">
     <div class="platform-brand">
         <img src="{{ asset('img/huntr-logo.png') }}" alt="Huntr.id" class="platform-logo">
-        <div>
-            <div class="platform-name">Huntr.id</div>
-            <div class="platform-tagline">Enterprise E-Procurement Platform</div>
-        </div>
     </div>
     <div class="doc-meta">
         <h1>{{ $docTitle }}</h1>
