@@ -25,7 +25,7 @@
     }
     .platform-brand { display: flex; align-items: center; gap: 14px; }
     .platform-logo {
-        height: 48px;
+        height: 96px;
         width: auto;
         flex-shrink: 0;
         object-fit: contain;
