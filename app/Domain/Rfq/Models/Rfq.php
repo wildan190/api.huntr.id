@@ -32,6 +32,18 @@ class Rfq extends Model
         'duration_days' => 'integer',
     ];
 
+    protected $appends = ['document_url'];
+
+    public function getDocumentUrlAttribute(): ?string
+    {
+        if (!$this->document_path) {
+            return null;
+        }
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = \Illuminate\Support\Facades\Storage::disk(env('FILESYSTEM_DISK', 'public'));
+        return $storage->url($this->document_path);
+    }
+
     public function company()
     {
         return $this->belongsTo(Company::class);
