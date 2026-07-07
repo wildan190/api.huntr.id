@@ -87,6 +87,43 @@
         </tbody>
     </table>
 
+    {{-- Financial Summary --}}
+    @php
+        $doBaseAmt = $po['total_amount'];
+        if ($doBaseAmt <= 50000000) {
+            $doPlatFee = $doBaseAmt * 0.025;
+        } elseif ($doBaseAmt <= 250000000) {
+            $doPlatFee = $doBaseAmt * 0.02;
+        } else {
+            $doPlatFee = $doBaseAmt * 0.01;
+        }
+        $doAdminFee = 4400;
+        $doServiceFee = $doPlatFee + $doAdminFee;
+        $doPpn = $doServiceFee * 0.11;
+        $doTotal = $doBaseAmt + $doServiceFee + $doPpn;
+    @endphp
+    <div class="section-title" style="margin-top: 24px;">Ringkasan Biaya / Financial Summary</div>
+    <table style="margin-bottom: 16px;">
+        <tbody>
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">Nilai Barang (DPP)</td>
+                <td style="text-align: right;">{{ number_format($doBaseAmt) }}</td>
+            </tr>
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">BIAYA LAYANAN <span style="font-size: 10px; color: #6b7280;">(Platform + Admin Pembayaran)</span></td>
+                <td style="text-align: right;">{{ number_format($doServiceFee) }}</td>
+            </tr>
+            <tr style="background: #f9fafb;">
+                <td colspan="3" style="text-align: right;">PPN 11% <span style="font-size: 10px; color: #6b7280;">(atas biaya layanan)</span></td>
+                <td style="text-align: right;">{{ number_format($doPpn) }}</td>
+            </tr>
+            <tr class="total-row">
+                <td colspan="3" style="text-align: right;">TOTAL PAYABLE ({{ $po['currency'] }})</td>
+                <td style="text-align: right;">{{ number_format($doTotal) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
     <div class="section-title">Document Signatures</div>
     <div class="signature-section">
         @include('print._signature_block', [

@@ -27,6 +27,7 @@ class PurchaseOrder extends Model
         'purchase_type',
         'order_date',
         'expected_receiving_date',
+        'delivery_point',
         'status',
         'delivery_status',
         'tracking_timeline',

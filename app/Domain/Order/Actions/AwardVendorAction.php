@@ -47,14 +47,15 @@ class AwardVendorAction
         $poNumber = 'PO-' . date('Ymd') . '-' . str_pad($rfq->id, 4, '0', STR_PAD_LEFT);
 
         return $this->orderRepository->createPurchaseOrder([
-            'rfq_id'    => $rfq->id,
-            'vendor_id' => $winningProposal->company_id,
-            'po_number' => $poNumber,
-            'status'    => 'issued',
-            'created_by' => $manager->id,
+            'rfq_id'          => $rfq->id,
+            'vendor_id'       => $winningProposal->company_id,
+            'po_number'       => $poNumber,
+            'status'          => 'issued',
+            'created_by'      => $manager->id,
             'buyer_company_id' => $rfq->company_id,
-            'total_amount' => $winningProposal->price_offer,
-            'purchase_type' => $winningProposal->payment_term,
+            'total_amount'    => $winningProposal->price_offer,
+            'purchase_type'   => $winningProposal->payment_term,
+            'delivery_point'  => $rfq->delivery_point,
         ]);
     }
 }

@@ -5,7 +5,7 @@
 
 <div class="platform-header">
     <div class="platform-brand">
-        <div class="platform-emblem">H</div>
+        <img src="{{ asset('img/huntr-logo.png') }}" alt="Huntr.id" class="platform-logo">
         <div>
             <div class="platform-name">Huntr.id</div>
             <div class="platform-tagline">Enterprise E-Procurement Platform</div>

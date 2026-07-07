@@ -70,16 +70,10 @@
                 <td colspan="3" style="text-align: right;">SUBTOTAL (DPP)</td>
                 <td style="text-align: right;">{{ number_format($invoice->base_amount ?? $invoice->amount) }}</td>
             </tr>
-            @if($invoice->platform_fee > 0)
+            @if(($invoice->platform_fee + $invoice->midtrans_fee) > 0)
             <tr style="background: #f9fafb;">
-                <td colspan="3" style="text-align: right;">BIAYA PLATFORM</td>
-                <td style="text-align: right;">{{ number_format($invoice->platform_fee) }}</td>
-            </tr>
-            @endif
-            @if($invoice->midtrans_fee > 0)
-            <tr style="background: #f9fafb;">
-                <td colspan="3" style="text-align: right;">BIAYA ADMIN (MIDTRANS)</td>
-                <td style="text-align: right;">{{ number_format($invoice->midtrans_fee) }}</td>
+                <td colspan="3" style="text-align: right;">BIAYA LAYANAN <span style="font-size: 10px; color: #6b7280;">(Platform + Admin Pembayaran)</span></td>
+                <td style="text-align: right;">{{ number_format($invoice->platform_fee + $invoice->midtrans_fee) }}</td>
             </tr>
             @endif
             @if($invoice->ppn_fee > 0)

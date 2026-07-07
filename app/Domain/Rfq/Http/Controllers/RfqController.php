@@ -209,7 +209,11 @@ class RfqController extends \App\Http\Controllers\Controller
         ]);
 
         $whatsapp = preg_replace('/[^0-9]/', '', $request->input('whatsapp'));
-        
+        // Normalize to international format: replace leading 0 with 62
+        if (str_starts_with($whatsapp, '0')) {
+            $whatsapp = '62' . substr($whatsapp, 1);
+        }
+
         $frontendUrl = config('app.frontend_url', 'https://app.huntr.id');
         $rfqLink = $frontendUrl . "/rfq/" . $rfq->id;
 

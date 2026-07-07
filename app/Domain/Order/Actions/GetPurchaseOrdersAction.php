@@ -198,6 +198,7 @@ class GetPurchaseOrdersAction
                 'purchase_type'     => $po->purchase_type ?? 'N/A',
                 'order_date'        => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
                 'expected_receiving_date' => $po->expected_receiving_date?->format('Y-m-d'),
+                'delivery_point'    => $po->delivery_point ?? $po->rfq?->delivery_point ?? null,
                 'status'            => $po->status,
                 'is_historical'     => $po->is_historical,
                 'updated_at'        => $po->updated_at->toIso8601String(),
