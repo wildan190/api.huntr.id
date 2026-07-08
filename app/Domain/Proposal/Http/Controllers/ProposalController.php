@@ -66,7 +66,7 @@ class ProposalController extends \App\Http\Controllers\Controller
         $data = $request->validated();
         
         if ($request->hasFile('document')) {
-            $data['document_path'] = $request->file('document')->store('proposal_documents', config('filesystems.default'));
+            $data['document_path'] = $request->file('document')->storePublicly('proposal_documents', config('filesystems.default'));
         }
 
         $proposal = $action->execute($company, $rfq, $data);

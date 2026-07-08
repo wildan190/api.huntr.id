@@ -46,7 +46,7 @@ class Company extends Model
         'hq_addresses' => 'array',
     ];
 
-    protected $appends = ['formatted_tax_id'];
+    protected $appends = ['formatted_tax_id', 'logo_url'];
 
     /**
      * Get the formatted tax ID.
@@ -54,6 +54,19 @@ class Company extends Model
     public function getFormattedTaxIdAttribute(): string
     {
         return TaxIdFormatter::format($this->tax_id, $this->country ?? 'ID');
+    }
+
+    /**
+     * Get the company logo URL.
+     */
+    public function getLogoUrlAttribute(): ?string
+    {
+        if (!$this->logo_path) {
+            return null;
+        }
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+        return $storage->url($this->logo_path);
     }
 
     public function users()

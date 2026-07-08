@@ -116,6 +116,6 @@ class SeoController extends \App\Http\Controllers\Controller
             return $path;
         }
 
-        return Storage::disk(config('filesystems.default'))->url($path);
+        return Storage::url($path);
     }
 }

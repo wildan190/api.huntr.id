@@ -56,7 +56,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Vendors can import catalogues.'], 422);
         }
 
-        $path = $request->file('csv')->store('imports', 'local');
+        $path = $request->file('csv')->store('imports', config('filesystems.default'));
         ImportCatalogueJob::dispatch($company->id, $path);
 
         return response()->json([
@@ -76,7 +76,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Buyers can import historical PO data.'], 422);
         }
 
-        $path = $request->file('csv')->store('imports', 'local');
+        $path = $request->file('csv')->store('imports', config('filesystems.default'));
         \App\Domain\Order\Jobs\ImportHistoricalPoJob::dispatch($company->id, $path);
 
         return response()->json([

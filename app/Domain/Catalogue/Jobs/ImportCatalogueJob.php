@@ -39,24 +39,20 @@ class ImportCatalogueJob implements ShouldQueue
             return;
         }
 
-        // Try various path mappings for files stored in local storage
-        $fullPath = storage_path('app/' . $this->filePath);
-        if (!file_exists($fullPath)) {
-            $fullPath = storage_path($this->filePath);
-        }
-        if (!file_exists($fullPath)) {
-            $fullPath = storage_path('app/private/' . $this->filePath);
-        }
-
-        if (!file_exists($fullPath)) {
+        $disk = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+        if (!$disk->exists($this->filePath)) {
             Log::error("ImportCatalogueJob: CSV file not found at path: {$this->filePath}");
             return;
         }
 
-        Log::info("ImportCatalogueJob: Starting import for company '{$company->name}' (ID: {$company->id}) from file {$fullPath}");
+        // Download file from S3 to local temp file
+        $tempFile = tempnam(sys_get_temp_dir(), 'catalogue_import_');
+        file_put_contents($tempFile, $disk->get($this->filePath));
+
+        Log::info("ImportCatalogueJob: Starting import for company '{$company->name}' (ID: {$company->id}) from file {$tempFile}");
 
         try {
-            $importedCount = $action->execute($company, $fullPath);
+            $importedCount = $action->execute($company, $tempFile);
             Log::info("ImportCatalogueJob: Successfully imported {$importedCount} catalogue items for company ID {$company->id}");
 
             // Broadcast success via WebSocket
@@ -87,8 +83,14 @@ class ImportCatalogueJob implements ShouldQueue
                 Log::warning("ImportCatalogueJob error broadcast failed: " . $ex->getMessage());
             }
         } finally {
-            if (file_exists($fullPath)) {
-                @unlink($fullPath);
+            // Cleanup local temp file and S3 file
+            if (file_exists($tempFile)) {
+                @unlink($tempFile);
+            }
+            try {
+                $disk->delete($this->filePath);
+            } catch (\Exception $e) {
+                Log::warning("ImportCatalogueJob: Failed to delete S3 file: " . $e->getMessage());
             }
         }
     }
