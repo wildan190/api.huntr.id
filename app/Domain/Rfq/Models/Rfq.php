@@ -40,7 +40,14 @@ class Rfq extends Model
             return null;
         }
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
-        $storage = \Illuminate\Support\Facades\Storage::disk(env('FILESYSTEM_DISK', 'public'));
+        $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+        
+        // For S3, use temporary URL with 1 hour expiration for security
+        if (config('filesystems.default') === 's3') {
+            return $storage->temporaryUrl($this->document_path, now()->addHour());
+        }
+        
+        // For local/public disk, use standard URL
         return $storage->url($this->document_path);
     }
 
