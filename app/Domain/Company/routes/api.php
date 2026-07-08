@@ -11,6 +11,7 @@ Route::get('api/invitations/info', [CompanyController::class, 'invitationInfo'])
 Route::prefix('api/documents')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('/rfq/{rfqId}', [DocumentController::class, 'downloadRfqDocument']);
     Route::get('/company/{documentId}', [DocumentController::class, 'downloadCompanyDocument']);
+    Route::get('/assets/{path}', [DocumentController::class, 'downloadAsset'])->where('path', '.*');
     Route::get('/assets/url', [DocumentController::class, 'getAssetUrl']);
 });
 

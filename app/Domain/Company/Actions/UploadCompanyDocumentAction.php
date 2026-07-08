@@ -18,7 +18,9 @@ class UploadCompanyDocumentAction
         $companyId = $data['company_id'] ?? null;
         $type = $data['type'] ?? 'OTHER';
 
-        $diskName = config('filesystems.default') === 's3' ? 's3' : 'public';
+        $diskName = config('filesystems.default');
+        \Illuminate\Support\Facades\Log::info('Uploading company document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.'.$diskName.'.bucket')]);
+
         $path = $file->storePublicly('company_documents', $diskName);
         
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */

@@ -12,6 +12,8 @@ use App\Domain\Company\Models\Company;
 use App\Domain\Auth\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+
 
 /**
  * RfqController
@@ -84,8 +86,9 @@ class RfqController extends \App\Http\Controllers\Controller
         
         $documentPath = null;
         if ($request->hasFile('document')) {
-            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-            $documentPath = $request->file('document')->store('rfq_documents', $disk);
+            $diskName = config('filesystems.default');
+            \Illuminate\Support\Facades\Log::info('Uploading RFQ document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.'.$diskName.'.bucket')]);
+            $documentPath = $request->file('document')->storePublicly('rfq_documents', $diskName);
         }
 
         $rfq = $action->execute(
@@ -140,7 +143,7 @@ class RfqController extends \App\Http\Controllers\Controller
             }
             
             // Debug: Log the authenticated user info
-            \Log::info('Reject RFQ by user:', ['user_id' => $rejector->id, 'user_name' => $rejector->name]);
+            Log::info('Reject RFQ by user:', ['user_id' => $rejector->id, 'user_name' => $rejector->name]);
             
             $validation = $request->validate([
                 'reason' => 'nullable|string|max:1000'
@@ -156,18 +159,18 @@ class RfqController extends \App\Http\Controllers\Controller
             ], 200);
             
         } catch (\Illuminate\Validation\ValidationException $e) {
-            \Log::error('Validation error in reject RFQ:', [
+            Log::error('Validation error in reject RFQ:', [
                 'errors' => $e->errors(),
                 'request_data' => $request->all()
             ]);
             
             return response()->json([
                 'message' => 'Failed to reject RFQ.',
-                'error' => 'Validation failed: ' . implode(', ', array_flatten($e->errors())),
+                'error' => 'Validation failed: ' . implode(', ', $e->errors()),
                 'validation_errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
-            \Log::error('Error rejecting RFQ:', [
+            Log::error('Error rejecting RFQ:', [
                 'message' => $e->getMessage(),
                 'authenticated_user' => $request->user()?->id
             ]);

@@ -23,7 +23,7 @@ class CompanyDocument extends Model
     public function getUrlAttribute(): string
     {
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
-        $storage = \Illuminate\Support\Facades\Storage::disk(env('FILESYSTEM_DISK', 'public'));
+        $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
         return $storage->url($this->file_path);
     }
 

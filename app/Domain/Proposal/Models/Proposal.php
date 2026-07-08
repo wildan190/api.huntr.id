@@ -37,7 +37,7 @@ class Proposal extends Model
             return null;
         }
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
-        $storage = \Illuminate\Support\Facades\Storage::disk(env('FILESYSTEM_DISK', 'public'));
+        $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
         return $storage->url($this->document_path);
     }
 

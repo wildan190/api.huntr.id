@@ -56,7 +56,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Vendors can import catalogues.'], 422);
         }
 
-        $path = $request->file('csv')->store('imports', 'local');
+        $path = $request->file('csv')->store('imports', config('filesystems.default'));
         ImportCatalogueJob::dispatch($company->id, $path);
 
         return response()->json([
@@ -76,7 +76,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'Only Buyers can import historical PO data.'], 422);
         }
 
-        $path = $request->file('csv')->store('imports', 'local');
+        $path = $request->file('csv')->store('imports', config('filesystems.default'));
         \App\Domain\Order\Jobs\ImportHistoricalPoJob::dispatch($company->id, $path);
 
         return response()->json([
@@ -98,8 +98,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
 
         $data = $request->validated();
         if (isset($data['image']) && $data['image'] instanceof \Illuminate\Http\UploadedFile) {
-            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-            $data['image_path'] = $data['image']->storePublicly('catalogues', $disk);
+            $data['image_path'] = $data['image']->storePublicly('catalogues', config('filesystems.default'));
             unset($data['image']);
         }
 

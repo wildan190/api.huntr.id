@@ -172,9 +172,8 @@ class GetPurchaseOrdersAction
                 $totalAmount = $mappedItems->sum('total_amount');
             }
 
-            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
             /** @var FilesystemAdapter $storageDisk */
-            $storageDisk = Storage::disk($disk);
+            $storageDisk = Storage::disk(config('filesystems.default'));
             $buyerLogoUrl = null;
             if ($po->buyer && $po->buyer->logo_path) {
                 $buyerLogoUrl = $storageDisk->url($po->buyer->logo_path);
