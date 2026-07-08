@@ -78,61 +78,69 @@ class DocumentController extends Controller
      */
     private function serveDocument(string $path)
     {
-        $disk = config('filesystems.default');
-        /** @var FilesystemAdapter $storage */
-        $storage = Storage::disk($disk);
+        try {
+            $disk = config('filesystems.default');
+            Log::info('serveDocument: starting', ['path' => $path, 'disk' => $disk]);
 
-        Log::info('Serving document', [
-            'path' => $path,
-            'disk' => $disk
-        ]);
+            /** @var FilesystemAdapter $storage */
+            $storage = Storage::disk($disk);
+            Log::info('serveDocument: storage disk initialized', ['disk' => $disk]);
 
-        if (!$storage->exists($path)) {
-            Log::warning('Document not found', ['path' => $path]);
-            return response()->json(['message' => 'Document not found'], 404);
-        }
+            if (!$storage->exists($path)) {
+                Log::warning('Document not found', ['path' => $path]);
+                return response()->json(['message' => 'Document not found'], 404);
+            }
+            Log::info('serveDocument: document exists', ['path' => $path]);
 
-        // For S3 or any other remote disk, redirect to temporary URL
-        if (in_array($disk, ['s3', 'spaces', 'gcs', 'azure'])) {
+            // For S3 or any other remote disk, redirect to temporary URL
+            if (in_array($disk, ['s3', 'spaces', 'gcs', 'azure'])) {
+                try {
+                    $signedUrl = $storage->temporaryUrl($path, now()->addHours(1));
+                    Log::info('Generated signed URL', ['url' => $signedUrl, 'disk' => $disk]);
+                    return redirect()->away($signedUrl);
+                } catch (\Exception $e) {
+                    Log::error('Error generating signed URL:', [
+                        'error' => $e->getMessage(),
+                        'path' => $path,
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                    return response()->json(['message' => 'Error generating download URL: ' . $e->getMessage()], 500);
+                }
+            }
+
+            // For local disk (public or local), serve directly
             try {
-                $signedUrl = $storage->temporaryUrl($path, now()->addHours(1));
-                Log::info('Generated signed URL', ['url' => $signedUrl, 'disk' => $disk]);
-                return redirect()->away($signedUrl);
+                $filename = basename($path);
+                $mimeType = $storage->mimeType($path) ?: 'application/octet-stream';
+                
+                Log::info('Serving local file', [
+                    'path' => $path,
+                    'mime_type' => $mimeType,
+                    'filename' => $filename,
+                    'storage_path' => $storage->path($path)
+                ]);
+
+                return response()->file(
+                    $storage->path($path),
+                    [
+                        'Content-Type' => $mimeType,
+                        'Content-Disposition' => 'inline; filename="' . $filename . '"'
+                    ]
+                );
             } catch (\Exception $e) {
-                Log::error('Error generating signed URL:', [
+                Log::error('Error serving local file:', [
                     'error' => $e->getMessage(),
                     'path' => $path,
                     'trace' => $e->getTraceAsString()
                 ]);
-                return response()->json(['message' => 'Error generating download URL: ' . $e->getMessage()], 500);
+                return response()->json(['message' => 'Error serving document: ' . $e->getMessage()], 500);
             }
-        }
-
-        // For local disk (public or local), serve directly
-        try {
-            $filename = basename($path);
-            $mimeType = $storage->mimeType($path) ?: 'application/octet-stream';
-            
-            Log::info('Serving local file', [
-                'path' => $path,
-                'mime_type' => $mimeType,
-                'filename' => $filename
-            ]);
-
-            return response()->file(
-                $storage->path($path),
-                [
-                    'Content-Type' => $mimeType,
-                    'Content-Disposition' => 'inline; filename="' . $filename . '"'
-                ]
-            );
         } catch (\Exception $e) {
-            Log::error('Error serving local file:', [
+            Log::error('serveDocument: top-level exception', [
                 'error' => $e->getMessage(),
-                'path' => $path,
                 'trace' => $e->getTraceAsString()
             ]);
-            return response()->json(['message' => 'Error serving document: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Server error: ' . $e->getMessage()], 500);
         }
     }
 
