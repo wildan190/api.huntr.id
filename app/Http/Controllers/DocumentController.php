@@ -18,7 +18,7 @@ use Illuminate\Filesystem\FilesystemAdapter;
 class DocumentController extends Controller
 {
     /**
-     * Download RFQ document dengan validasi akses
+     * Download RFQ document - accessible to any authenticated user
      */
     public function downloadRfqDocument(Request $request, string $rfqId)
     {
@@ -28,6 +28,13 @@ class DocumentController extends Controller
             if (!$rfq->document_path) {
                 return response()->json(['message' => 'No document available'], 404);
             }
+
+            Log::info('Serving RFQ document to user', [
+                'rfq_id' => $rfqId,
+                'user_id' => $request->user()?->id,
+                'user_email' => $request->user()?->email,
+                'document_path' => $rfq->document_path
+            ]);
 
             return $this->serveDocument($rfq->document_path);
 
