@@ -86,7 +86,9 @@ class RfqController extends \App\Http\Controllers\Controller
         
         $documentPath = null;
         if ($request->hasFile('document')) {
-            $documentPath = $request->file('document')->store('rfq_documents', config('filesystems.default'));
+            $diskName = config('filesystems.default');
+            \Illuminate\Support\Facades\Log::info('Uploading RFQ document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.'.$diskName.'.bucket')]);
+            $documentPath = $request->file('document')->store('rfq_documents', $diskName);
         }
 
         $rfq = $action->execute(
