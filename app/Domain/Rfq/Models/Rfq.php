@@ -42,8 +42,8 @@ class Rfq extends Model
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
         $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
         
-        // For S3, use temporary URL with 1 hour expiration for security
-        if (config('filesystems.default') === 's3') {
+        // For S3 or any remote disk, use temporary URL with 1 hour expiration
+        if (in_array(config('filesystems.default'), ['s3', 'spaces', 'gcs', 'azure'])) {
             return $storage->temporaryUrl($this->document_path, now()->addHour());
         }
         
