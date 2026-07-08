@@ -116,7 +116,6 @@ class SeoController extends \App\Http\Controllers\Controller
             return $path;
         }
 
-        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-        return Storage::disk($disk)->url($path);
+        return Storage::disk(config('filesystems.default'))->url($path);
     }
 }

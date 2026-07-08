@@ -98,8 +98,7 @@ class CatalogueController extends \App\Http\Controllers\Controller
 
         $data = $request->validated();
         if (isset($data['image']) && $data['image'] instanceof \Illuminate\Http\UploadedFile) {
-            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-            $data['image_path'] = $data['image']->storePublicly('catalogues', $disk);
+            $data['image_path'] = $data['image']->storePublicly('catalogues', config('filesystems.default'));
             unset($data['image']);
         }
 

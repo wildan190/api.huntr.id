@@ -145,6 +145,30 @@ class DocumentController extends Controller
     }
 
     /**
+     * Download generic asset (logo, catalogue image, etc.) - accessible to any authenticated user
+     */
+    public function downloadAsset(Request $request, string $path)
+    {
+        try {
+            Log::info('Serving generic asset to user', [
+                'path' => $path,
+                'user_id' => $request->user()?->id,
+                'user_email' => $request->user()?->email
+            ]);
+            return $this->serveDocument($path);
+        } catch (\Exception $e) {
+            Log::error('Error downloading generic asset:', [
+                'error' => $e->getMessage(),
+                'path' => $path,
+                'user_id' => $request->user()?->id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json(['message' => 'Error accessing asset: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Get public asset URL (for images, etc.)
      */
     public function getAssetUrl(Request $request)

@@ -17,13 +17,12 @@ class UploadCompanyLogoAction
      */
     public function execute(Company $company, UploadedFile $file): Company
     {
-        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
         // Delete old logo if exists
         if ($company->logo_path) {
-            Storage::disk($disk)->delete($company->logo_path);
+            Storage::disk(config('filesystems.default'))->delete($company->logo_path);
         }
 
-        $path = $file->storePublicly('company_logos', $disk);
+        $path = $file->storePublicly('company_logos', config('filesystems.default'));
         $company->update(['logo_path' => $path]);
         
         return $company->fresh(['documents']);

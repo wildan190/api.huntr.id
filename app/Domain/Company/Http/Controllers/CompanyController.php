@@ -122,9 +122,8 @@ class CompanyController extends \App\Http\Controllers\Controller
         $company = Company::findOrFail($request->input('company_id'));
         $updatedCompany = $action->execute($company, $request->file('logo'));
 
-        $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
-        $storage = Storage::disk($disk);
+        $storage = Storage::disk(config('filesystems.default'));
 
         return response()->json([
             'message' => 'Logo successfully updated.',
@@ -241,7 +240,7 @@ class CompanyController extends \App\Http\Controllers\Controller
             $requestingUser->update(['company_id' => $company->id]);
             $requestingUser->refresh();
             
-            \Log::info('Auto-fixed company_id for company owner', [
+            Log::info('Auto-fixed company_id for company owner', [
                 'user_id' => $requestingUser->id,
                 'old_company_id' => $requestingUser->company_id,
                 'new_company_id' => $company->id
@@ -295,7 +294,7 @@ class CompanyController extends \App\Http\Controllers\Controller
             // Verify role exists before assignment
             $roleExists = \App\Domain\Access\Models\Role::where('slug', $newRole)->first();
             if (!$roleExists) {
-                \Log::error('Role not found during assignment', [
+                Log::error('Role not found during assignment', [
                     'requested_role' => $newRole,
                     'company_id' => $company->id,
                     'target_user_id' => $targetUser->id
@@ -317,7 +316,7 @@ class CompanyController extends \App\Http\Controllers\Controller
             // Get the actual role from the model (using accessor)
             $actualRole = $targetUser->role;
 
-            \Log::info('User role updated successfully', [
+            Log::info('User role updated successfully', [
                 'company_id' => $company->id,
                 'target_user_id' => $targetUser->id,
                 'requested_role' => $newRole,
@@ -337,7 +336,7 @@ class CompanyController extends \App\Http\Controllers\Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Error updating user role', [
+            Log::error('Error updating user role', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
                 'company_id' => $company->id,

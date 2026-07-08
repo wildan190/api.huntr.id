@@ -28,6 +28,19 @@ class Catalogue extends Model
         'keywords' => 'array',
     ];
 
+    protected $appends = ['image_url'];
+
+    public function getImageUrlAttribute(): ?string
+    {
+        if (!$this->image_path) {
+            return null;
+        }
+
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+        return $storage->url($this->image_path);
+    }
+
     public function company()
     {
         return $this->belongsTo(Company::class);

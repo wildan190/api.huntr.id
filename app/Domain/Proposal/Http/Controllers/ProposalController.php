@@ -66,8 +66,7 @@ class ProposalController extends \App\Http\Controllers\Controller
         $data = $request->validated();
         
         if ($request->hasFile('document')) {
-            $disk = config('filesystems.default') === 's3' ? 's3' : 'public';
-            $data['document_path'] = $request->file('document')->store('proposal_documents', $disk);
+            $data['document_path'] = $request->file('document')->store('proposal_documents', config('filesystems.default'));
         }
 
         $proposal = $action->execute($company, $rfq, $data);
