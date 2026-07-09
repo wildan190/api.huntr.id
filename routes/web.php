@@ -6,7 +6,10 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-
+// Include debug routes for development
+if (app()->environment(['local', 'development', 'staging'])) {
+    require __DIR__ . '/debug.php';
+}
 
 // Dynamic SEO & Sitemap fallbacks
 Route::get('/robots.txt', function() {

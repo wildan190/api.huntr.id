@@ -7,6 +7,7 @@ use App\Domain\Company\Models\Company;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
+use Illuminate\Support\Facades\Log;
 
 class CreateRfqAction
 {
@@ -27,6 +28,12 @@ class CreateRfqAction
      */
     public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null): Rfq
     {
+        // Debug: Log jumlah item yang akan diproses
+        Log::info('DEBUG: CreateRfqAction - Cart items processing', [
+            'total_cart_items' => count($cartItems),
+            'cart_items_details' => $cartItems,
+        ]);
+
         $rfq = $this->rfqRepository->create([
             'company_id'    => $buyerCompany->id,
             'user_id'       => $userId,
@@ -45,6 +52,12 @@ class CreateRfqAction
             'estimated_price' => $item['estimated_price'] ?? null,
             'expected_date'   => $item['expected_date'] ?? null,
         ], $cartItems);
+
+        // Debug: Log line items yang akan dibuat
+        Log::info('DEBUG: CreateRfqAction - Line items to create', [
+            'total_line_items' => count($lineItems),
+            'line_items_details' => $lineItems,
+        ]);
 
         $this->rfqRepository->createItems($lineItems);
 
