@@ -84,6 +84,14 @@ class RfqController extends \App\Http\Controllers\Controller
 
         $data = $request->validated();
         
+        // Debug: Log jumlah item yang diterima untuk menyelidiki masalah cart 15 item vs 9 item
+        Log::info('DEBUG: RFQ Creation - Items received', [
+            'total_items_count' => count($data['items'] ?? []),
+            'raw_request_items' => $request->all()['items'] ?? 'NO_ITEMS',
+            'validated_items' => $data['items'] ?? 'NO_VALIDATED_ITEMS',
+            'request_all_keys' => array_keys($request->all()),
+        ]);
+        
         $documentPath = null;
         if ($request->hasFile('document')) {
             $diskName = config('filesystems.default');
