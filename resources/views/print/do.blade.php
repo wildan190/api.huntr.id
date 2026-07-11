@@ -26,20 +26,20 @@
         'accentColor' => '#f97316',
     ])
 
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    </div>
+
+    {{-- Delivery Point --}}
+    @if(!empty($po['delivery_point']) || !empty($do->delivery_address))
+    <div style="margin-bottom: 24px; padding: 12px 16px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; display: flex; align-items: flex-start; gap: 10px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#f97316" viewBox="0 0 16 16" style="margin-top: 2px; flex-shrink: 0;">
+            <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10zm0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>
+        </svg>
         <div>
-            <div class="section-title">Status</div>
-            <strong>{{ ucfirst($do->status) }}</strong>
-        </div>
-        <div>
-            <div class="section-title">Reference PO</div>
-            <strong>{{ $po['po_number'] }}</strong>
-        </div>
-        <div>
-            <div class="section-title">Tracking / Resi</div>
-            <strong>{{ $do->tracking_number ?: '—' }}</strong>
+            <div class="section-title" style="margin-bottom: 2px;">Delivery Point / Titik Pengiriman</div>
+            <strong style="font-size: 13px;">{{ $po['delivery_point'] ?: $do->delivery_address }}</strong>
         </div>
     </div>
+    @endif
 
     @php
         $receipt = $do->goodsReceipts->first();
@@ -89,32 +89,48 @@
 
     {{-- Financial Summary --}}
     @php
-        $doBaseAmt = $po['total_amount'];
-        if ($doBaseAmt <= 50000000) {
-            $doPlatFee = $doBaseAmt * 0.025;
-        } elseif ($doBaseAmt <= 250000000) {
-            $doPlatFee = $doBaseAmt * 0.02;
-        } else {
-            $doPlatFee = $doBaseAmt * 0.01;
-        }
-        $doAdminFee = 4400;
-        $doServiceFee = $doPlatFee + $doAdminFee;
-        $doPpn = $doServiceFee * 0.11;
-        $doTotal = $doBaseAmt + $doServiceFee + $doPpn;
+        $doBaseAmt      = $po['total_amount'];
+        $doPlatFee      = $doBaseAmt * 0.03;              // Platform fee 3%
+        $doAdminBank    = 4400;                          // Admin Bank flat
+        $doPpnEcomm     = ($doPlatFee + $doAdminBank) * 0.08; // PPN eComm 8%
+        $doBiayaLayanan = $doPlatFee + $doAdminBank + $doPpnEcomm; // Total biaya layanan
+        $doPpn          = $doBaseAmt * 0.11;              // PPN 11% dari DPP
+        $doTotal        = $doBaseAmt + $doBiayaLayanan + $doPpn;
     @endphp
     <div class="section-title" style="margin-top: 24px;">Ringkasan Biaya / Financial Summary</div>
     <table style="margin-bottom: 16px;">
         <tbody>
-            <tr style="background: #f9fafb;">
-                <td colspan="3" style="text-align: right;">Nilai Barang (DPP)</td>
+            <tr style="background: #f9fafb; font-weight: 600;">
+                <td colspan="3" style="text-align: right;">Total Pembelian sebelum PPN</td>
                 <td style="text-align: right;">{{ number_format($doBaseAmt) }}</td>
             </tr>
+            {{-- Platform fee --}}
             <tr style="background: #f9fafb;">
-                <td colspan="3" style="text-align: right;">BIAYA LAYANAN <span style="font-size: 10px; color: #6b7280;">(Platform + Admin Pembayaran)</span></td>
-                <td style="text-align: right;">{{ number_format($doServiceFee) }}</td>
+                <td colspan="2" style="text-align: right; color: #6b7280; font-size: 12px;">platform fee</td>
+                <td style="text-align: right; color: #6b7280; font-size: 12px;">3%</td>
+                <td style="text-align: right; color: #6b7280;">{{ number_format($doPlatFee) }}</td>
             </tr>
+            {{-- Admin Bank --}}
             <tr style="background: #f9fafb;">
-                <td colspan="3" style="text-align: right;">PPN 11% <span style="font-size: 10px; color: #6b7280;">(atas biaya layanan)</span></td>
+                <td colspan="2" style="text-align: right; color: #6b7280; font-size: 12px;">Admin Bank</td>
+                <td style="text-align: right; color: #6b7280; font-size: 12px;"></td>
+                <td style="text-align: right; color: #6b7280;">{{ number_format($doAdminBank) }}</td>
+            </tr>
+            {{-- PPN eComm --}}
+            <tr style="background: #f9fafb;">
+                <td colspan="2" style="text-align: right; color: #6b7280; font-size: 12px;">PPN eComm</td>
+                <td style="text-align: right; color: #6b7280; font-size: 12px;">8%</td>
+                <td style="text-align: right; color: #6b7280;">{{ number_format($doPpnEcomm) }}</td>
+            </tr>
+            {{-- Biaya Layanan subtotal --}}
+            <tr style="background: #f9fafb; font-weight: 600;">
+                <td colspan="3" style="text-align: right;">Biaya Layanan <span style="font-size: 10px; font-weight: 400; color: #6b7280;">(Platform + Admin Bank + PPN eComm)</span></td>
+                <td style="text-align: right;">{{ number_format($doBiayaLayanan) }}</td>
+            </tr>
+            {{-- PPN 11% --}}
+            <tr style="background: #f9fafb; font-weight: 600;">
+                <td colspan="2" style="text-align: right;">PPN</td>
+                <td style="text-align: right;">11%</td>
                 <td style="text-align: right;">{{ number_format($doPpn) }}</td>
             </tr>
             <tr class="total-row">

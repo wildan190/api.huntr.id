@@ -4,30 +4,43 @@ namespace App\Domain\Order\Actions;
 
 class CalculateInvoiceFeesAction
 {
+    /**
+     * Hitung biaya layanan dan PPN sesuai struktur:
+     *
+     * - Platform fee : 3% dari base amount
+     * - Admin Bank   : Rp 4.400 (flat)
+     * - PPN eComm    : 8% dari (platform fee + admin bank)
+     * - Biaya Layanan: platform fee + admin bank + PPN eComm
+     * - PPN          : 11% dari base amount (DPP)
+     * - Total        : base amount + biaya layanan + PPN
+     */
     public function execute(float $baseAmount): array
     {
-        // Calculate Platform Fee
-        if ($baseAmount <= 50000000) { // 0-50jt
-            $platformFee = $baseAmount * 0.025;
-        } elseif ($baseAmount <= 250000000) { // 51-250jt
-            $platformFee = $baseAmount * 0.02;
-        } else { // 251jt and above
-            $platformFee = $baseAmount * 0.01;
-        }
+        // Platform fee: 3% dari total pembelian sebelum PPN
+        $platformFee = $baseAmount * 0.03;
 
+        // Admin Bank (flat)
         $midtransFee = 4400;
 
-        // Calculate PPN 11% on (platformFee + midtransFee)
-        $ppnFee = ($platformFee + $midtransFee) * 0.11;
+        // PPN eComm: 8% dari (platform fee + admin bank)
+        $ppnEcomm = ($platformFee + $midtransFee) * 0.08;
 
-        $totalAmount = $baseAmount + $platformFee + $midtransFee + $ppnFee;
+        // Total biaya layanan
+        $serviceTotal = $platformFee + $midtransFee + $ppnEcomm;
+
+        // PPN 11% dari base amount (DPP)
+        $ppnFee = $baseAmount * 0.11;
+
+        $totalAmount = $baseAmount + $serviceTotal + $ppnFee;
 
         return [
-            'base_amount' => $baseAmount,
-            'platform_fee' => $platformFee,
-            'midtrans_fee' => $midtransFee,
-            'ppn_fee' => $ppnFee,
-            'total_amount' => $totalAmount
+            'base_amount'   => $baseAmount,
+            'platform_fee'  => $platformFee,
+            'midtrans_fee'  => $midtransFee,
+            'ppn_ecomm'     => $ppnEcomm,
+            'service_total' => $serviceTotal,
+            'ppn_fee'       => $ppnFee,
+            'total_amount'  => $totalAmount,
         ];
     }
 }
