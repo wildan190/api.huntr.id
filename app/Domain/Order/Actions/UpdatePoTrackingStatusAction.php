@@ -21,6 +21,7 @@ class UpdatePoTrackingStatusAction
      */
     private const ALLOWED_TRANSITIONS = [
         'confirmed' => 'packing',
+        'paid'      => 'packing',
         'packing'   => 'in_transit',
         'in_transit' => 'delivered',
     ];

@@ -19,6 +19,7 @@ class Invoice extends Model
         'base_amount',
         'platform_fee',
         'midtrans_fee',
+        'ppn_ecomm',
         'ppn_fee',
         'total_amount',
         'vendor_signed_name',
