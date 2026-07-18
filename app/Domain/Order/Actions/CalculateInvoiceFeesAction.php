@@ -5,28 +5,36 @@ namespace App\Domain\Order\Actions;
 class CalculateInvoiceFeesAction
 {
     /**
-     * Hitung biaya layanan dan PPN sesuai struktur:
+     * Hitung biaya layanan dan PPN sesuai struktur baru:
      *
-     * - Platform fee : 3% dari base amount
-     * - Admin Bank   : Rp 4.400 (flat)
-     * - PPN eComm    : 8% dari (platform fee + admin bank)
-     * - Biaya Layanan: platform fee + admin bank + PPN eComm
-     * - PPN          : 11% dari base amount (DPP)
-     * - Total        : base amount + biaya layanan + PPN
+     * - Platform fee : tier-based dari base amount
+     *     0 - 100.000.000           → 5%
+     *     100.000.001 - 250.000.000 → 3%
+     *     250.000.001 ke atas       → 2%
+     * - PPN Platform  : 11% dari platform fee
+     * - Admin Bank    : Rp 4.400 (flat)
+     * - PPH 23        : 2% dari platform fee
+     * - Biaya Layanan : (platform fee + PPN platform) + admin bank - PPH 23
+     * - PPN Barang    : 11% dari base amount (DPP)
+     * - Total         : base amount + biaya layanan + PPN barang
      */
     public function execute(float $baseAmount): array
     {
-        // Platform fee: 3% dari total pembelian sebelum PPN
-        $platformFee = $baseAmount * 0.03;
+        // Platform fee: tier-based dari total pembelian sebelum PPN
+        $platformFeeRate = $this->getPlatformFeeRate($baseAmount);
+        $platformFee     = $baseAmount * $platformFeeRate;
+
+        // PPN Platform: 11% dari platform fee
+        $ppnPlatform = $platformFee * 0.11;
 
         // Admin Bank (flat)
-        $midtransFee = 4400;
+        $adminBank = 4400;
 
-        // PPN eComm: 8% dari (platform fee + admin bank)
-        $ppnEcomm = ($platformFee + $midtransFee) * 0.08;
+        // PPH 23: 2% dari platform fee
+        $pph23 = $platformFee * 0.02;
 
-        // Total biaya layanan
-        $serviceTotal = $platformFee + $midtransFee + $ppnEcomm;
+        // Total biaya layanan: (platform fee + PPN platform) + admin bank - PPH 23
+        $serviceTotal = ($platformFee + $ppnPlatform) + $adminBank - $pph23;
 
         // PPN 11% dari base amount (DPP)
         $ppnFee = $baseAmount * 0.11;
@@ -36,11 +44,26 @@ class CalculateInvoiceFeesAction
         return [
             'base_amount'   => $baseAmount,
             'platform_fee'  => $platformFee,
-            'midtrans_fee'  => $midtransFee,
-            'ppn_ecomm'     => $ppnEcomm,
+            'ppn_platform'  => $ppnPlatform,
+            'midtrans_fee'  => $adminBank,
+            'pph23'         => $pph23,
             'service_total' => $serviceTotal,
             'ppn_fee'       => $ppnFee,
             'total_amount'  => $totalAmount,
         ];
+    }
+
+    /**
+     * Tentukan rate platform fee berdasarkan tier nilai transaksi.
+     */
+    private function getPlatformFeeRate(float $amount): float
+    {
+        if ($amount <= 100_000_000) {
+            return 0.05; // 5%
+        } elseif ($amount <= 250_000_000) {
+            return 0.03; // 3%
+        } else {
+            return 0.02; // 2%
+        }
     }
 }

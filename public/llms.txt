@@ -9,4 +9,4 @@
 
 ## Products and Services
 
-- [Awesome Product A](https://app.huntr.id/catalogues/019eea63-7e47-7388-bb61-91e8e8f5d082) - Brand: Brand X. Category: Category Y. Offered by: Test Vendor Corp. Specs: High quality widgets.
+- [Awesome Product A](https://app.huntr.id/catalogues/019f5683-8a78-7334-89ea-bfb205c07a2d) - Brand: Brand X. Category: Category Y. Offered by: Test Vendor Corp. Specs: High quality widgets.

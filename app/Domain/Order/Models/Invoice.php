@@ -18,8 +18,9 @@ class Invoice extends Model
         'status', // unpaid, paid, pending_finance
         'base_amount',
         'platform_fee',
+        'ppn_platform',
         'midtrans_fee',
-        'ppn_ecomm',
+        'pph23',
         'ppn_fee',
         'total_amount',
         'vendor_signed_name',

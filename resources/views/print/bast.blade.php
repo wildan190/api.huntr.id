@@ -92,6 +92,54 @@
                 <td style="text-align: right;">{{ number_format($item['total_amount'] ?? 0) }}</td>
             </tr>
             @endforeach
+            @php
+                $bastBase = collect($bast->items)->sum(fn($i) => $i['total_amount'] ?? 0);
+                if ($bastBase <= 100000000) {
+                    $bastPlatFeeRate = 0.05;
+                } elseif ($bastBase <= 250000000) {
+                    $bastPlatFeeRate = 0.03;
+                } else {
+                    $bastPlatFeeRate = 0.02;
+                }
+                $bastPlatFee      = $bastBase * $bastPlatFeeRate;
+                $bastPpnPlatform  = $bastPlatFee * 0.11;
+                $bastAdminBank    = 4400;
+                $bastPph23        = $bastPlatFee * 0.02;
+                $bastBiayaLayanan = ($bastPlatFee + $bastPpnPlatform) + $bastAdminBank - $bastPph23;
+                $bastPpn          = $bastBase * 0.11;
+                $bastTotal        = $bastBase + $bastBiayaLayanan + $bastPpn;
+            @endphp
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="4" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($bastBase) }}</td>
+            </tr>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="3" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
+                <td style="text-align: right; color: #78350f; font-size: 12px;">{{ number_format($bastPlatFeeRate * 100, 0) }}% + 11%</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($bastPlatFee + $bastPpnPlatform) }}</td>
+            </tr>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="4" style="text-align: right; color: #78350f;">Admin Bank</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($bastAdminBank) }}</td>
+            </tr>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="3" style="text-align: right; color: #78350f;">PPH 23</td>
+                <td style="text-align: right; color: #78350f; font-size: 12px;">2%</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($bastPph23) }}</td>
+            </tr>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="4" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($bastBiayaLayanan) }}</td>
+            </tr>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="3" style="text-align: right; color: #78350f;">PPN</td>
+                <td style="text-align: right; color: #78350f; font-size: 12px;">11%</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($bastPpn) }}</td>
+            </tr>
+            <tr class="total-row">
+                <td colspan="4" style="text-align: right;">TOTAL Amount (IDR)</td>
+                <td style="text-align: right;">{{ number_format($bastTotal) }}</td>
+            </tr>
         </tbody>
     </table>
     @else
