@@ -70,8 +70,9 @@ class ConfirmPurchaseOrderAction
                 'amount'            => $fees['total_amount'], // total with fees
                 'base_amount'       => $fees['base_amount'],
                 'platform_fee'      => $fees['platform_fee'],
+                'ppn_platform'      => $fees['ppn_platform'],
                 'midtrans_fee'      => $fees['midtrans_fee'],
-                'ppn_ecomm'         => $fees['ppn_ecomm'],
+                'pph23'             => $fees['pph23'],
                 'ppn_fee'           => $fees['ppn_fee'],
                 'total_amount'      => $fees['total_amount'],
                 'status'            => 'unpaid',

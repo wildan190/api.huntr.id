@@ -228,4 +228,72 @@ class AiControllerTest extends TestCase
         $this->assertNotEmpty($response->json('draft.suggested_items'));
         $this->assertEquals($product->id, $response->json('draft.suggested_items.0.catalogue_id'));
     }
+
+    public function test_ai_rank_proposals_endpoint_with_auth(): void
+    {
+        $rfq = Rfq::create([
+            'company_id' => $this->buyerCompany->id,
+            'title' => 'Request for Office Laptop',
+            'description' => 'Need laptops ASAP',
+            'deadline' => now()->addDays(7),
+            'duration_days' => 7,
+            'status' => 'open',
+        ]);
+
+        $vendorCompany = Company::create([
+            'name' => 'Vendor Asus Corp',
+            'type' => 'vendor',
+            'status' => 'approved',
+        ]);
+
+        $proposal = Proposal::create([
+            'rfq_id' => $rfq->id,
+            'company_id' => $vendorCompany->id,
+            'price_offer' => 15000000.0,
+            'delivery_days' => 5,
+            'warranty_months' => 12,
+            'payment_term' => '30 days',
+            'status' => 'submitted',
+            'document_path' => 'proposal_documents/test.pdf',
+        ]);
+
+        $this->mock(GenkitService::class, function ($mock) use ($proposal) {
+            $mock->shouldReceive('rankProposals')
+                ->once()
+                ->andReturn([
+                    'rankings' => [
+                        [
+                            'proposal_id' => $proposal->id,
+                            'rank' => 1,
+                            'is_winner' => true,
+                            'total_score' => 95,
+                            'strengths' => ['Harga bagus'],
+                            'weaknesses' => [],
+                            'recommendation' => 'Paling murah',
+                        ]
+                    ],
+                    'overall_analysis' => 'Proposal paling optimal',
+                    'recommended_winner_id' => $proposal->id,
+                ]);
+        });
+
+        $response = $this->actingAs($this->buyerUser, 'api')
+            ->postJson('/api/ai/rank-proposals', [
+                'rfq_id' => $rfq->id,
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+                'data' => [
+                    'recommended_winner_id' => $proposal->id,
+                ]
+            ]);
+
+        $rankings = $response->json('data.rankings');
+        $this->assertNotEmpty($rankings);
+        $this->assertEquals($proposal->id, $rankings[0]['proposal']['id']);
+        $this->assertEquals('proposal_documents/test.pdf', $rankings[0]['proposal']['document_path']);
+        $this->assertNotNull($rankings[0]['proposal']['document_url']);
+    }
 }

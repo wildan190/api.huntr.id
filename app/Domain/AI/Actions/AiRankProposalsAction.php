@@ -90,6 +90,8 @@ class AiRankProposalsAction
                     'warranty_months' => $proposal->warranty_months,
                     'payment_term'    => $proposal->payment_term,
                     'winner_status'   => $proposal->winner_status,
+                    'document_path'   => $proposal->document_path,
+                    'document_url'    => $proposal->document_url,
                     'company'         => ['name' => $proposal->company?->name],
                 ] : null,
             ]);

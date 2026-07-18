@@ -87,51 +87,58 @@
         </tbody>
     </table>
 
-    {{-- Financial Summary --}}
     @php
-        $doBaseAmt      = $po['total_amount'];
-        $doPlatFee      = $doBaseAmt * 0.03;              // Platform fee 3%
-        $doAdminBank    = 4400;                          // Admin Bank flat
-        $doPpnEcomm     = ($doPlatFee + $doAdminBank) * 0.08; // PPN eComm 8%
-        $doBiayaLayanan = $doPlatFee + $doAdminBank + $doPpnEcomm; // Total biaya layanan
-        $doPpn          = $doBaseAmt * 0.11;              // PPN 11% dari DPP
+        $doBaseAmt = $po['total_amount'];
+        // Platform fee: tier-based
+        if ($doBaseAmt <= 100000000) {
+            $doPlatFeeRate = 0.05;
+        } elseif ($doBaseAmt <= 250000000) {
+            $doPlatFeeRate = 0.03;
+        } else {
+            $doPlatFeeRate = 0.02;
+        }
+        $doPlatFee      = $doBaseAmt * $doPlatFeeRate;
+        $doPpnPlatform  = $doPlatFee * 0.11;
+        $doAdminBank    = 4400;
+        $doPph23        = $doPlatFee * 0.02;
+        $doBiayaLayanan = ($doPlatFee + $doPpnPlatform) + $doAdminBank - $doPph23;
+        $doPpn          = $doBaseAmt * 0.11;
         $doTotal        = $doBaseAmt + $doBiayaLayanan + $doPpn;
     @endphp
     <div class="section-title" style="margin-top: 24px;">Ringkasan Biaya / Financial Summary</div>
     <table style="margin-bottom: 16px;">
         <tbody>
-            <tr style="background: #f9fafb; font-weight: 600;">
-                <td colspan="3" style="text-align: right;">Total Pembelian sebelum PPN</td>
-                <td style="text-align: right;">{{ number_format($doBaseAmt) }}</td>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="3" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($doBaseAmt) }}</td>
             </tr>
-            {{-- Platform fee --}}
-            <tr style="background: #f9fafb;">
-                <td colspan="2" style="text-align: right; color: #6b7280; font-size: 12px;">platform fee</td>
-                <td style="text-align: right; color: #6b7280; font-size: 12px;">3%</td>
-                <td style="text-align: right; color: #6b7280;">{{ number_format($doPlatFee) }}</td>
+            {{-- Platform Fee + PPN --}}
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="2" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
+                <td style="text-align: right; color: #78350f; font-size: 12px;">{{ number_format($doPlatFeeRate * 100, 0) }}% + 11%</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($doPlatFee + $doPpnPlatform) }}</td>
             </tr>
             {{-- Admin Bank --}}
-            <tr style="background: #f9fafb;">
-                <td colspan="2" style="text-align: right; color: #6b7280; font-size: 12px;">Admin Bank</td>
-                <td style="text-align: right; color: #6b7280; font-size: 12px;"></td>
-                <td style="text-align: right; color: #6b7280;">{{ number_format($doAdminBank) }}</td>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="3" style="text-align: right; color: #78350f;">Admin Bank</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($doAdminBank) }}</td>
             </tr>
-            {{-- PPN eComm --}}
-            <tr style="background: #f9fafb;">
-                <td colspan="2" style="text-align: right; color: #6b7280; font-size: 12px;">PPN eComm</td>
-                <td style="text-align: right; color: #6b7280; font-size: 12px;">8%</td>
-                <td style="text-align: right; color: #6b7280;">{{ number_format($doPpnEcomm) }}</td>
+            {{-- PPH 23 --}}
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="2" style="text-align: right; color: #78350f;">PPH 23</td>
+                <td style="text-align: right; color: #78350f; font-size: 12px;">2%</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($doPph23) }}</td>
             </tr>
-            {{-- Biaya Layanan subtotal --}}
-            <tr style="background: #f9fafb; font-weight: 600;">
-                <td colspan="3" style="text-align: right;">Biaya Layanan <span style="font-size: 10px; font-weight: 400; color: #6b7280;">(Platform + Admin Bank + PPN eComm)</span></td>
-                <td style="text-align: right;">{{ number_format($doBiayaLayanan) }}</td>
+            {{-- Biaya Layanan --}}
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="3" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($doBiayaLayanan) }}</td>
             </tr>
             {{-- PPN 11% --}}
-            <tr style="background: #f9fafb; font-weight: 600;">
-                <td colspan="2" style="text-align: right;">PPN</td>
-                <td style="text-align: right;">11%</td>
-                <td style="text-align: right;">{{ number_format($doPpn) }}</td>
+            <tr style="background: #fffde7; font-weight: 700;">
+                <td colspan="2" style="text-align: right; color: #78350f;">PPN</td>
+                <td style="text-align: right; color: #78350f; font-size: 12px;">11%</td>
+                <td style="text-align: right; color: #78350f;">{{ number_format($doPpn) }}</td>
             </tr>
             <tr class="total-row">
                 <td colspan="3" style="text-align: right;">TOTAL PAYABLE ({{ $po['currency'] }})</td>
