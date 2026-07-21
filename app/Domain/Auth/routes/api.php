@@ -14,6 +14,7 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
     Route::post('register', [AuthController::class, 'register']);
     Route::post('otp/send', [AuthController::class, 'sendOtp']);
     Route::post('otp/verify', [AuthController::class, 'verifyOtp']);
+    Route::post('password/reset-whatsapp', [AuthController::class, 'resetPassword']);
 
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);

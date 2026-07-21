@@ -53,6 +53,7 @@
     <table>
         <thead>
             <tr>
+                <th style="width: 40px; text-align: center;">No</th>
                 <th>Item Description</th>
                 <th>Code</th>
                 <th style="text-align: center;">Qty</th>
@@ -61,8 +62,9 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($po['items'] as $item)
+            @foreach($po['items'] as $index => $item)
             <tr>
+                <td style="text-align: center;">{{ $index + 1 }}</td>
                 <td>{{ $item['inventory_name'] }}</td>
                 <td>{{ $item['inventory_code'] }}</td>
                 <td style="text-align: center;">{{ $item['qty'] }} {{ $item['uom'] }}</td>
@@ -91,46 +93,46 @@
 
             {{-- Total Pembelian sebelum PPN --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
+                <td colspan="5" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($baseAmt) }}</td>
             </tr>
 
             {{-- Platform Fee + PPN --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
+                <td colspan="4" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
                 <td style="text-align: right; color: #78350f; font-size: 12px;">{{ number_format($platFeeRate * 100, 0) }}% + 11%</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($platFee + $ppnPlatform) }}</td>
             </tr>
 
             {{-- Admin Bank --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">Admin Bank</td>
+                <td colspan="5" style="text-align: right; color: #78350f;">Admin Bank</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($adminBank) }}</td>
             </tr>
 
             {{-- PPH 23 --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">PPH 23</td>
+                <td colspan="4" style="text-align: right; color: #78350f;">PPH 23</td>
                 <td style="text-align: right; color: #78350f; font-size: 12px;">2%</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($pph23) }}</td>
             </tr>
 
             {{-- Biaya Layanan --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
+                <td colspan="5" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($biayaLayanan) }}</td>
             </tr>
 
             {{-- PPN 11% --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">PPN</td>
+                <td colspan="4" style="text-align: right; color: #78350f;">PPN</td>
                 <td style="text-align: right; color: #78350f; font-size: 12px;">11%</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($ppn) }}</td>
             </tr>
 
             {{-- Grand Total --}}
             <tr class="total-row">
-                <td colspan="4" style="text-align: right;">TOTAL Amount ({{ $po['currency'] }})</td>
+                <td colspan="5" style="text-align: right;">TOTAL Amount ({{ $po['currency'] }})</td>
                 <td style="text-align: right;">{{ number_format($grandTotal) }}</td>
             </tr>
         </tbody>
