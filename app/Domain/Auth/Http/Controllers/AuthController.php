@@ -62,4 +62,14 @@ class AuthController extends \App\Http\Controllers\Controller
 
         return response()->json(['message' => 'Logged out successfully.']);
     }
+
+    /**
+     * Reset user password via WhatsApp OTP.
+     */
+    public function resetPassword(
+        \App\Domain\Auth\Http\Requests\ResetPasswordWhatsappRequest $request, 
+        \App\Domain\Auth\Actions\ResetPasswordViaWhatsappAction $action
+    ): JsonResponse {
+        return response()->json($action->execute($request->validated()));
+    }
 }
