@@ -5,6 +5,25 @@ namespace App\Domain\EFaktur\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property string $id
+ * @property string|null $bast_id
+ * @property string|null $po_id
+ * @property string|null $invoice_id
+ * @property string|null $nofa
+ * @property string|null $transaction_id
+ * @property string $status
+ * @property string|null $no_invoice
+ * @property int|null $masa_pajak
+ * @property int|null $tahun_pajak
+ * @property string|null $tanggal_faktur
+ * @property float|null $dpp
+ * @property float|null $ppn
+ * @property array|null $raw_request
+ * @property array|null $raw_response
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class EFaktur extends Model
 {
     use HasUuids;

@@ -8,6 +8,28 @@ use App\Domain\Receipt\Models\GoodsReceipt;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $purchase_order_id
+ * @property string $do_number
+ * @property string|null $tracking_number
+ * @property string|null $delivery_address
+ * @property string $status
+ * @property string|null $handed_by_user_id
+ * @property string|null $handed_by_name
+ * @property string|null $handed_by_position
+ * @property \Illuminate\Support\Carbon|null $handed_by_signed_at
+ * @property string|null $received_by_user_id
+ * @property string|null $received_by_name
+ * @property string|null $received_by_position
+ * @property \Illuminate\Support\Carbon|null $received_by_signed_at
+ * @property string|null $witness_user_id
+ * @property string|null $witness_name
+ * @property string|null $witness_position
+ * @property \Illuminate\Support\Carbon|null $witness_signed_at
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class DeliveryOrder extends Model
 {
     use HasFactory, HasUuids;

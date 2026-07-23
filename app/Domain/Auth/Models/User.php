@@ -12,6 +12,16 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use App\Domain\Access\Traits\HasAccess;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * @property string $id
+ * @property string $name
+ * @property string|null $email
+ * @property string|null $whatsapp
+ * @property string $password
+ * @property string|null $company_id
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */

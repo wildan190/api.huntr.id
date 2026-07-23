@@ -7,6 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $company_id
+ * @property string $name
+ * @property string $type
+ * @property string|null $file_path
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class CompanyDocument extends Model
 {
     use HasFactory, HasUuids;

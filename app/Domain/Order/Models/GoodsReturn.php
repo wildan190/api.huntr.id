@@ -8,8 +8,22 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * GoodsReturn (Pengembalian Barang)
- * 
+ *
  * Represents a goods return request due to defects, damage, or other quality issues.
+ *
+ * @property string $id
+ * @property string|null $bast_id
+ * @property string|null $po_id
+ * @property string|null $goods_receipt_id
+ * @property string|null $buyer_company_id
+ * @property string|null $vendor_company_id
+ * @property string $return_number
+ * @property string|null $return_date
+ * @property string $status
+ * @property string|null $return_reason
+ * @property array|null $items
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
  */
 class GoodsReturn extends Model
 {

@@ -7,6 +7,15 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $negotiation_id
+ * @property string $proposal_item_id
+ * @property float $negotiated_price
+ * @property int $negotiated_qty
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class NegotiationItem extends Model
 {
     use HasFactory, HasUuids;
