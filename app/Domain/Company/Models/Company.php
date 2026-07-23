@@ -8,9 +8,36 @@ use Illuminate\Notifications\Notifiable;
 use App\Domain\Auth\Models\User;
 use App\Domain\Catalogue\Models\Catalogue;
 use App\Support\Tax\TaxIdFormatter;
-
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $owner_id
+ * @property string $name
+ * @property string $type
+ * @property string $status
+ * @property string $verification_notes
+ * @property string $tax_id
+ * @property string $country
+ * @property string $email
+ * @property string $phone
+ * @property string $region
+ * @property string $provincy_country
+ * @property string $regency
+ * @property string $city
+ * @property string $zip_code
+ * @property string $address
+ * @property string $bank_name
+ * @property string $bank_account
+ * @property string $bank_account_name
+ * @property string $about
+ * @property array $keywords
+ * @property string $industry_type
+ * @property string $logo_path
+ * @property array $hq_addresses
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class Company extends Model
 {
     use HasFactory, HasUuids, Notifiable;

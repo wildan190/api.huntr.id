@@ -21,7 +21,6 @@ class EloquentRfqRepository implements RfqRepositoryInterface
      */
     public function createItems(array $items): void
     {
-        // Debug: Log proses pembuatan RFQ items
         Log::info('DEBUG: EloquentRfqRepository - Creating RFQ items', [
             'total_items_to_create' => count($items),
             'items_details' => $items,
@@ -31,7 +30,6 @@ class EloquentRfqRepository implements RfqRepositoryInterface
             RfqItem::create($item);
         }
 
-        // Debug: Verify items created
         $createdCount = RfqItem::where('rfq_id', $items[0]['rfq_id'] ?? null)->count();
         Log::info('DEBUG: EloquentRfqRepository - Items creation completed', [
             'created_items_count' => $createdCount,

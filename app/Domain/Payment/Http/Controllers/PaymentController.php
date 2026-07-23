@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Domain\Payment\Services\MidtransService;
 
+use App\Domain\Payment\Http\Requests\StorePaymentRequest;
+
 class PaymentController extends \App\Http\Controllers\Controller
 {
     public function __construct(
@@ -41,17 +43,14 @@ class PaymentController extends \App\Http\Controllers\Controller
     /**
      * Initiate a payment for an invoice.
      */
-    public function store(Request $request, CreatePaymentAction $action): JsonResponse
+    public function store(StorePaymentRequest $request, CreatePaymentAction $action): JsonResponse
     {
-        $request->validate([
-            'invoice_id' => 'required|exists:invoices,id',
-            'method' => 'required|string'
-        ]);
+        $validated = $request->validated();
 
-        $invoice = Invoice::findOrFail($request->invoice_id);
+        $invoice = Invoice::findOrFail($validated['invoice_id']);
         
         try {
-            $payment = $action->execute($invoice, $request->method);
+            $payment = $action->execute($invoice, $validated['method']);
             return response()->json([
                 'message' => 'Payment initiated successfully.',
                 'payment' => $payment

@@ -6,9 +6,26 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\Company;
-
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $rfq_id
+ * @property string $company_id
+ * @property float $price_offer
+ * @property int $delivery_days
+ * @property int $warranty_months
+ * @property string $document_path
+ * @property string $payment_term
+ * @property string $status
+ * @property string $winner_status
+ * @property \Illuminate\Support\Carbon|null $awarded_at
+ * @property string $awarded_by_user_id
+ * @property \Illuminate\Support\Carbon|null $approved_at
+ * @property string $approved_by_user_id
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class Proposal extends Model
 {
     use HasFactory, HasUuids;

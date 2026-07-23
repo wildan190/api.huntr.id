@@ -16,32 +16,30 @@ class InviteUserAction
     public function execute(User $inviter, array $data): array
     {
         $company = Company::findOrFail($data['company_id']);
-        
-        // Ensure the inviter is the owner or a manager
+
         if ($company->owner_id !== $inviter->id && !$inviter->hasRole('manager')) {
             throw new \Exception("Unauthorized to invite users to this company.");
         }
 
-        // Validate role matches company type
         $this->validateRoleForCompanyType($data['role'], $company->type);
 
         $token = Str::random(32);
-        
+
         $invitation = CompanyInvitation::create([
             'company_id' => $company->id,
-            'whatsapp'   => $data['whatsapp'],
-            'email'      => $data['email'] ?? null,
-            'role'       => $data['role'],
-            'token'      => $token,
-            'status'     => 'pending',
+            'whatsapp' => $data['whatsapp'],
+            'email' => $data['email'] ?? null,
+            'role' => $data['role'],
+            'token' => $token,
+            'status' => 'pending',
             'expires_at' => now()->addDays(7),
             'created_by' => $inviter->id,
         ]);
 
         $inviteUrl = config('app.frontend_url', 'http://localhost:5173') . "/invite/accept?token=" . $token;
-        
+
         $message = "Hello! You are invited to join {$company->name} on Huntr.id as a {$data['role']}.\n\nPlease click the following link to accept the invitation:\n{$inviteUrl}";
-        
+
         $whatsappLink = "https://wa.me/" . preg_replace('/[^0-9]/', '', $data['whatsapp']) . "?text=" . urlencode($message);
 
         return [
