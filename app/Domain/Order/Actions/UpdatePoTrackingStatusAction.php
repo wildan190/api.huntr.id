@@ -21,26 +21,27 @@ class UpdatePoTrackingStatusAction
      */
     private const ALLOWED_TRANSITIONS = [
         'confirmed' => 'packing',
-        'paid'      => 'packing',
-        'packing'   => 'in_transit',
+        'paid' => 'packing',
+        'packing' => 'in_transit',
         'in_transit' => 'delivered',
     ];
 
     private const STATUS_LABELS = [
-        'issued'     => 'PO Issued',
-        'published'  => 'PO Issued',
-        'confirmed'  => 'PO Confirmed',
-        'paid'       => 'Payment Received',
-        'packing'    => 'Goods Being Packed',
+        'issued' => 'PO Issued',
+        'published' => 'PO Issued',
+        'confirmed' => 'PO Confirmed',
+        'paid' => 'Payment Received',
+        'packing' => 'Goods Being Packed',
         'in_transit' => 'Goods In Transit',
-        'delivered'  => 'Goods Delivered',
-        'completed'  => 'Order Completed',
-        'done'       => 'Order Completed',
+        'delivered' => 'Goods Delivered',
+        'completed' => 'Order Completed',
+        'done' => 'Order Completed',
     ];
 
     public function __construct(
         private readonly BroadcastWebsocketNotificationAction $broadcastAction
-    ) {}
+    ) {
+    }
 
     /**
      * @param Company $vendorCompany  The acting vendor company
@@ -56,7 +57,7 @@ class UpdatePoTrackingStatusAction
         string $newStatus,
         ?string $note = null
     ): PurchaseOrder {
-        // Authorization: only the assigned vendor can update
+
         if ($po->vendor_id !== $vendorCompany->id) {
             throw ValidationException::withMessages([
                 'vendor' => ['This PO does not belong to your company.'],
@@ -65,7 +66,6 @@ class UpdatePoTrackingStatusAction
 
         $currentStatus = $po->status;
 
-        // Validate transition is allowed
         $allowedNext = self::ALLOWED_TRANSITIONS[$currentStatus] ?? null;
         if ($allowedNext !== $newStatus) {
             throw ValidationException::withMessages([
@@ -73,24 +73,21 @@ class UpdatePoTrackingStatusAction
             ]);
         }
 
-        // Build new timeline entry
         $timeline = $po->tracking_timeline ?? [];
         $timeline[] = [
-            'status'     => $newStatus,
-            'label'      => self::STATUS_LABELS[$newStatus] ?? ucfirst($newStatus),
-            'timestamp'  => now()->toIso8601String(),
+            'status' => $newStatus,
+            'label' => self::STATUS_LABELS[$newStatus] ?? ucfirst($newStatus),
+            'timestamp' => now()->toIso8601String(),
             'actor_name' => $vendorCompany->name,
             'actor_type' => 'vendor',
-            'note'       => $note,
+            'note' => $note,
         ];
 
-        // Update PO
         $po->update([
-            'status'           => $newStatus,
+            'status' => $newStatus,
             'tracking_timeline' => $timeline,
         ]);
 
-        // Broadcast notification to buyer
         $statusLabel = self::STATUS_LABELS[$newStatus] ?? ucfirst($newStatus);
         $this->broadcastAction->execute(
             "Order Update: {$statusLabel}",

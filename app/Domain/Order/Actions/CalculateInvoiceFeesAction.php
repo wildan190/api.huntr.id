@@ -2,12 +2,14 @@
 
 namespace App\Domain\Order\Actions;
 
+use App\Domain\Company\Models\Company;
+
 class CalculateInvoiceFeesAction
 {
     /**
      * Hitung biaya layanan dan PPN sesuai struktur baru:
      *
-     * - Platform fee : tier-based dari base amount
+     * - Platform fee : tier-based dari base amount (gratis jika dalam masa trial 14 hari)
      *     0 - 100.000.000           → 5%
      *     100.000.001 - 250.000.000 → 3%
      *     250.000.001 ke atas       → 2%
@@ -18,11 +20,19 @@ class CalculateInvoiceFeesAction
      * - PPN Barang    : 11% dari base amount (DPP)
      * - Total         : base amount + biaya layanan + PPN barang
      */
-    public function execute(float $baseAmount): array
+    public function execute(float $baseAmount, ?Company $buyerCompany = null): array
     {
-        // Platform fee: tier-based dari total pembelian sebelum PPN
-        $platformFeeRate = $this->getPlatformFeeRate($baseAmount);
-        $platformFee     = $baseAmount * $platformFeeRate;
+        $isTrial = false;
+        if ($buyerCompany && $buyerCompany->created_at) {
+            $isTrial = $buyerCompany->created_at->addDays(14)->isAfter(now());
+        }
+
+        // Platform fee: tier-based dari total pembelian sebelum PPN (gratis jika trial)
+        $platformFee = 0;
+        if (!$isTrial) {
+            $platformFeeRate = $this->getPlatformFeeRate($baseAmount);
+            $platformFee     = $baseAmount * $platformFeeRate;
+        }
 
         // PPN Platform: 11% dari platform fee
         $ppnPlatform = $platformFee * 0.11;

@@ -35,6 +35,14 @@ class EloquentUserRepository implements UserRepositoryInterface
     /**
      * {@inheritdoc}
      */
+    public function findByWhatsapp(string $whatsapp): ?User
+    {
+        return User::where('whatsapp', $whatsapp)->first();
+    }
+
+    /**
+     * {@inheritdoc}
+     */
     public function update(User $user, array $data): User
     {
         $user->update($data);

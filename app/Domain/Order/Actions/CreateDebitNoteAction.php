@@ -19,7 +19,7 @@ class CreateDebitNoteAction
      */
     public function execute(array $data): DebitNote
     {
-        // Validate required fields
+
         if (empty($data['po_id'])) {
             throw ValidationException::withMessages([
                 'po_id' => ['Purchase order ID is required.'],
@@ -59,7 +59,6 @@ class CreateDebitNoteAction
                 'created_by' => $data['created_by'] ?? null,
             ]);
 
-            // Calculate amounts
             $debitNote->calculateAmounts();
             $debitNote->save();
 
@@ -85,7 +84,6 @@ class CreateDebitNoteAction
             ]);
         }
 
-        // Prepare line items from return items
         $lineItems = [];
         if ($return->items) {
             foreach ($return->items as $item) {

@@ -19,7 +19,7 @@ class CreateBastAction
      */
     public function execute(PurchaseOrder $po, array $data): Bast
     {
-        // Validate required fields
+
         if (empty($data['handed_by_name'])) {
             throw ValidationException::withMessages([
                 'handed_by_name' => ['Handed by name is required.'],
