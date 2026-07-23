@@ -56,9 +56,20 @@ class GenkitService
         }
 
         try {
-            $response = Http::timeout($this->timeout)
+            $response = Http::retry(3, 2000, function ($exception, $request) {
+                return true;
+            }, throw: false)
+                ->timeout($this->timeout)
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($url, $payload);
+
+            if ($response->status() === 429) {
+                Log::warning('GenkitService: Rate limit (429) hit from Gemini API', [
+                    'status' => 429,
+                    'body'   => $response->body(),
+                ]);
+                throw new \RuntimeException('Batas kuota layanan AI tercapai (429 Rate Limit). Silakan coba lagi beberapa saat lagi.');
+            }
 
             if ($response->failed()) {
                 Log::error('GenkitService: API error', [
