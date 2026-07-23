@@ -8,9 +8,38 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * BAST (Berita Acara Serah Terima - Handover Report)
- * 
+ *
  * Represents a formal handover document between vendor and buyer during goods receipt.
  * Located in Order domain as it's part of the purchase order lifecycle.
+ *
+ * @property string $id
+ * @property string|null $goods_receipt_id
+ * @property string|null $po_id
+ * @property string|null $buyer_company_id
+ * @property string|null $vendor_company_id
+ * @property string $bast_number
+ * @property string|null $bast_date
+ * @property string $status
+ * @property array|null $items
+ * @property string|null $handover_notes
+ * @property string|null $witness_notes
+ * @property string|null $handed_by_user_id
+ * @property string|null $handed_by_name
+ * @property string|null $handed_by_position
+ * @property \Illuminate\Support\Carbon|null $handed_by_signed_at
+ * @property string|null $received_by_user_id
+ * @property string|null $received_by_name
+ * @property string|null $received_by_position
+ * @property \Illuminate\Support\Carbon|null $received_by_signed_at
+ * @property string|null $witness_user_id
+ * @property string|null $witness_name
+ * @property string|null $witness_position
+ * @property \Illuminate\Support\Carbon|null $witness_signed_at
+ * @property string|null $document_path
+ * @property string|null $document_url
+ * @property string|null $created_by
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
  */
 class Bast extends Model
 {

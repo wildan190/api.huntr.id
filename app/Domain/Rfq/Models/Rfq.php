@@ -10,6 +10,21 @@ use App\Domain\Proposal\Models\Proposal;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $company_id
+ * @property string $user_id
+ * @property string $title
+ * @property string|null $description
+ * @property string|null $document_path
+ * @property string $status
+ * @property int|null $duration_days
+ * @property string|null $approved_by
+ * @property \Illuminate\Support\Carbon|null $approved_at
+ * @property string|null $delivery_point
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class Rfq extends Model
 {
     use HasFactory, HasUuids;

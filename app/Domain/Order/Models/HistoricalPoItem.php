@@ -7,6 +7,25 @@ use Illuminate\Database\Eloquent\Model;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $purchase_order_id
+ * @property string|null $pr_reference_number
+ * @property string|null $inventory_code
+ * @property string|null $inventory_name
+ * @property string|null $category
+ * @property string|null $specifications
+ * @property string|null $uom
+ * @property int $qty
+ * @property float|null $unit_price
+ * @property float|null $amount
+ * @property float|null $tax_amount
+ * @property float|null $total_amount
+ * @property string|null $currency
+ * @property float|null $exchange_rate
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class HistoricalPoItem extends Model
 {
     use HasFactory, HasUuids;

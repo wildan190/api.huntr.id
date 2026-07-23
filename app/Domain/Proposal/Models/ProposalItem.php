@@ -8,6 +8,14 @@ use App\Domain\Rfq\Models\RfqItem;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $proposal_id
+ * @property string $rfq_item_id
+ * @property float $price_offer
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
 class ProposalItem extends Model
 {
     use HasFactory, HasUuids;

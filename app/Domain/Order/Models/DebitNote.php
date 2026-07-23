@@ -7,8 +7,29 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * DebitNote (Nota Debit)
- * 
+ *
  * Represents a debit note issued against an invoice for returns, adjustments, or chargebacks.
+ *
+ * @property string $id
+ * @property string|null $invoice_id
+ * @property string|null $return_id
+ * @property string|null $po_id
+ * @property string|null $buyer_company_id
+ * @property string|null $vendor_company_id
+ * @property string $debit_note_number
+ * @property string|null $debit_note_date
+ * @property string $type
+ * @property string $status
+ * @property array|null $line_items
+ * @property float|null $subtotal
+ * @property float|null $tax_amount
+ * @property float|null $tax_rate
+ * @property float|null $total_amount
+ * @property string|null $currency
+ * @property string|null $description
+ * @property string|null $created_by
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
  */
 class DebitNote extends Model
 {
