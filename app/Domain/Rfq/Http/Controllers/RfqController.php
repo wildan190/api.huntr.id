@@ -9,7 +9,6 @@ use App\Domain\Rfq\Actions\GetRfqsAction;
 use App\Domain\Rfq\Http\Requests\CreateRfqRequest;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\Company;
-use App\Domain\Auth\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -39,9 +38,9 @@ class RfqController extends \App\Http\Controllers\Controller
     {
         // Load RFQ dengan relasi yang diperlukan
         $rfqData = $rfq->load([
-            'company', 
-            'user', 
-            'proposals' => function($query) {
+            'company',
+            'user',
+            'proposals' => function ($query) {
                 $query->with('company');
             }
         ]);
@@ -83,7 +82,7 @@ class RfqController extends \App\Http\Controllers\Controller
         }
 
         $data = $request->validated();
-        
+
         // Debug: Log jumlah item yang diterima untuk menyelidiki masalah cart 15 item vs 9 item
         Log::info('DEBUG: RFQ Creation - Items received', [
             'total_items_count' => count($data['items'] ?? []),
@@ -91,11 +90,11 @@ class RfqController extends \App\Http\Controllers\Controller
             'validated_items' => $data['items'] ?? 'NO_VALIDATED_ITEMS',
             'request_all_keys' => array_keys($request->all()),
         ]);
-        
+
         $documentPath = null;
         if ($request->hasFile('document')) {
             $diskName = config('filesystems.default');
-            \Illuminate\Support\Facades\Log::info('Uploading RFQ document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.'.$diskName.'.bucket')]);
+            \Illuminate\Support\Facades\Log::info('Uploading RFQ document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.' . $diskName . '.bucket')]);
             $documentPath = $request->file('document')->storePublicly('rfq_documents', $diskName);
         }
 
@@ -110,7 +109,7 @@ class RfqController extends \App\Http\Controllers\Controller
             $documentPath,
             $data['delivery_point'] ?? null
         );
-        
+
         return response()->json(['rfq' => $rfq], 201);
     }
 
@@ -121,14 +120,14 @@ class RfqController extends \App\Http\Controllers\Controller
     {
         // Use authenticated user instead of manager_id from request
         $manager = $request->user();
-        
+
         if (!$manager) {
             return response()->json([
                 'message' => 'Authentication required.',
                 'error' => 'User not authenticated'
             ], 401);
         }
-        
+
         return response()->json([
             'rfq' => $action->execute($manager, $rfq)
         ], 200);
@@ -142,36 +141,36 @@ class RfqController extends \App\Http\Controllers\Controller
         try {
             // Get the authenticated user from the request context
             $rejector = $request->user();
-            
+
             if (!$rejector) {
                 return response()->json([
                     'message' => 'Authentication required.',
                     'error' => 'User not authenticated'
                 ], 401);
             }
-            
+
             // Debug: Log the authenticated user info
             Log::info('Reject RFQ by user:', ['user_id' => $rejector->id, 'user_name' => $rejector->name]);
-            
+
             $validation = $request->validate([
                 'reason' => 'nullable|string|max:1000'
             ]);
-            
+
             $reason = $request->input('reason');
-            
+
             $rejectedRfq = $action->execute($rejector, $rfq, $reason);
-            
+
             return response()->json([
                 'message' => 'RFQ has been rejected successfully.',
                 'rfq' => $rejectedRfq->load(['company', 'user'])
             ], 200);
-            
+
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::error('Validation error in reject RFQ:', [
                 'errors' => $e->errors(),
                 'request_data' => $request->all()
             ]);
-            
+
             return response()->json([
                 'message' => 'Failed to reject RFQ.',
                 'error' => 'Validation failed: ' . implode(', ', $e->errors()),
@@ -182,7 +181,7 @@ class RfqController extends \App\Http\Controllers\Controller
                 'message' => $e->getMessage(),
                 'authenticated_user' => $request->user()?->id
             ]);
-            
+
             return response()->json([
                 'message' => 'Failed to reject RFQ.',
                 'error' => $e->getMessage()
@@ -229,7 +228,7 @@ class RfqController extends \App\Http\Controllers\Controller
         $rfqLink = $frontendUrl . "/rfq/" . $rfq->id;
 
         $message = "Hello! You have been invited to submit a quotation for RFQ #{$rfq->id} - {$rfq->title}.\n\nRegister on Huntr.id to view the details and submit your proposal:\n{$rfqLink}";
-        
+
         $whatsappLink = "https://wa.me/" . $whatsapp . "?text=" . urlencode($message);
 
         return response()->json([

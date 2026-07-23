@@ -6,9 +6,35 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\Company;
-
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
+/**
+ * @property string $id
+ * @property string $buyer_company_id
+ * @property string $rfq_id
+ * @property string $vendor_id
+ * @property string $proposal_id
+ * @property string $po_number
+ * @property string $vendor_name
+ * @property string $department
+ * @property string $currency
+ * @property float $total_amount
+ * @property string $purchase_category
+ * @property string $purchase_type
+ * @property \Illuminate\Support\Carbon|null $order_date
+ * @property \Illuminate\Support\Carbon|null $expected_receiving_date
+ * @property string $delivery_point
+ * @property string $status
+ * @property string $delivery_status
+ * @property array|null $tracking_timeline
+ * @property bool $is_historical
+ * @property string $created_by
+ * @property string $approved_by
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Company|null $buyer
+ * @property Company|null $vendor
+ */
 class PurchaseOrder extends Model
 {
     use HasFactory, HasUuids;

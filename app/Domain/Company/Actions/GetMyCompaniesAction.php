@@ -21,12 +21,10 @@ class GetMyCompaniesAction
 
         $userId = $user->id;
 
-        // 1. Get companies owned by the user
         $ownedCompanies = Company::with(['documents', 'catalogues'])
             ->where('owner_id', $userId)
             ->get();
 
-        // 2. Get companies where the user is a member (via company_id)
         $memberCompanies = Company::with(['documents', 'catalogues'])
             ->whereHas('users', fn($q) => $q->where('id', $userId))
             ->whereNotIn('id', $ownedCompanies->pluck('id'))
@@ -34,11 +32,10 @@ class GetMyCompaniesAction
 
         $allCompanies = $ownedCompanies->merge($memberCompanies);
 
-        // 3. Add dynamic stats
         return $allCompanies->map(function ($company) {
             $data = $company->toArray();
             $data['formatted_tax_id'] = $company->formatted_tax_id;
-            
+
             if ($company->type === 'buyer') {
                 $data['stats'] = [
                     'total_pr' => \App\Domain\Rfq\Models\Rfq::where('company_id', $company->id)->count(),
@@ -51,7 +48,7 @@ class GetMyCompaniesAction
                     'total_catalogues' => $company->catalogues->count(),
                 ];
             }
-            
+
             return $data;
         })->toArray();
     }
