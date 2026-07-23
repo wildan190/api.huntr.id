@@ -23,6 +23,14 @@ interface UserRepositoryInterface
     public function findByEmailOrWhatsapp(string $login): ?User;
 
     /**
+     * Find a user by their WhatsApp number.
+     *
+     * @param string $whatsapp
+     * @return User|null
+     */
+    public function findByWhatsapp(string $whatsapp): ?User;
+
+    /**
      * Update user attributes.
      *
      * @param User $user

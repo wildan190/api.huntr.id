@@ -19,7 +19,7 @@ class CreateReturnAction
      */
     public function execute(PurchaseOrder $po, array $data): GoodsReturn
     {
-        // Validate return data
+
         if (empty($data['items'])) {
             throw ValidationException::withMessages([
                 'items' => ['At least one return item is required.'],

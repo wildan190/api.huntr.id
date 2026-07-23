@@ -15,7 +15,8 @@ class ConfirmPurchaseOrderAction
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
         private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction
-    ) {}
+    ) {
+    }
 
     /**
      * Vendor confirms the generated Purchase Order, releasing the Proforma Invoice.
@@ -34,71 +35,63 @@ class ConfirmPurchaseOrderAction
         }
 
         return DB::transaction(function () use ($vendorCompany, $po) {
-            // 1. Move PO status to confirmed
+
             $updateData = ['status' => 'confirmed'];
 
-            // 2. Derive PO amount from the accepted proposal or negotiation
             $winningProposal = $this->orderRepository->findAcceptedProposal($po);
             $poAmount = $winningProposal ? $winningProposal->price_offer : ($po->total_amount ?? 0);
 
-            // Calculate fees
-            $fees = $this->calculateInvoiceFeesAction->execute($poAmount);
+            $fees = $this->calculateInvoiceFeesAction->execute($poAmount, $po->buyer);
 
-            // Update PO with winning proposal terms if not already set
             if ($winningProposal && !$po->purchase_type) {
                 $updateData['purchase_type'] = $winningProposal->payment_term;
             }
 
-            // Record 'confirmed' in tracking timeline
             $timeline = $po->tracking_timeline ?? [];
             $timeline[] = [
-                'status'     => 'confirmed',
-                'label'      => 'PO Confirmed',
-                'timestamp'  => now()->toIso8601String(),
+                'status' => 'confirmed',
+                'label' => 'PO Confirmed',
+                'timestamp' => now()->toIso8601String(),
                 'actor_name' => $vendorCompany->name,
                 'actor_type' => 'vendor',
-                'note'       => null,
+                'note' => null,
             ];
             $updateData['tracking_timeline'] = $timeline;
 
             $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
 
-            // 3. Release Proforma Invoice with fees + auto vendor signature
             $this->orderRepository->createInvoice([
                 'purchase_order_id' => $po->id,
-                'type'              => 'proforma',
-                'amount'            => $fees['total_amount'], // total with fees
-                'base_amount'       => $fees['base_amount'],
-                'platform_fee'      => $fees['platform_fee'],
-                'ppn_platform'      => $fees['ppn_platform'],
-                'midtrans_fee'      => $fees['midtrans_fee'],
-                'pph23'             => $fees['pph23'],
-                'ppn_fee'           => $fees['ppn_fee'],
-                'total_amount'      => $fees['total_amount'],
-                'status'            => 'unpaid',
-                // Auto-fill vendor signature — vendor confirms by accepting this PO
+                'type' => 'proforma',
+                'amount' => $fees['total_amount'],
+                'base_amount' => $fees['base_amount'],
+                'platform_fee' => $fees['platform_fee'],
+                'ppn_platform' => $fees['ppn_platform'],
+                'midtrans_fee' => $fees['midtrans_fee'],
+                'pph23' => $fees['pph23'],
+                'ppn_fee' => $fees['ppn_fee'],
+                'total_amount' => $fees['total_amount'],
+                'status' => 'unpaid',
+
                 'vendor_signed_name' => $vendorCompany->name,
-                'vendor_signed_at'   => now(),
+                'vendor_signed_at' => now(),
             ]);
 
-            // Generate placeholder PDF for the proforma invoice
             $dummyPath = storage_path('app/public/invoices/dummy_proforma.pdf');
             $targetPath = storage_path("app/public/invoices/proforma_{$po->id}.pdf");
             if (file_exists($dummyPath)) {
                 copy($dummyPath, $targetPath);
             }
 
-            // 4. Notify the buyer about PO confirmation
             $this->broadcastAction->execute(
                 "Purchase Order Confirmed",
                 "Vendor {$vendorCompany->name} has confirmed Purchase Order {$po->po_number}.",
                 'test-channel',
                 true,
-                $po->created_by, // Notify the buyer user who created the PO
+                $po->created_by,
                 "/orders?search={$po->po_number}"
             );
 
-            // 5. Notify the buyer about Proforma Invoice
             $this->broadcastAction->execute(
                 "Proforma Invoice Published",
                 "A Proforma Invoice has been published for PO {$po->po_number}. Please review and process payment.",
