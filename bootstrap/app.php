@@ -15,11 +15,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Don't use statefulApi - we're using bearer tokens instead
-        // $middleware->statefulApi();
-        
-        // No CSRF validation needed for bearer token auth
-        // $middleware->validateCsrfTokens(except: [...]);
+        // Exempt 2FA and API endpoints from CSRF validation (Bearer token auth)
+        $middleware->validateCsrfTokens(except: [
+            'user/two-factor-authentication',
+            'user/two-factor-authentication/*',
+            'user/two-factor-qr-code',
+            'user/two-factor-recovery-codes',
+            'user/confirmed-two-factor-authentication',
+            'two-factor-challenge',
+        ]);
         
         $middleware->append(\App\Http\Middleware\ValidateUserExists::class);
         $middleware->append(\App\Http\Middleware\CheckCompanyApproved::class);

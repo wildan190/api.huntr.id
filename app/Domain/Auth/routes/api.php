@@ -4,6 +4,7 @@ use App\Domain\Auth\Http\Controllers\AdminController;
 use App\Domain\Auth\Http\Controllers\AdminCatalogueController;
 use App\Domain\Auth\Http\Controllers\AdminTransactionController;
 use App\Domain\Auth\Http\Controllers\AccountController;
+use App\Domain\Auth\Http\Controllers\TwoFactorController;
 use Illuminate\Support\Facades\Route;
 use App\Domain\Auth\Http\Controllers\AuthController;
 use App\Domain\Auth\Http\Controllers\RoleSwitchController;
@@ -42,6 +43,16 @@ Route::prefix('api/account')->middleware(['api', 'auth:api'])->group(function ()
     Route::put('whatsapp', [AccountController::class, 'updateWhatsapp']);
     Route::get('sessions', [AccountController::class, 'getSessions']);
     Route::delete('sessions/{sessionId}', [AccountController::class, 'logoutSession']);
+
+    // 2FA routes (CSRF-free, uses Bearer token auth)
+    Route::prefix('two-factor-authentication')->group(function () {
+        Route::post('/', [TwoFactorController::class, 'enable']);
+        Route::delete('/', [TwoFactorController::class, 'disable']);
+        Route::post('/confirm', [TwoFactorController::class, 'confirm']);
+    });
+    Route::get('two-factor-qr-code', [TwoFactorController::class, 'qrCode']);
+    Route::get('two-factor-recovery-codes', [TwoFactorController::class, 'recoveryCodes']);
+    Route::post('two-factor-recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes']);
 });
 
 Route::middleware(['api', 'auth:api'])->group(function () {
