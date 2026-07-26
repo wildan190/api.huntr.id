@@ -17,6 +17,16 @@ use Laravel\Fortify\Actions\GenerateNewRecoveryCodes;
 class TwoFactorController extends Controller
 {
     /**
+     * Resolve the authenticated user from the API guard.
+     * Falls back to the default guard for compatibility.
+     */
+    private function resolveUser(Request $request)
+    {
+        // Try the api guard first (Sanctum Bearer token), then fall back
+        return $request->user('api') ?? $request->user();
+    }
+
+    /**
      * Enable two-factor authentication for the authenticated user.
      *
      * POST /api/account/two-factor-authentication
@@ -25,7 +35,13 @@ class TwoFactorController extends Controller
         Request $request,
         EnableTwoFactorAuthentication $enable
     ): JsonResponse {
-        $enable($request->user());
+        $user = $this->resolveUser($request);
+
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $enable($user);
 
         return response()->json([
             'message' => 'Two-factor authentication has been enabled.',
@@ -41,7 +57,13 @@ class TwoFactorController extends Controller
         Request $request,
         DisableTwoFactorAuthentication $disable
     ): JsonResponse {
-        $disable($request->user());
+        $user = $this->resolveUser($request);
+
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $disable($user);
 
         return response()->json([
             'message' => 'Two-factor authentication has been disabled.',
@@ -59,10 +81,18 @@ class TwoFactorController extends Controller
     ): JsonResponse {
         $request->validate(['code' => 'required|string']);
 
-        $confirm($request->user(), $request->input('code'));
+        $user = $this->resolveUser($request);
 
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $confirm($user, $request->input('code'));
+
+        // Update two_factor_confirmed_at timestamp in the response
         return response()->json([
             'message' => 'Two-factor authentication confirmed successfully.',
+            'two_factor_confirmed_at' => now()->toISOString(),
         ], 200);
     }
 
@@ -73,7 +103,11 @@ class TwoFactorController extends Controller
      */
     public function qrCode(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $user = $this->resolveUser($request);
+
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
 
         if (! $user->two_factor_secret) {
             return response()->json(['message' => '2FA has not been enabled yet.'], 422);
@@ -91,7 +125,15 @@ class TwoFactorController extends Controller
      */
     public function recoveryCodes(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $user = $this->resolveUser($request);
+
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        if (! $user->two_factor_recovery_codes) {
+            return response()->json([]);
+        }
 
         return response()->json(
             json_decode(decrypt($user->two_factor_recovery_codes), true) ?? []
@@ -107,7 +149,13 @@ class TwoFactorController extends Controller
         Request $request,
         GenerateNewRecoveryCodes $generate
     ): JsonResponse {
-        $generate($request->user());
+        $user = $this->resolveUser($request);
+
+        if (! $user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $generate($user);
 
         return response()->json([
             'message' => 'Recovery codes regenerated.',
