@@ -2,29 +2,9 @@
 
 namespace App\Domain\Auth\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
-use App\Domain\Access\Traits\HasAccess;
-
-class Admin extends Authenticatable
+/**
+ * @deprecated Use App\Domain\Admin\Models\Admin instead.
+ */
+class Admin extends \App\Domain\Admin\Models\Admin
 {
-    use HasFactory, Notifiable, HasAccess;
-
-    protected $table = 'admins';
-
-    protected $fillable = [
-        'name',
-        'email',
-        'password',
-    ];
-
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
-
-    protected $casts = [
-        'password' => 'hashed',
-    ];
 }

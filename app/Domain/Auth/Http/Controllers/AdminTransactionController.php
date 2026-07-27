@@ -2,30 +2,9 @@
 
 namespace App\Domain\Auth\Http\Controllers;
 
-use App\Domain\Auth\Actions\GetAdminEscrowSummaryAction;
-use App\Domain\Auth\Actions\GetAdminTransactionsAction;
-use App\Http\Controllers\Controller;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-
-class AdminTransactionController extends Controller
+/**
+ * @deprecated Use App\Domain\Payment\Http\Controllers\AdminTransactionController instead.
+ */
+class AdminTransactionController extends \App\Domain\Payment\Http\Controllers\AdminTransactionController
 {
-    /**
-     * Get all global Purchase Orders and their associated Invoices.
-     */
-    public function index(Request $request, GetAdminTransactionsAction $action): JsonResponse
-    {
-        return response()->json($action->execute(
-            $request->only('search'),
-            (int) $request->query('per_page', 10)
-        ));
-    }
-
-    /**
-     * Get the Escrow Summary (Total of invoices that are pending disbursement).
-     */
-    public function escrowSummary(GetAdminEscrowSummaryAction $action): JsonResponse
-    {
-        return response()->json($action->execute());
-    }
 }

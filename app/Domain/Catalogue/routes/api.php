@@ -22,3 +22,12 @@ Route::prefix('api/orders')->middleware(['api', 'cors'])->group(function () {
     Route::get('historical', [CatalogueController::class, 'historicalPos']);
     Route::post('historical/import', [CatalogueController::class, 'importHistoricalPos']);
 });
+
+Route::prefix('api/admin/catalogues')->middleware(['api'])->group(function () {
+    Route::get('', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'index']);
+    Route::post('', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'store']);
+    Route::post('{catalogue}', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'update']);
+    Route::match(['put', 'patch'], '{catalogue}', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'update']);
+    Route::delete('{catalogue}', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'destroy']);
+});
+
