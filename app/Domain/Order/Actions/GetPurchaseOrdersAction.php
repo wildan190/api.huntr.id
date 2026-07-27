@@ -181,6 +181,19 @@ class GetPurchaseOrdersAction
             if ($po->vendor && $po->vendor->logo_path) {
                 $vendorLogoUrl = $storageDisk->url($po->vendor->logo_path);
             }
+            $paymentScheme = null;
+            if ($po->rfq) {
+                $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first()
+                    ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
+                    ?? $po->rfq->proposals->first();
+                if ($winningProposal && $winningProposal->relationLoaded('acceptedNegotiation') && $winningProposal->acceptedNegotiation && !empty($winningProposal->acceptedNegotiation->payment_scheme)) {
+                    $paymentScheme = $winningProposal->acceptedNegotiation->payment_scheme;
+                } else if ($winningProposal && !empty($winningProposal->payment_term)) {
+                    $paymentScheme = $winningProposal->payment_term;
+                }
+            }
+            $paymentScheme = $paymentScheme ?? ($po->purchase_type !== 'N/A' ? $po->purchase_type : null);
+
             return [
                 'id' => $po->id,
                 'po_number' => $po->po_number,
@@ -194,6 +207,7 @@ class GetPurchaseOrdersAction
                 'currency' => $po->currency ?? 'IDR',
                 'purchase_category' => $po->purchase_category ?? 'N/A',
                 'purchase_type' => $po->purchase_type ?? 'N/A',
+                'payment_scheme' => $paymentScheme,
                 'order_date' => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
                 'expected_receiving_date' => $po->expected_receiving_date?->format('Y-m-d'),
                 'delivery_point' => $po->delivery_point ?? $po->rfq?->delivery_point ?? null,

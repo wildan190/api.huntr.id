@@ -39,6 +39,37 @@ class ApproveInvoiceAction
         }
 
         $po = $invoice->purchaseOrder;
+
+        // Payment scheme release date check
+        $paymentScheme = null;
+        if ($po->rfq) {
+            $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first();
+            if ($winningProposal && $winningProposal->acceptedNegotiation && !empty($winningProposal->acceptedNegotiation->payment_scheme)) {
+                $paymentScheme = $winningProposal->acceptedNegotiation->payment_scheme;
+            } else if ($winningProposal && !empty($winningProposal->payment_term)) {
+                $paymentScheme = $winningProposal->payment_term;
+            }
+        }
+        $paymentScheme = $paymentScheme ?? ($po->purchase_type !== 'N/A' ? $po->purchase_type : null);
+
+        if ($paymentScheme) {
+            preg_match('/\d+/', strtolower($paymentScheme), $matches);
+            $days = isset($matches[0]) ? (int)$matches[0] : 0;
+            $lowerScheme = strtolower($paymentScheme);
+            if (str_contains($lowerScheme, 'cbd') || str_contains($lowerScheme, 'cod') || str_contains($lowerScheme, 'cash')) {
+                $days = 0;
+            }
+            
+            $invDate = $invoice->created_at;
+            $dueDate = $invDate->copy()->addDays($days)->startOfDay();
+            
+            if (now()->startOfDay()->lessThan($dueDate)) {
+                throw ValidationException::withMessages([
+                    'invoice' => ["Approval belum diizinkan sesuai Payment Scheme ({$paymentScheme}). Invoice baru dapat di-approve pada tanggal {$dueDate->format('d M Y')}"],
+                ]);
+            }
+        }
+
         $vendor = $po->vendor;
 
         if (empty($vendor->bank_account) || empty($vendor->bank_name)) {
