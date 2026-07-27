@@ -2,17 +2,9 @@
 
 namespace App\Domain\Auth\Actions;
 
-use App\Domain\Catalogue\Models\Catalogue;
-use Illuminate\Support\Facades\Storage;
-
-class DeleteAdminCatalogueAction
+/**
+ * @deprecated Use App\Domain\Catalogue\Actions\DeleteAdminCatalogueAction instead.
+ */
+class DeleteAdminCatalogueAction extends \App\Domain\Catalogue\Actions\DeleteAdminCatalogueAction
 {
-    public function execute(Catalogue $catalogue): void
-    {
-        if ($catalogue->image_path) {
-            Storage::disk(config('filesystems.default'))->delete($catalogue->image_path);
-        }
-
-        $catalogue->delete();
-    }
 }

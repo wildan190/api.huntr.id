@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Domain\Catalogue\Actions;
+
+use App\Domain\Admin\Models\Admin;
+use App\Domain\Catalogue\Models\Catalogue;
+use Illuminate\Support\Str;
+
+class StoreAdminCatalogueAction
+{
+    public function __construct(
+        private readonly CreateCatalogueAction $createCatalogueAction
+    ) {}
+
+    public function execute(array $data): Catalogue
+    {
+        if (empty($data['item_code'])) {
+            $data['item_code'] = 'GLB-' . strtoupper(Str::random(8));
+        }
+
+        $data['price'] = $data['price'] ?? 0;
+
+        $admin = new Admin();
+        $admin->id = 1;
+
+        return $this->createCatalogueAction->execute($admin, $data);
+    }
+}

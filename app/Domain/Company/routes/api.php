@@ -148,3 +148,9 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:api'])->group(f
         });
     });
 });
+
+Route::prefix('api/admin')->middleware(['api'])->group(function () {
+    Route::get('companies', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'listCompanies']);
+    Route::post('companies/{company}/audit', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'auditCompany']);
+});
+

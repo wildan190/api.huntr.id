@@ -2,20 +2,9 @@
 
 namespace App\Domain\Auth\Http\Requests;
 
-use Illuminate\Foundation\Http\FormRequest;
-
-class AuditCompanyRequest extends FormRequest
+/**
+ * @deprecated Use App\Domain\Company\Http\Requests\AuditCompanyRequest instead.
+ */
+class AuditCompanyRequest extends \App\Domain\Company\Http\Requests\AuditCompanyRequest
 {
-    public function authorize(): bool
-    {
-        return true;
-    }
-
-    public function rules(): array
-    {
-        return [
-            'action' => ['required', 'in:approve,decline'],
-            'notes' => ['nullable', 'string'],
-        ];
-    }
 }
