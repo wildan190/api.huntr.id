@@ -4,6 +4,7 @@ namespace App\Domain\Admin\Http\Controllers;
 
 use App\Domain\Admin\Actions\AdminLoginAction;
 use App\Domain\Admin\Actions\CreateAdminAction;
+use App\Domain\Admin\Actions\GetAdminUsersAction;
 use App\Domain\Admin\Models\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,22 @@ class AdminController extends \App\Http\Controllers\Controller
     {
         $admins = Admin::all(['id', 'name', 'email', 'created_at']);
         return response()->json(['admins' => $admins]);
+    }
+
+    /**
+     * Get all users (global view) with search and pagination.
+     */
+    public function listUsers(Request $request, GetAdminUsersAction $action): JsonResponse
+    {
+        $result = $action->execute(
+            $request->only('search'),
+            (int) $request->query('per_page', 10)
+        );
+
+        return response()->json([
+            'total' => $result['total'],
+            'users' => $result['users'],
+        ]);
     }
 
     public function createAdmin(Request $request, CreateAdminAction $action): JsonResponse
