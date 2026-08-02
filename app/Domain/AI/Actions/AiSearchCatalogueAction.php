@@ -4,6 +4,7 @@ namespace App\Domain\AI\Actions;
 
 use App\Domain\AI\Services\GenkitService;
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Domain\Catalogue\Models\SearchLog;
 use Illuminate\Support\Collection;
 
 /**
@@ -25,7 +26,10 @@ class AiSearchCatalogueAction
      */
     public function execute(string $query, array $params = []): array
     {
-        // 1. Extract intent dari natural language
+        // 1. Log pencarian untuk analitik frekuensi
+        SearchLog::record($query, 'ai', $params['company_id'] ?? null);
+
+        // 2. Extract intent dari natural language
         $intent = $this->genkit->extractSearchIntent($query);
 
         $comparisonAnalysis = null;

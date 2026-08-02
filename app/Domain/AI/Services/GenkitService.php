@@ -344,6 +344,64 @@ PROMPT;
     }
 
     /**
+     * Analisis kata kunci trending dari platform dan perkaya dengan tren eksternal (B2B procurement).
+     *
+     * @param  array  $dbKeywords  [['keyword' => '...', 'count' => 42], ...]
+     * @return array  [['keyword' => '...', 'count' => 42, 'trend' => 'rising|stable|new', 'category' => '...', 'ai_insight' => '...'], ...]
+     */
+    public function getTrendingKeywords(array $dbKeywords): array
+    {
+        if (empty($dbKeywords)) {
+            return [];
+        }
+
+        $keywordsJson = json_encode(
+            collect($dbKeywords)->map(fn($k) => [
+                'keyword' => $k['keyword'],
+                'count'   => $k['count'],
+            ])->values()->toArray(),
+            JSON_UNESCAPED_UNICODE
+        );
+
+        $prompt = <<<PROMPT
+Kamu adalah analis pasar pengadaan barang/jasa (procurement) B2B Indonesia.
+
+Berikut adalah daftar kata kunci yang paling sering dicari di platform marketplace pengadaan kami beserta frekuensinya:
+{$keywordsJson}
+
+Untuk setiap kata kunci:
+1. Tentukan "trend": "rising" (tren naik di pasar saat ini), "stable" (permintaan stabil), atau "new" (produk/kategori baru yang sedang berkembang)
+2. Tentukan "category": kategori produk yang paling sesuai (Electronics, Raw Materials, Equipment, Chemicals, Machinery, Tools, Spare Parts, Safety Equipment, Office Supplies, dll)
+3. Berikan "ai_insight": 1 kalimat singkat mengapa produk ini banyak dicari atau relevan di pasar B2B Indonesia saat ini
+
+Balas HANYA dengan JSON array berikut (urutan sama dengan input):
+[
+  {
+    "keyword": "...",
+    "count": 42,
+    "trend": "rising",
+    "category": "Electronics",
+    "ai_insight": "Permintaan meningkat karena..."
+  }
+]
+PROMPT;
+
+        try {
+            $result = $this->askJson($prompt, 'Kamu adalah analis pasar procurement B2B Indonesia yang sangat berpengalaman.');
+            // askJson bisa return object dengan key 'results' atau langsung array
+            return is_array($result) && isset($result[0]) ? $result : ($result['results'] ?? $dbKeywords);
+        } catch (\Exception $e) {
+            Log::warning('GenkitService: getTrendingKeywords failed, returning raw DB data', ['error' => $e->getMessage()]);
+            // Fallback: kembalikan data DB tanpa enrichment AI
+            return array_map(fn($k) => array_merge($k, [
+                'trend'      => 'stable',
+                'category'   => null,
+                'ai_insight' => null,
+            ]), $dbKeywords);
+        }
+    }
+
+    /**
      * Generate draft PR (Purchase Requisition) dari prompt dan item yang ditemukan.
      */
     public function generatePrDraft(string $userPrompt, array $matchedItems): array
