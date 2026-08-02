@@ -13,6 +13,7 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
     Route::post('otp/send', [AuthController::class, 'sendOtp']);
     Route::post('otp/verify', [AuthController::class, 'verifyOtp']);
     Route::post('password/reset-whatsapp', [AuthController::class, 'resetPassword']);
+    Route::post('two-factor/verify', [AuthController::class, 'verifyTwoFactor']);
 
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);

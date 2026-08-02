@@ -38,6 +38,32 @@ class AuthController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Verify 2FA code after password login challenge.
+     * Exchanges the short-lived challenge token for a real Sanctum token.
+     */
+    public function verifyTwoFactor(
+        Request $request,
+        \App\Domain\Auth\Actions\Verify2FALoginAction $action
+    ): JsonResponse {
+        $request->validate([
+            'two_factor_challenge_token' => 'required|string',
+            'code'                       => 'nullable|string',
+            'recovery_code'              => 'nullable|string',
+        ]);
+
+        try {
+            $result = $action->execute($request->only([
+                'two_factor_challenge_token',
+                'code',
+                'recovery_code',
+            ]));
+            return response()->json($result);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['errors' => $e->errors()], 422);
+        }
+    }
+
+    /**
      * Send OTP code via WhatsApp.
      */
     public function sendOtp(SendOtpRequest $request, SendOtpAction $action): JsonResponse
