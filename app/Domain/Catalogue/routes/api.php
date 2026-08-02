@@ -31,3 +31,8 @@ Route::prefix('api/admin/catalogues')->middleware(['api'])->group(function () {
     Route::delete('{catalogue}', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'destroy']);
 });
 
+// Analytics: trending search keywords (public, cached)
+Route::prefix('api/analytics')->middleware(['api', 'cors'])->group(function () {
+    Route::get('trending-searches', [\App\Domain\Catalogue\Http\Controllers\TrendingSearchController::class, 'index']);
+});
+

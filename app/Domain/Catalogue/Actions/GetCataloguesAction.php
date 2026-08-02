@@ -3,6 +3,7 @@
 namespace App\Domain\Catalogue\Actions;
 
 use App\Domain\Catalogue\Models\Catalogue;
+use App\Domain\Catalogue\Models\SearchLog;
 use App\Domain\Catalogue\Services\CatalogueCacheService;
 use App\Support\KeywordNormalizer;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -56,6 +57,10 @@ class GetCataloguesAction
 
         if (!empty($params['search'])) {
             $search = $params['search'];
+
+            // Log pencarian untuk analitik frekuensi
+            SearchLog::record($search, 'regular', $params['company_id'] ?? null);
+
             $tokens = KeywordNormalizer::tokensFromText($search);
 
             $query->where(function($q) use ($search, $tokens) {
