@@ -2,7 +2,7 @@
 
 namespace App\Domain\Catalogue\Actions;
 
-use App\Domain\Admin\Models\Admin;
+use App\Domain\Auth\Models\Admin;
 use App\Domain\Catalogue\Models\Catalogue;
 use Illuminate\Support\Str;
 
