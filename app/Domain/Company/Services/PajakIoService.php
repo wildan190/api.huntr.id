@@ -124,17 +124,14 @@ class PajakIoService
                 return Cache::get($cacheKey);
             }
 
-            // Encode token to Base64 as per documentation
-            $encodedToken = base64_encode($this->token);
-
             Log::info("Pajak.io Request Debug:", [
                 'url' => $this->baseUrl . '/vswp/v2/verify/npwp',
                 'npwp' => $npwp,
-                'encoded_token_preview' => substr($encodedToken, 0, 10) . '...'
+                'token_preview' => substr($this->token, 0, 10) . '...'
             ]);
 
             $response = Http::withHeaders([
-                'Authorization' => $encodedToken,
+                'Authorization' => 'Bearer ' . $this->token,
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
             ])->post($this->baseUrl . '/vswp/v2/verify/npwp', [
@@ -151,7 +148,10 @@ class PajakIoService
             Log::error("Pajak.io API Failed:", [
                 'status' => $response->status(),
                 'body' => $response->body(),
-                'headers' => $response->headers()
+                'body_json' => $response->json(),
+                'headers' => $response->headers(),
+                'request_url' => $this->baseUrl . '/vswp/v2/verify/npwp',
+                'token_preview' => substr($this->token, 0, 10) . '...',
             ]);
             return [
                 'status' => 0,
