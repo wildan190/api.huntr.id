@@ -10,14 +10,26 @@ use Symfony\Component\HttpFoundation\Response;
 class CheckCompanyApproved
 {
     /**
-     * Handle an incoming request.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
-     * @return \Symfony\Component\HttpFoundation\Response
+     * Endpoints that are part of the onboarding flow and should not be blocked
+     * even if the company is in a rejected state.
      */
+    protected array $onboardingPaths = [
+        'api/companies/verify-npwp',
+        'api/companies/documents/upload',
+        'api/companies/logo/upload',
+    ];
+
     public function handle(Request $request, Closure $next): Response
     {
+        // Skip check for onboarding endpoints — users must be able to complete
+        // onboarding steps regardless of their company's current approval status.
+        $currentPath = trim($request->path(), '/');
+        foreach ($this->onboardingPaths as $onboardingPath) {
+            if ($currentPath === $onboardingPath) {
+                return $next($request);
+            }
+        }
+
         $company = null;
 
         // 1. Extract company ID from URL path for routes like /api/companies/{id}
