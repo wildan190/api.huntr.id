@@ -84,28 +84,26 @@ class DocumentController extends Controller
 
             /** @var FilesystemAdapter $storage */
             $storage = Storage::disk($disk);
-            Log::info('serveDocument: storage disk initialized', ['disk' => $disk]);
 
-            if (!$storage->exists($path)) {
-                Log::warning('Document not found', ['path' => $path]);
-                return response()->json(['message' => 'Document not found'], 404);
-            }
-            Log::info('serveDocument: document exists', ['path' => $path]);
-
-            // For S3 or any other remote disk, redirect to temporary URL
+            // For S3 or any other remote disk, redirect to public URL directly (avoiding HeadObject/exists/temporaryUrl 403 errors)
             if (in_array($disk, ['s3', 'spaces', 'gcs', 'azure'])) {
                 try {
-                    $signedUrl = $storage->temporaryUrl($path, now()->addHours(1));
-                    Log::info('Generated signed URL', ['url' => $signedUrl, 'disk' => $disk]);
-                    return redirect()->away($signedUrl);
+                    $url = $storage->url($path);
+                    Log::info('Redirecting to storage URL', ['url' => $url, 'disk' => $disk]);
+                    return redirect()->away($url);
                 } catch (\Exception $e) {
-                    Log::error('Error generating signed URL:', [
+                    Log::error('Error generating storage URL:', [
                         'error' => $e->getMessage(),
                         'path' => $path,
                         'trace' => $e->getTraceAsString()
                     ]);
                     return response()->json(['message' => 'Error generating download URL: ' . $e->getMessage()], 500);
                 }
+            }
+
+            if (!$storage->exists($path)) {
+                Log::warning('Document not found on local disk', ['path' => $path]);
+                return response()->json(['message' => 'Document not found'], 404);
             }
 
             // For local disk (public or local), serve directly
