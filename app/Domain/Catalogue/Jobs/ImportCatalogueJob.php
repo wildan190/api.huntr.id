@@ -39,19 +39,23 @@ class ImportCatalogueJob implements ShouldQueue
             return;
         }
 
-        $disk = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
-        if (!$disk->exists($this->filePath)) {
-            Log::error("ImportCatalogueJob: CSV file not found at path: {$this->filePath}");
-            return;
-        }
-
-        // Download file from S3 to local temp file
-        $tempFile = tempnam(sys_get_temp_dir(), 'catalogue_import_');
-        file_put_contents($tempFile, $disk->get($this->filePath));
-
-        Log::info("ImportCatalogueJob: Starting import for company '{$company->name}' (ID: {$company->id}) from file {$tempFile}");
+        $disk = \Illuminate\Support\Facades\Storage::disk('s3');
+        $tempFile = null;
 
         try {
+            Log::info("ImportCatalogueJob: Downloading file from S3: {$this->filePath}");
+            $fileContent = $disk->get($this->filePath);
+            Log::info("ImportCatalogueJob: File downloaded successfully");
+
+            $tempFile = tempnam(sys_get_temp_dir(), 'catalogue_import_');
+            file_put_contents($tempFile, $fileContent);
+        } catch (\Throwable $e) {
+            Log::error("ImportCatalogueJob: Failed to download S3 file {$this->filePath}: " . $e->getMessage());
+            throw $e;
+        }
+
+        try {
+            Log::info("ImportCatalogueJob: Starting import for company '{$company->name}' (ID: {$company->id}) from file {$tempFile}");
             $importedCount = $action->execute($company, $tempFile);
             Log::info("ImportCatalogueJob: Successfully imported {$importedCount} catalogue items for company ID {$company->id}");
 
@@ -64,10 +68,10 @@ class ImportCatalogueJob implements ShouldQueue
                     "company-{$company->id}",
                     false
                 );
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 Log::warning("ImportCatalogueJob WebSocket broadcast failed: " . $e->getMessage());
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error("ImportCatalogueJob Failed: " . $e->getMessage());
 
             // Broadcast error via WebSocket
@@ -79,17 +83,22 @@ class ImportCatalogueJob implements ShouldQueue
                     "company-{$company->id}",
                     false
                 );
-            } catch (\Exception $ex) {
+            } catch (\Throwable $ex) {
                 Log::warning("ImportCatalogueJob error broadcast failed: " . $ex->getMessage());
             }
+
+            throw $e;
         } finally {
-            // Cleanup local temp file and S3 file
-            if (file_exists($tempFile)) {
+            // Cleanup local temp file
+            if ($tempFile && file_exists($tempFile)) {
                 @unlink($tempFile);
+                Log::info("ImportCatalogueJob: Temporary file cleaned up");
             }
+            // Cleanup S3 object
             try {
                 $disk->delete($this->filePath);
-            } catch (\Exception $e) {
+                Log::info("ImportCatalogueJob: S3 file cleaned up");
+            } catch (\Throwable $e) {
                 Log::warning("ImportCatalogueJob: Failed to delete S3 file: " . $e->getMessage());
             }
         }
