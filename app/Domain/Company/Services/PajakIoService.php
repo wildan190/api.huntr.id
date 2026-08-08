@@ -25,9 +25,12 @@ class PajakIoService
      */
     public function verifyNpwp(string $npwp): array
     {
-        // Bypass for local development if enabled in .env
-        if (env('BYPASS_NPWP_VERIFICATION', false)) {
-            Log::info("Pajak.io NPWP verification bypassed (Local Development Mode)");
+        // Bypass: bisa di-toggle dari admin panel (DB) atau dari .env sebagai fallback
+        $bypassFromAdmin = \App\Domain\Admin\Models\AdminSetting::get('bypass_npwp_verification', false);
+        if ($bypassFromAdmin || env('BYPASS_NPWP_VERIFICATION', false)) {
+            Log::info("Pajak.io NPWP verification bypassed", [
+                'source' => $bypassFromAdmin ? 'admin_panel' : 'env_variable',
+            ]);
             
             // Trim and normalize NPWP
             $npwp = trim($npwp);
