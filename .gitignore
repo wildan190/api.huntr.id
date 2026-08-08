@@ -36,3 +36,4 @@ ROLE_ASSIGNMENT_FLOW.md
 .gitignore
 NOTIFICATION_SYSTEM_AUDIT.md
 .gitignore
+deploy.sh
