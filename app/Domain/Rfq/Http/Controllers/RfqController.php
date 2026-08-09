@@ -236,4 +236,56 @@ class RfqController extends \App\Http\Controllers\Controller
             'whatsapp_link' => $whatsappLink
         ], 200);
     }
+
+    /**
+     * Public endpoint: Get list of open/public RFQs with pagination & search.
+     * No authentication required.
+     */
+    public function publicIndex(Request $request): JsonResponse
+    {
+        $perPage = (int) $request->query('per_page', 20);
+        $search = $request->query('search');
+        $status = $request->query('status', 'open');
+
+        $query = Rfq::with(['company', 'items.catalogue'])
+            ->withCount('proposals');
+
+        if ($status) {
+            $query->where('status', $status);
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('description', 'like', "%{$search}%")
+                  ->orWhereHas('company', function ($cq) use ($search) {
+                      $cq->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $rfqs = $query->latest()->paginate($perPage);
+
+        return response()->json($rfqs, 200);
+    }
+
+    /**
+     * Public endpoint: Get detail of a specific public RFQ.
+     * No authentication required.
+     */
+    public function publicShow(string $id): JsonResponse
+    {
+        $rfq = Rfq::with([
+            'company',
+            'items.catalogue',
+        ])
+        ->withCount('proposals')
+        ->find($id);
+
+        if (!$rfq) {
+            return response()->json(['message' => 'RFQ not found.', 'rfq' => null], 404);
+        }
+
+        return response()->json(['rfq' => $rfq], 200);
+    }
 }
