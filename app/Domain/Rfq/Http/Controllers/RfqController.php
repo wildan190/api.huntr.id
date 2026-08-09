@@ -245,13 +245,21 @@ class RfqController extends \App\Http\Controllers\Controller
     {
         $perPage = (int) $request->query('per_page', 20);
         $search = $request->query('search');
-        $status = $request->query('status', 'open');
+        $status = $request->query('status');
 
         $query = Rfq::with(['company', 'items.catalogue'])
             ->withCount('proposals');
 
-        if ($status) {
-            $query->where('status', $status);
+        // Exclude draft RFQs from public view
+        $query->where('status', '!=', 'draft');
+
+        if ($status && $status !== 'all') {
+            if ($status === 'open') {
+                // In database, open RFQs can be 'open' or 'active'
+                $query->whereIn('status', ['open', 'active']);
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         if ($search) {
