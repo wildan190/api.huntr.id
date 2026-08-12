@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         
         $middleware->append(\App\Http\Middleware\ValidateUserExists::class);
+        $middleware->append(\App\Http\Middleware\DemoModeDisabledModules::class);
         $middleware->append(\App\Http\Middleware\CheckCompanyApproved::class);
         $middleware->append(\App\Http\Middleware\EnsureCompanyOwnerRole::class);
         $middleware->alias([
