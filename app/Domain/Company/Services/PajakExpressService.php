@@ -284,19 +284,27 @@ class PajakExpressService
                 'body' => $response->body(),
                 'body_json' => $response->json(),
                 'request_sent_as' => 'multipart/form-data',
+                'email_used' => $this->email,
+                'password_masked' => $this->maskCredential($this->password),
+                'password_length' => strlen($this->password),
             ]);
             throw new \Exception("PajakExpress Auth failed: " . $response->status() . " - " . $response->body());
         }
 
+        $bodyRaw = $response->body();
         $data = $response->json();
-        $token = $data['data']['token'] ?? $data['token'] ?? $data['access_token'] ?? null;
+        $token = $this->extractTokenFromAuthResponse($data, $bodyRaw);
 
         if (!$token) {
             Log::error("PajakExpress Auth token not found in response", [
+                'email_used' => $this->email,
                 'response' => $data,
-                'raw_body_preview' => substr($response->body(), 0, 500),
+                'raw_body_preview' => substr($bodyRaw, 0, 2000),
                 'available_keys_top' => is_array($data) ? array_keys($data) : null,
                 'available_keys_data' => isset($data['data']) && is_array($data['data']) ? array_keys($data['data']) : null,
+                'available_keys_result' => isset($data['result']) && is_array($data['result']) ? array_keys($data['result']) : null,
+                'response_type' => gettype($data),
+                'has_data_array' => isset($data['data']) && is_array($data['data']),
             ]);
             throw new \Exception("PajakExpress Auth token not found in response");
         }
@@ -358,6 +366,103 @@ class PajakExpressService
             Cache::forget($cacheKey);
             Log::info("PajakExpress Auth cache invalidated explicitly");
         }
+    }
+
+    protected function maskCredential(string $value): string
+    {
+        $len = strlen($value);
+        if ($len <= 4) {
+            return str_repeat('*', $len);
+        }
+        if ($len <= 8) {
+            return $value[0] . str_repeat('*', $len - 2) . $value[$len - 1];
+        }
+        return substr($value, 0, 2) . str_repeat('*', $len - 5) . substr($value, -3);
+    }
+
+    protected function extractTokenFromAuthResponse($json, string $bodyRaw): ?string
+    {
+        if (!is_array($json)) {
+            $json = [];
+        }
+
+        $explicitCandidates = [
+            fn() => $json['data']['token'] ?? null,
+            fn() => $json['token'] ?? null,
+            fn() => $json['access_token'] ?? null,
+            fn() => $json['data']['access_token'] ?? null,
+            fn() => $json['result']['token'] ?? null,
+            fn() => $json['result']['access_token'] ?? null,
+            fn() => $json['response']['token'] ?? null,
+            fn() => $json['body']['token'] ?? null,
+            fn() => $json['user']['token'] ?? null,
+            fn() => $json['jwt'] ?? null,
+            fn() => $json['data']['jwt'] ?? null,
+        ];
+
+        foreach ($explicitCandidates as $cand) {
+            $val = $cand();
+            if (is_string($val) && strlen($val) > 32) {
+                Log::debug("PajakExpress token found via explicit candidate");
+                return $val;
+            }
+        }
+
+        $jwtFromRecursive = $this->findJwtRecursive($json);
+        if (is_string($jwtFromRecursive)) {
+            Log::debug("PajakExpress token found via recursive search");
+            return $jwtFromRecursive;
+        }
+
+        if (trim($bodyRaw) !== '') {
+            $jwtPattern = '/"(?:token|access_token|jwt)"\s*:\s*"(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"/';
+            if (preg_match($jwtPattern, $bodyRaw, $m)) {
+                Log::debug("PajakExpress token found via JWT regex on raw body (keyed match)");
+                return $m[1];
+            }
+
+            $bareJwtPattern = '/(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/';
+            if (preg_match($bareJwtPattern, $bodyRaw, $m2)) {
+                Log::debug("PajakExpress token found via bare JWT regex on raw body");
+                return $m2[1];
+            }
+        }
+
+        return null;
+    }
+
+    protected function findJwtRecursive($data, int $depth = 0, int $maxDepth = 6)
+    {
+        if ($depth > $maxDepth) {
+            return null;
+        }
+        if (is_string($data)) {
+            if (preg_match('/^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/', $data)) {
+                return $data;
+            }
+            return null;
+        }
+        if (!is_array($data)) {
+            return null;
+        }
+        foreach ($data as $key => $value) {
+            if (is_string($key) && in_array(strtolower($key), ['token', 'access_token', 'accesstoken', 'jwt', 'bearer', 'id_token', 'idtoken'], true)) {
+                if (is_string($value) && strlen($value) > 32) {
+                    return $value;
+                }
+            }
+            if (is_array($value) || is_object($value)) {
+                $res = $this->findJwtRecursive(is_object($value) ? (array)$value : $value, $depth + 1, $maxDepth);
+                if (is_string($res)) {
+                    return $res;
+                }
+            } elseif (is_string($value)) {
+                if (preg_match('/^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/', $value)) {
+                    return $value;
+                }
+            }
+        }
+        return null;
     }
 
     protected function normalizeResponse(array $raw): array
