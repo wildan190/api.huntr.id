@@ -145,21 +145,28 @@ class PajakExpressService
 
         $token = $this->getAuthToken($attempt > 0);
 
+        $requestPayload = [
+            'npwp' => $npwp,
+            'tujuan' => 'Validasi NPWP',
+        ];
+
         Log::info("PajakExpress Request Debug (attempt ".($attempt + 1)."/{$maxAttempts}):", [
             'url' => $this->baseUrl . '/IF_CLB_059',
+            'request_method' => 'POST',
+            'request_body_format' => 'application/json',
+            'request_payload' => $requestPayload,
+            'request_body_json' => json_encode($requestPayload),
             'npwp' => $npwp,
             'token_preview' => substr($token, 0, 10) . '...',
             'force_refresh' => $attempt > 0,
         ]);
 
-        $response = Http::withHeaders([
-            'x-token' => $token,
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-        ])->post($this->baseUrl . '/IF_CLB_059', [
-            'npwp' => $npwp,
-            'tujuan' => 'Validasi NPWP',
-        ]);
+        $response = Http::asJson()
+            ->acceptJson()
+            ->withHeaders([
+                'x-token' => $token,
+            ])
+            ->post($this->baseUrl . '/IF_CLB_059', $requestPayload);
 
         $httpStatus = $response->status();
         $bodyRaw = $response->body();
@@ -255,49 +262,80 @@ class PajakExpressService
         Log::info("PajakExpress Requesting new auth token", [
             'url' => $this->baseUrl . '/auth/login',
             'email' => $this->email,
+            'request_format' => 'multipart/form-data (sesuai curl working: --form)',
         ]);
 
-        $response = Http::withHeaders([
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-        ])->post($this->baseUrl . '/auth/login', [
-            'email' => $this->email,
-            'password' => $this->password,
-        ]);
+        $response = Http::acceptJson()
+            ->asMultipart()
+            ->post($this->baseUrl . '/auth/login', [
+                [
+                    'name' => 'email',
+                    'contents' => $this->email,
+                ],
+                [
+                    'name' => 'password',
+                    'contents' => $this->password,
+                ],
+            ]);
 
         if (!$response->successful()) {
             Log::error("PajakExpress Auth Failed:", [
                 'status' => $response->status(),
                 'body' => $response->body(),
                 'body_json' => $response->json(),
+                'request_sent_as' => 'multipart/form-data',
             ]);
             throw new \Exception("PajakExpress Auth failed: " . $response->status() . " - " . $response->body());
         }
 
         $data = $response->json();
-        $token = $data['token'] ?? $data['data']['token'] ?? $data['access_token'] ?? null;
+        $token = $data['data']['token'] ?? $data['token'] ?? $data['access_token'] ?? null;
 
         if (!$token) {
-            Log::error("PajakExpress Auth token not found in response", ['response' => $data]);
+            Log::error("PajakExpress Auth token not found in response", [
+                'response' => $data,
+                'raw_body_preview' => substr($response->body(), 0, 500),
+                'available_keys_top' => is_array($data) ? array_keys($data) : null,
+                'available_keys_data' => isset($data['data']) && is_array($data['data']) ? array_keys($data['data']) : null,
+            ]);
             throw new \Exception("PajakExpress Auth token not found in response");
         }
 
-        $rawTtl = isset($data['expires_in']) ? (int)$data['expires_in'] : self::TOKEN_DEFAULT_TTL;
-        if ($rawTtl <= 0) {
+        $nowTs = now()->timestamp;
+        $rawTtl = null;
+
+        if (isset($data['data']['exp']) && is_numeric($data['data']['exp'])) {
+            $expTs = (int)$data['data']['exp'];
+            if ($expTs > $nowTs) {
+                $rawTtl = $expTs - $nowTs;
+            }
+        }
+        if ($rawTtl === null && isset($data['exp']) && is_numeric($data['exp'])) {
+            $expTs = (int)$data['exp'];
+            if ($expTs > $nowTs) {
+                $rawTtl = $expTs - $nowTs;
+            }
+        }
+        if ($rawTtl === null && isset($data['expires_in']) && is_numeric($data['expires_in'])) {
+            $rawTtl = (int)$data['expires_in'];
+        }
+        if ($rawTtl === null || $rawTtl <= 0) {
             $rawTtl = self::TOKEN_DEFAULT_TTL;
         }
+
         $buffer = self::TOKEN_SAFETY_BUFFER;
         if ($rawTtl <= $buffer) {
             $buffer = (int)ceil($rawTtl * 0.05);
         }
         $cacheTtl = $rawTtl - $buffer;
-        $expiresAt = now()->timestamp + $cacheTtl;
+        $expiresAt = $nowTs + $cacheTtl;
 
         Cache::put($cacheKey, [
             'token' => $token,
             'expires_at' => $expiresAt,
-            'issued_at' => now()->timestamp,
+            'issued_at' => $nowTs,
             'raw_ttl_sec' => $rawTtl,
+            'exp_unix' => $data['data']['exp'] ?? null,
         ], now()->addSeconds($cacheTtl));
 
         Log::info("PajakExpress Auth token obtained successfully", [
@@ -305,6 +343,9 @@ class PajakExpressService
             'cache_ttl_hours' => round($cacheTtl / 3600, 2),
             'raw_ttl_from_server_sec' => $rawTtl,
             'buffer_sec' => $buffer,
+            'exp_parsed_from' => isset($data['data']['exp']) ? 'data.data.exp (absolute UNIX ts)' : (isset($data['expires_in']) ? 'expires_in' : 'default 6h'),
+            'userid' => $data['data']['userid'] ?? null,
+            'name' => $data['data']['name'] ?? null,
         ]);
 
         return $token;
