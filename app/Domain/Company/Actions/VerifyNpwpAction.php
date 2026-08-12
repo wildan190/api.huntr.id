@@ -2,19 +2,19 @@
 
 namespace App\Domain\Company\Actions;
 
-use App\Domain\Company\Services\PajakIoService;
+use App\Domain\Company\Services\PajakExpressService;
 
 class VerifyNpwpAction
 {
-    protected $pajakIo;
+    protected $pajakExpress;
 
-    public function __construct(PajakIoService $pajakIo)
+    public function __construct(PajakExpressService $pajakExpress)
     {
-        $this->pajakIo = $pajakIo;
+        $this->pajakExpress = $pajakExpress;
     }
 
     /**
-     * Verify NPWP using PajakIo service.
+     * Verify NPWP using PajakExpress service.
      * Only verify if country is Indonesia.
      *
      * @param string $npwp
@@ -30,7 +30,7 @@ class VerifyNpwpAction
             ];
         }
 
-        return $this->pajakIo->verifyNpwp($npwp);
+        return $this->pajakExpress->verifyNpwp($npwp);
     }
 
     /**

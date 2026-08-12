@@ -56,4 +56,10 @@ return [
         'passphrase' => env('PAJAKIO_PASSPHRASE', 'ppp123@@'),
     ],
 
+    'pajak_express' => [
+        'base_url' => env('PAJAK_EXPRESS_BASE_URL', 'https://nodemin.pajakexpress.id:1830'),
+        'email' => env('PAJAK_EXPRESS_EMAIL', 'dummy@ortax.org'),
+        'password' => env('PAJAK_EXPRESS_PASSWORD', 'Ortax123#'),
+    ],
+
 ];
