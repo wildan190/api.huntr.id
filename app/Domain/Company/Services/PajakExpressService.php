@@ -12,6 +12,11 @@ class PajakExpressService
     protected string $email;
     protected string $password;
 
+    protected const TOKEN_DEFAULT_TTL = 21600;
+    protected const TOKEN_SAFETY_BUFFER = 300;
+
+    protected const AUTH_CACHE_KEY = 'pajakexpress_auth_token';
+
     public function __construct()
     {
         $this->baseUrl = rtrim(config('services.pajak_express.base_url', env('PAJAK_EXPRESS_BASE_URL', 'https://nodemin.pajakexpress.id:1830')), '/');
@@ -116,44 +121,13 @@ class PajakExpressService
                 return Cache::get($cacheKey);
             }
 
-            $token = $this->getAuthToken();
+            $result = $this->callVerifyEndpoint($npwp, 0);
 
-            Log::info("PajakExpress Request Debug:", [
-                'url' => $this->baseUrl . '/IF_CLB_059',
-                'npwp' => $npwp,
-                'token_preview' => substr($token, 0, 10) . '...'
-            ]);
-
-            $response = Http::withHeaders([
-                'x-token' => $token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ])->post($this->baseUrl . '/IF_CLB_059', [
-                'npwp' => $npwp,
-                'tujuan' => 'Validasi NPWP',
-            ]);
-
-            if ($response->successful()) {
-                $rawData = $response->json();
-                $normalized = $this->normalizeResponse($rawData);
-
-                Cache::put($cacheKey, $normalized, now()->addDays(30));
-                return $normalized;
+            if (isset($result['status']) && $result['status'] === 1 && !empty($result['data'])) {
+                Cache::put($cacheKey, $result, now()->addDays(30));
             }
 
-            Log::error("PajakExpress API Failed:", [
-                'status' => $response->status(),
-                'body' => $response->body(),
-                'body_json' => $response->json(),
-                'headers' => $response->headers(),
-                'request_url' => $this->baseUrl . '/IF_CLB_059',
-                'token_preview' => substr($token, 0, 10) . '...',
-            ]);
-            return [
-                'status' => 0,
-                'message' => 'API connection failed: ' . $response->status(),
-                'code' => $response->status()
-            ];
+            return $result;
 
         } catch (\Exception $e) {
             Log::error("PajakExpress Service Exception: " . $e->getMessage());
@@ -165,16 +139,117 @@ class PajakExpressService
         }
     }
 
-    protected function getAuthToken(): string
+    protected function callVerifyEndpoint(string $npwp, int $attempt): array
     {
-        $cacheKey = 'pajakexpress_auth_token';
+        $maxAttempts = 2;
 
-        if (Cache::has($cacheKey)) {
+        $token = $this->getAuthToken($attempt > 0);
+
+        Log::info("PajakExpress Request Debug (attempt ".($attempt + 1)."/{$maxAttempts}):", [
+            'url' => $this->baseUrl . '/IF_CLB_059',
+            'npwp' => $npwp,
+            'token_preview' => substr($token, 0, 10) . '...',
+            'force_refresh' => $attempt > 0,
+        ]);
+
+        $response = Http::withHeaders([
+            'x-token' => $token,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ])->post($this->baseUrl . '/IF_CLB_059', [
+            'npwp' => $npwp,
+            'tujuan' => 'Validasi NPWP',
+        ]);
+
+        $httpStatus = $response->status();
+        $bodyRaw = $response->body();
+        $bodyJson = $response->json();
+        $isAuthFailure = $this->isAuthFailure($httpStatus, $bodyJson ?? [], $bodyRaw);
+
+        if ($isAuthFailure && $attempt < ($maxAttempts - 1)) {
+            Log::warning("PajakExpress auth failure detected. Forcing token refresh and retry...", [
+                'http_status' => $httpStatus,
+                'attempt' => $attempt + 1,
+            ]);
+            $this->invalidateAuthCache();
+            return $this->callVerifyEndpoint($npwp, $attempt + 1);
+        }
+
+        if ($response->successful() && !$isAuthFailure) {
+            $rawData = is_array($bodyJson) ? $bodyJson : [];
+            return $this->normalizeResponse($rawData);
+        }
+
+        Log::error("PajakExpress API Failed:", [
+            'status' => $httpStatus,
+            'body' => $bodyRaw,
+            'body_json' => $bodyJson,
+            'headers' => $response->headers(),
+            'request_url' => $this->baseUrl . '/IF_CLB_059',
+            'token_preview' => substr($token, 0, 10) . '...',
+            'auth_failure_detected' => $isAuthFailure,
+            'attempts_used' => $attempt + 1,
+        ]);
+
+        $msg = 'API connection failed: ' . $httpStatus;
+        if ($isAuthFailure) {
+            $msg = 'PajakExpress otentikasi gagal (token invalid/expired) setelah ' . ($attempt + 1) . 'x percobaan. Silakan cek credentials di environment.';
+        } elseif (is_array($bodyJson) && !empty($bodyJson['message'])) {
+            $msg = (string)$bodyJson['message'];
+        }
+
+        return [
+            'status' => 0,
+            'message' => $msg,
+            'code' => $httpStatus
+        ];
+    }
+
+    protected function isAuthFailure(int $httpStatus, array $bodyJson, string $bodyRaw): bool
+    {
+        if (in_array($httpStatus, [401, 403], true)) {
+            return true;
+        }
+
+        if ($httpStatus >= 400) {
+            $lowerBody = mb_strtolower($bodyRaw);
+            $keywords = ['unauthorized', 'token', 'expired', 'invalid token', 'token invalid', 'token expired', 'akses ditolak', 'authentication failed', 'auth failed'];
+            foreach ($keywords as $k) {
+                if (str_contains($lowerBody, $k)) {
+                    return true;
+                }
+            }
+            if (isset($bodyJson['status']) && is_string($bodyJson['status']) && str_contains(mb_strtolower($bodyJson['status']), 'error')) {
+                $msg = mb_strtolower((string)($bodyJson['message'] ?? ''));
+                foreach ($keywords as $k) {
+                    if (str_contains($msg, $k)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    protected function getAuthToken(bool $forceRefresh = false): string
+    {
+        $cacheKey = self::AUTH_CACHE_KEY;
+
+        if (!$forceRefresh && Cache::has($cacheKey)) {
             $cached = Cache::get($cacheKey);
             if (isset($cached['expires_at']) && $cached['expires_at'] > now()->timestamp) {
-                Log::info("PajakExpress Auth cache hit");
+                Log::info("PajakExpress Auth cache hit", [
+                    'remaining_sec' => max(0, (int)$cached['expires_at'] - now()->timestamp),
+                    'forced' => $forceRefresh ? 'yes' : 'no',
+                ]);
                 return $cached['token'];
             }
+            Log::info("PajakExpress Auth cache exists but expired or missing expires_at. Refreshing...");
+        }
+
+        if ($forceRefresh) {
+            Log::info("PajakExpress Forced auth token refresh requested");
         }
 
         Log::info("PajakExpress Requesting new auth token", [
@@ -207,17 +282,41 @@ class PajakExpressService
             throw new \Exception("PajakExpress Auth token not found in response");
         }
 
-        $ttl = isset($data['expires_in']) ? (int)$data['expires_in'] : 3600;
-        $expiresAt = now()->timestamp + $ttl - 60;
+        $rawTtl = isset($data['expires_in']) ? (int)$data['expires_in'] : self::TOKEN_DEFAULT_TTL;
+        if ($rawTtl <= 0) {
+            $rawTtl = self::TOKEN_DEFAULT_TTL;
+        }
+        $buffer = self::TOKEN_SAFETY_BUFFER;
+        if ($rawTtl <= $buffer) {
+            $buffer = (int)ceil($rawTtl * 0.05);
+        }
+        $cacheTtl = $rawTtl - $buffer;
+        $expiresAt = now()->timestamp + $cacheTtl;
 
         Cache::put($cacheKey, [
             'token' => $token,
             'expires_at' => $expiresAt,
-        ], now()->addSeconds($ttl - 60));
+            'issued_at' => now()->timestamp,
+            'raw_ttl_sec' => $rawTtl,
+        ], now()->addSeconds($cacheTtl));
 
-        Log::info("PajakExpress Auth token obtained successfully");
+        Log::info("PajakExpress Auth token obtained successfully", [
+            'cache_ttl_sec' => $cacheTtl,
+            'cache_ttl_hours' => round($cacheTtl / 3600, 2),
+            'raw_ttl_from_server_sec' => $rawTtl,
+            'buffer_sec' => $buffer,
+        ]);
 
         return $token;
+    }
+
+    protected function invalidateAuthCache(): void
+    {
+        $cacheKey = self::AUTH_CACHE_KEY;
+        if (Cache::has($cacheKey)) {
+            Cache::forget($cacheKey);
+            Log::info("PajakExpress Auth cache invalidated explicitly");
+        }
     }
 
     protected function normalizeResponse(array $raw): array
