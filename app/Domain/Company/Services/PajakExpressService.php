@@ -11,111 +11,28 @@ class PajakExpressService
     protected string $baseUrl;
     protected string $email;
     protected string $password;
+    protected string $npwp;
 
     protected const TOKEN_DEFAULT_TTL = 21600;
     protected const TOKEN_SAFETY_BUFFER = 300;
 
-    protected const AUTH_CACHE_KEY = 'pajakexpress_auth_token';
+    public const AUTH_CACHE_KEY     = 'pajakexpress_auth_token';
+    public const JWT_CACHE_KEY      = 'pajakexpress_jwt_token';
 
     public function __construct()
     {
-        $this->baseUrl = rtrim(config('services.pajak_express.base_url', env('PAJAK_EXPRESS_BASE_URL', 'https://nodemin.pajakexpress.id:1830')), '/');
-        $this->email = config('services.pajak_express.email', env('PAJAK_EXPRESS_EMAIL', 'dummy@ortax.org'));
+        $this->baseUrl  = rtrim(config('services.pajak_express.base_url', env('PAJAK_EXPRESS_BASE_URL', 'https://nodemin.pajakexpress.id:1830')), '/');
+        $this->email    = config('services.pajak_express.email', env('PAJAK_EXPRESS_EMAIL', 'dummy@ortax.org'));
         $this->password = config('services.pajak_express.password', env('PAJAK_EXPRESS_PASSWORD', 'Ortax123#'));
+        $this->npwp     = config('services.pajak_express.npwp', env('PAJAK_EXPRESS_NPWP', ''));
     }
 
     public function verifyNpwp(string $npwp): array
     {
-        $bypassFromAdmin = \App\Domain\Admin\Models\AdminSetting::get('bypass_npwp_verification', false);
-        if ($bypassFromAdmin || env('BYPASS_NPWP_VERIFICATION', false)) {
-            Log::info("PajakExpress NPWP verification bypassed", [
-                'source' => $bypassFromAdmin ? 'admin_panel' : 'env_variable',
-            ]);
-
-            $npwp = trim($npwp);
-
-            Log::info("NPWP received", [
-                'npwp' => $npwp,
-                'length' => strlen($npwp),
-                'bytes' => bin2hex($npwp)
-            ]);
-
-            $dummyPath = storage_path('app/dummy_npwp.json');
-            $data = null;
-
-            if (file_exists($dummyPath)) {
-                $jsonContent = file_get_contents($dummyPath);
-                $json = json_decode($jsonContent, true);
-
-                Log::info("Loaded dummy NPWP data", [
-                    'file_exists' => true,
-                    'json_valid' => $json !== null,
-                    'requested_npwp' => $npwp,
-                    'available_keys' => array_keys($json ?? [])
-                ]);
-
-                if ($json !== null) {
-                    $stringKeys = [];
-                    foreach ($json as $key => $value) {
-                        $stringKeys[(string)$key] = $value;
-                    }
-
-                    if (isset($stringKeys[$npwp])) {
-                        $data = $stringKeys[$npwp];
-                        Log::info("Found exact NPWP match in dummy data", ['npwp' => $npwp, 'nama' => $data['nama']]);
-                    } else {
-                        $npwpWithoutLeadingZeros = ltrim($npwp, '0') ?: '0';
-                        foreach ($stringKeys as $key => $value) {
-                            if ($key !== 'default' && (ltrim($key, '0') ?: '0') === $npwpWithoutLeadingZeros) {
-                                $data = $value;
-                                Log::info("Found NPWP match after removing leading zeros", ['npwp' => $npwp, 'matched_key' => $key, 'nama' => $data['nama']]);
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!$data && isset($stringKeys['default'])) {
-                        $data = array_merge($stringKeys['default'], ['npwp' => $npwp]);
-                        Log::info("Using default entry for NPWP", ['npwp' => $npwp, 'default_nama' => $stringKeys['default']['nama']]);
-                    }
-                }
-            }
-
-            if (!$data) {
-                $data = [
-                    'nama' => 'PT. Perusahaan Lokal Bypass',
-                    'npwp' => $npwp,
-                    'alamat' => 'Jl. Bypass No. 0, Jakarta',
-                    'statusWp' => 'VALID',
-                    'statusSpt' => 'VALID',
-                    'status' => 'Aktif',
-                    'identitas_wp' => 'Badan',
-                    'jenis_wp' => 'PT',
-                    'region' => 'Indonesia',
-                    'provincy_country' => 'DKI Jakarta',
-                    'city' => 'Jakarta',
-                    'regency' => 'Bypass',
-                    'zip_code' => '10000',
-                    'bank_name' => 'BNI',
-                    'bank_account' => '0000000000',
-                    'bank_account_name' => 'PT. Perusahaan Lokal Bypass',
-                    'industry_type' => 'Other',
-                    'phone' => '021-0000000',
-                    'email' => 'hello@dummy-company.id'
-                ];
-                Log::info("Using hardcoded fallback for NPWP", ['npwp' => $npwp]);
-            }
-
-            return [
-                'status' => 1,
-                'message' => 'Success (From Dummy Data)',
-                'data' => $data
-            ];
-        }
+        $npwpClean = preg_replace('/[^0-9]/', '', $npwp);
+        $cacheKey = 'pajakexpress_npwp_' . $npwpClean;
 
         try {
-            $cacheKey = 'pajakexpress_npwp_' . preg_replace('/[^0-9]/', '', $npwp);
-
             if (Cache::has($cacheKey)) {
                 Log::info("PajakExpress Cache hit for NPWP:", ['npwp' => $npwp]);
                 return Cache::get($cacheKey);
@@ -130,7 +47,9 @@ class PajakExpressService
             return $result;
 
         } catch (\Exception $e) {
-            Log::error("PajakExpress Service Exception: " . $e->getMessage());
+            Log::error("PajakExpress Service Exception: " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
             return [
                 'status' => 0,
                 'message' => 'Exception: ' . $e->getMessage(),
@@ -143,28 +62,24 @@ class PajakExpressService
     {
         $maxAttempts = 2;
 
-        $token = $this->getAuthToken($attempt > 0);
+        $xToken = $this->getAuthToken($attempt > 0);
 
         $requestPayload = [
             'npwp' => $npwp,
             'tujuan' => 'Validasi NPWP',
         ];
 
-        Log::info("PajakExpress Request Debug (attempt ".($attempt + 1)."/{$maxAttempts}):", [
+        Log::info("PajakExpress Request (attempt " . ($attempt + 1) . "/{$maxAttempts}):", [
             'url' => $this->baseUrl . '/IF_CLB_059',
-            'request_method' => 'POST',
-            'request_body_format' => 'application/json',
-            'request_payload' => $requestPayload,
-            'request_body_json' => json_encode($requestPayload),
             'npwp' => $npwp,
-            'token_preview' => substr($token, 0, 10) . '...',
-            'force_refresh' => $attempt > 0,
+            'x_token_preview' => substr($xToken, 0, 10) . '...',
         ]);
 
         $response = Http::asJson()
             ->acceptJson()
             ->withHeaders([
-                'x-token' => $token,
+                'x-token'       => $xToken,
+                'Authorization' => 'Bearer ' . $this->getJwtToken(),
             ])
             ->post($this->baseUrl . '/IF_CLB_059', $requestPayload);
 
@@ -174,7 +89,7 @@ class PajakExpressService
         $isAuthFailure = $this->isAuthFailure($httpStatus, $bodyJson ?? [], $bodyRaw);
 
         if ($isAuthFailure && $attempt < ($maxAttempts - 1)) {
-            Log::warning("PajakExpress auth failure detected. Forcing token refresh and retry...", [
+            Log::warning("PajakExpress auth failure on verify. Forcing x-token refresh and retry...", [
                 'http_status' => $httpStatus,
                 'attempt' => $attempt + 1,
             ]);
@@ -190,10 +105,7 @@ class PajakExpressService
         Log::error("PajakExpress API Failed:", [
             'status' => $httpStatus,
             'body' => $bodyRaw,
-            'body_json' => $bodyJson,
-            'headers' => $response->headers(),
             'request_url' => $this->baseUrl . '/IF_CLB_059',
-            'token_preview' => substr($token, 0, 10) . '...',
             'auth_failure_detected' => $isAuthFailure,
             'attempts_used' => $attempt + 1,
         ]);
@@ -202,13 +114,13 @@ class PajakExpressService
         if ($isAuthFailure) {
             $msg = 'PajakExpress otentikasi gagal (token invalid/expired) setelah ' . ($attempt + 1) . 'x percobaan. Silakan cek credentials di environment.';
         } elseif (is_array($bodyJson) && !empty($bodyJson['message'])) {
-            $msg = (string)$bodyJson['message'];
+            $msg = (string) $bodyJson['message'];
         }
 
         return [
             'status' => 0,
             'message' => $msg,
-            'code' => $httpStatus
+            'code' => $httpStatus,
         ];
     }
 
@@ -220,14 +132,26 @@ class PajakExpressService
 
         if ($httpStatus >= 400) {
             $lowerBody = mb_strtolower($bodyRaw);
-            $keywords = ['unauthorized', 'token', 'expired', 'invalid token', 'token invalid', 'token expired', 'akses ditolak', 'authentication failed', 'auth failed'];
+            $keywords = [
+                'unauthorized',
+                'invalid token',
+                'token invalid',
+                'token expired',
+                'token not valid',
+                'token is invalid',
+                'token is expired',
+                'akses ditolak',
+                'authentication failed',
+                'auth failed',
+                'unauthenticated',
+            ];
             foreach ($keywords as $k) {
                 if (str_contains($lowerBody, $k)) {
                     return true;
                 }
             }
             if (isset($bodyJson['status']) && is_string($bodyJson['status']) && str_contains(mb_strtolower($bodyJson['status']), 'error')) {
-                $msg = mb_strtolower((string)($bodyJson['message'] ?? ''));
+                $msg = mb_strtolower((string) ($bodyJson['message'] ?? ''));
                 foreach ($keywords as $k) {
                     if (str_contains($msg, $k)) {
                         return true;
@@ -239,6 +163,13 @@ class PajakExpressService
         return false;
     }
 
+    /**
+     * Full auth flow:
+     * 1. POST /auth/login (multipart) → JWT
+     * 2. POST /npwp/log (Authorization: Bearer JWT) → generate x-token
+     * 3. GET  /npwp/log (Authorization: Bearer JWT) → ambil x-token
+     * 4. Cache JWT dan x-token terpisah
+     */
     protected function getAuthToken(bool $forceRefresh = false): string
     {
         $cacheKey = self::AUTH_CACHE_KEY;
@@ -246,126 +177,152 @@ class PajakExpressService
         if (!$forceRefresh && Cache::has($cacheKey)) {
             $cached = Cache::get($cacheKey);
             if (isset($cached['expires_at']) && $cached['expires_at'] > now()->timestamp) {
-                Log::info("PajakExpress Auth cache hit", [
-                    'remaining_sec' => max(0, (int)$cached['expires_at'] - now()->timestamp),
-                    'forced' => $forceRefresh ? 'yes' : 'no',
+                Log::info("PajakExpress x-token cache hit", [
+                    'remaining_sec' => max(0, (int) $cached['expires_at'] - now()->timestamp),
                 ]);
                 return $cached['token'];
             }
-            Log::info("PajakExpress Auth cache exists but expired or missing expires_at. Refreshing...");
         }
 
-        if ($forceRefresh) {
-            Log::info("PajakExpress Forced auth token refresh requested");
-        }
+        // Step 1: Login → get JWT
+        $jwt = $this->loginAndGetJwt();
 
-        Log::info("PajakExpress Requesting new auth token", [
-            'url' => $this->baseUrl . '/auth/login',
-            'email' => $this->email,
-            'request_format' => 'multipart/form-data (sesuai curl working: --form)',
+        // Cache JWT terpisah (TTL dari exp di payload)
+        $jwtPayload = json_decode(base64_decode(explode('.', $jwt)[1] ?? ''), true);
+        $jwtExp     = isset($jwtPayload['exp']) ? (int) $jwtPayload['exp'] : (now()->timestamp + self::TOKEN_DEFAULT_TTL);
+        $jwtTtl     = max(60, $jwtExp - now()->timestamp - self::TOKEN_SAFETY_BUFFER);
+        Cache::put(self::JWT_CACHE_KEY, $jwt, now()->addSeconds($jwtTtl));
+
+        // Step 2: Exchange JWT for x-token via /npwp/log
+        $xToken = $this->fetchXToken($jwt);
+
+        // Cache x-token 6 jam
+        $nowTs    = now()->timestamp;
+        $cacheTtl = self::TOKEN_DEFAULT_TTL - self::TOKEN_SAFETY_BUFFER;
+        Cache::put($cacheKey, [
+            'token'      => $xToken,
+            'expires_at' => $nowTs + $cacheTtl,
+            'issued_at'  => $nowTs,
+        ], now()->addSeconds($cacheTtl));
+
+        Log::info("PajakExpress x-token obtained and cached", [
+            'cache_ttl_hours' => round($cacheTtl / 3600, 2),
+            'x_token_preview' => substr($xToken, 0, 10) . '...',
         ]);
 
-        $response = Http::acceptJson()
+        return $xToken;
+    }
+
+    protected function getJwtToken(): string
+    {
+        if (Cache::has(self::JWT_CACHE_KEY)) {
+            return Cache::get(self::JWT_CACHE_KEY);
+        }
+        return $this->loginAndGetJwt();
+    }
+
+    protected function loginAndGetJwt(): string
+    {
+        Log::info("PajakExpress Auth: POST /auth/login", [
+            'url'   => $this->baseUrl . '/auth/login',
+            'email' => $this->email,
+        ]);
+
+        $response = Http::withHeaders(['Accept' => '*/*'])
             ->asMultipart()
+            ->timeout(45)
+            ->connectTimeout(15)
             ->post($this->baseUrl . '/auth/login', [
-                [
-                    'name' => 'email',
-                    'contents' => $this->email,
-                ],
-                [
-                    'name' => 'password',
-                    'contents' => $this->password,
-                ],
+                ['name' => 'email',    'contents' => $this->email],
+                ['name' => 'password', 'contents' => $this->password],
             ]);
 
         if (!$response->successful()) {
-            Log::error("PajakExpress Auth Failed:", [
+            Log::error("PajakExpress login failed", [
                 'status' => $response->status(),
-                'body' => $response->body(),
-                'body_json' => $response->json(),
-                'request_sent_as' => 'multipart/form-data',
-                'email_used' => $this->email,
-                'password_masked' => $this->maskCredential($this->password),
-                'password_length' => strlen($this->password),
+                'body'   => $response->body(),
             ]);
-            throw new \Exception("PajakExpress Auth failed: " . $response->status() . " - " . $response->body());
+            throw new \Exception("PajakExpress Auth login failed: HTTP " . $response->status() . " — " . $response->body());
         }
 
-        $bodyRaw = $response->body();
         $data = $response->json();
-        $token = $this->extractTokenFromAuthResponse($data, $bodyRaw);
+        $jwt = $this->extractTokenFromAuthResponse($data, $response->body());
 
-        if (!$token) {
-            Log::error("PajakExpress Auth token not found in response", [
-                'email_used' => $this->email,
-                'response' => $data,
-                'raw_body_preview' => substr($bodyRaw, 0, 2000),
-                'available_keys_top' => is_array($data) ? array_keys($data) : null,
-                'available_keys_data' => isset($data['data']) && is_array($data['data']) ? array_keys($data['data']) : null,
-                'available_keys_result' => isset($data['result']) && is_array($data['result']) ? array_keys($data['result']) : null,
-                'response_type' => gettype($data),
-                'has_data_array' => isset($data['data']) && is_array($data['data']),
+        if (!$jwt) {
+            throw new \Exception("PajakExpress Auth: JWT not found in login response — body_len=" . strlen($response->body()));
+        }
+
+        Log::info("PajakExpress Auth: login OK, JWT extracted");
+
+        return $jwt;
+    }
+
+    protected function fetchXToken(string $jwt): string
+    {
+        Log::info("PajakExpress Auth: POST /npwp/log to set x-token");
+
+        // Step 1: POST /npwp/log dengan NPWP akun untuk generate/set key secret
+        $postResponse = Http::asJson()
+            ->acceptJson()
+            ->withHeaders(['Authorization' => 'Bearer ' . $jwt])
+            ->timeout(30)
+            ->post($this->baseUrl . '/npwp/log', [
+                'npwp' => $this->npwp,
             ]);
-            throw new \Exception("PajakExpress Auth token not found in response");
+
+        if (!$postResponse->successful()) {
+            Log::error("PajakExpress POST /npwp/log failed", [
+                'status' => $postResponse->status(),
+                'body'   => $postResponse->body(),
+            ]);
+            throw new \Exception("PajakExpress /npwp/log (POST) failed: HTTP " . $postResponse->status() . " — " . $postResponse->body());
         }
 
-        $nowTs = now()->timestamp;
-        $rawTtl = null;
+        // Step 2: GET /npwp/log untuk ambil x-token yang sudah di-set
+        Log::info("PajakExpress Auth: GET /npwp/log to fetch x-token");
 
-        if (isset($data['data']['exp']) && is_numeric($data['data']['exp'])) {
-            $expTs = (int)$data['data']['exp'];
-            if ($expTs > $nowTs) {
-                $rawTtl = $expTs - $nowTs;
-            }
-        }
-        if ($rawTtl === null && isset($data['exp']) && is_numeric($data['exp'])) {
-            $expTs = (int)$data['exp'];
-            if ($expTs > $nowTs) {
-                $rawTtl = $expTs - $nowTs;
-            }
-        }
-        if ($rawTtl === null && isset($data['expires_in']) && is_numeric($data['expires_in'])) {
-            $rawTtl = (int)$data['expires_in'];
-        }
-        if ($rawTtl === null || $rawTtl <= 0) {
-            $rawTtl = self::TOKEN_DEFAULT_TTL;
+        $getResponse = Http::acceptJson()
+            ->withHeaders(['Authorization' => 'Bearer ' . $jwt])
+            ->timeout(30)
+            ->get($this->baseUrl . '/npwp/log');
+
+        if (!$getResponse->successful()) {
+            Log::error("PajakExpress GET /npwp/log failed", [
+                'status' => $getResponse->status(),
+                'body'   => $getResponse->body(),
+            ]);
+            throw new \Exception("PajakExpress /npwp/log (GET) failed: HTTP " . $getResponse->status() . " — " . $getResponse->body());
         }
 
-        $buffer = self::TOKEN_SAFETY_BUFFER;
-        if ($rawTtl <= $buffer) {
-            $buffer = (int)ceil($rawTtl * 0.05);
+        $data = $getResponse->json();
+
+        // Response: { data: [ { token: "...", session_expired: "21600", ... } ] }
+        $xToken = null;
+        if (isset($data['data']) && is_array($data['data'])) {
+            $entry  = $data['data'][0] ?? $data['data'];
+            $xToken = $entry['token'] ?? null;
         }
-        $cacheTtl = $rawTtl - $buffer;
-        $expiresAt = $nowTs + $cacheTtl;
 
-        Cache::put($cacheKey, [
-            'token' => $token,
-            'expires_at' => $expiresAt,
-            'issued_at' => $nowTs,
-            'raw_ttl_sec' => $rawTtl,
-            'exp_unix' => $data['data']['exp'] ?? null,
-        ], now()->addSeconds($cacheTtl));
+        if (!$xToken || strlen($xToken) < 8) {
+            throw new \Exception("PajakExpress /npwp/log: x-token not found in response — " . $getResponse->body());
+        }
 
-        Log::info("PajakExpress Auth token obtained successfully", [
-            'cache_ttl_sec' => $cacheTtl,
-            'cache_ttl_hours' => round($cacheTtl / 3600, 2),
-            'raw_ttl_from_server_sec' => $rawTtl,
-            'buffer_sec' => $buffer,
-            'exp_parsed_from' => isset($data['data']['exp']) ? 'data.data.exp (absolute UNIX ts)' : (isset($data['expires_in']) ? 'expires_in' : 'default 6h'),
-            'userid' => $data['data']['userid'] ?? null,
-            'name' => $data['data']['name'] ?? null,
+        Log::info("PajakExpress Auth: x-token fetched from /npwp/log", [
+            'x_token_preview' => substr($xToken, 0, 10) . '...',
         ]);
 
-        return $token;
+        return $xToken;
     }
 
     protected function invalidateAuthCache(): void
     {
-        $cacheKey = self::AUTH_CACHE_KEY;
-        if (Cache::has($cacheKey)) {
-            Cache::forget($cacheKey);
-            Log::info("PajakExpress Auth cache invalidated explicitly");
+        if (Cache::has(self::AUTH_CACHE_KEY)) {
+            Cache::forget(self::AUTH_CACHE_KEY);
         }
+        if (Cache::has(self::JWT_CACHE_KEY)) {
+            Cache::forget(self::JWT_CACHE_KEY);
+        }
+        Log::info("PajakExpress Auth cache invalidated");
     }
 
     protected function maskCredential(string $value): string
@@ -378,6 +335,22 @@ class PajakExpressService
             return $value[0] . str_repeat('*', $len - 2) . $value[$len - 1];
         }
         return substr($value, 0, 2) . str_repeat('*', $len - 5) . substr($value, -3);
+    }
+
+    protected function flattenArrayKeys($data, string $prefix, array &$result): void
+    {
+        if (is_array($data) || is_object($data)) {
+            foreach ((array) $data as $k => $v) {
+                $key = trim($prefix . '.' . $k, '.');
+                if (is_array($v) || is_object($v)) {
+                    $this->flattenArrayKeys($v, $key, $result);
+                    $result[] = $key . '[]';
+                } else {
+                    $preview = is_string($v) ? (strlen($v) > 48 ? substr($v, 0, 48) . '…[len=' . strlen($v) . ']' : $v) : (is_scalar($v) ? $v : gettype($v));
+                    $result[] = $key . '=' . (is_bool($preview) ? ($preview ? 'TRUE' : 'FALSE') : (string) $preview);
+                }
+            }
+        }
     }
 
     protected function extractTokenFromAuthResponse($json, string $bodyRaw): ?string
@@ -403,27 +376,23 @@ class PajakExpressService
         foreach ($explicitCandidates as $cand) {
             $val = $cand();
             if (is_string($val) && strlen($val) > 32) {
-                Log::debug("PajakExpress token found via explicit candidate");
                 return $val;
             }
         }
 
         $jwtFromRecursive = $this->findJwtRecursive($json);
         if (is_string($jwtFromRecursive)) {
-            Log::debug("PajakExpress token found via recursive search");
             return $jwtFromRecursive;
         }
 
         if (trim($bodyRaw) !== '') {
             $jwtPattern = '/"(?:token|access_token|jwt)"\s*:\s*"(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"/';
             if (preg_match($jwtPattern, $bodyRaw, $m)) {
-                Log::debug("PajakExpress token found via JWT regex on raw body (keyed match)");
                 return $m[1];
             }
 
             $bareJwtPattern = '/(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/';
             if (preg_match($bareJwtPattern, $bodyRaw, $m2)) {
-                Log::debug("PajakExpress token found via bare JWT regex on raw body");
                 return $m2[1];
             }
         }
@@ -452,7 +421,7 @@ class PajakExpressService
                 }
             }
             if (is_array($value) || is_object($value)) {
-                $res = $this->findJwtRecursive(is_object($value) ? (array)$value : $value, $depth + 1, $maxDepth);
+                $res = $this->findJwtRecursive(is_object($value) ? (array) $value : $value, $depth + 1, $maxDepth);
                 if (is_string($res)) {
                     return $res;
                 }
@@ -476,12 +445,12 @@ class PajakExpressService
         }
 
         return [
-            'status' => $status,
+            'status'  => $status,
             'message' => $raw['message'] ?? ($status === 1 ? 'Success' : 'Failed'),
-            'code' => $code,
-            'guid' => $raw['guid'] ?? null,
-            'time' => $raw['time'] ?? null,
-            'data' => $data,
+            'code'    => $code,
+            'guid'    => $raw['guid'] ?? null,
+            'time'    => $raw['time'] ?? null,
+            'data'    => $data,
         ];
     }
 
@@ -500,6 +469,14 @@ class PajakExpressService
             $data['status'] = $data['statusWp'] ?? 'Aktif';
         }
 
+        // Pastikan statusWp dan statusSpt selalu ada
+        if (!isset($data['statusWp'])) {
+            $data['statusWp'] = null;
+        }
+        if (!isset($data['statusSpt'])) {
+            $data['statusSpt'] = null;
+        }
+
         return $data;
     }
 
@@ -507,7 +484,6 @@ class PajakExpressService
     {
         $result = [];
 
-        $zipMatches = [];
         if (preg_match('/\b(\d{5})\b/', $alamat, $zipMatches)) {
             $result['zip_code'] = $zipMatches[1];
         }
