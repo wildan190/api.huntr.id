@@ -26,6 +26,7 @@ return [
         'http://localhost:5174',
         'https://app.huntr.id',
         'https://staging.huntr.id',
+        'https://demo.huntr.id',
     ],
 
     'allowed_origins_patterns' => env('APP_ENV') === 'local' ? ['/localhost(:\d+)?/'] : [],
