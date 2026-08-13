@@ -12,6 +12,7 @@ use App\Domain\Auth\Http\Requests\SendOtpRequest;
 use App\Domain\Auth\Http\Requests\VerifyOtpRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * AuthController
@@ -26,7 +27,20 @@ class AuthController extends \App\Http\Controllers\Controller
      */
     public function register(RegisterUserRequest $request, RegisterUserAction $action): JsonResponse
     {
-        return response()->json($action->execute($request->validated()), 201);
+        try {
+            return response()->json($action->execute($request->validated()), 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::error('Register 500 error', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+                'input'   => $request->except(['password']),
+            ]);
+            return response()->json([
+                'message' => 'Registrasi gagal: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
