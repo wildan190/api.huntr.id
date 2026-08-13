@@ -6,23 +6,28 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * @property string $id
+ * EFaktur
+ *
+ * Menyimpan data Faktur Pajak (VAT Out & VAT In) yang diproses melalui PajakExpress.
+ *
+ * @property string      $id
  * @property string|null $bast_id
  * @property string|null $po_id
  * @property string|null $invoice_id
- * @property string|null $nofa
- * @property string|null $transaction_id
- * @property string $status
+ * @property string|null $pajak_express_id   ID internal PajakExpress dari response create
+ * @property string      $vat_type           VAT_OUT | VAT_IN
+ * @property string|null $npwp_penjual       Untuk VAT In
+ * @property string      $kd_jenis_transaksi TD.00304 (default), dll
+ * @property string|null $nofa               Nomor Faktur Pajak resmi dari DJP
+ * @property string      $status             DRAFT | APPROVED | CANCELLED | CREATED
  * @property string|null $no_invoice
- * @property int|null $masa_pajak
- * @property int|null $tahun_pajak
+ * @property string|null $masa_pajak
+ * @property string|null $tahun_pajak
  * @property string|null $tanggal_faktur
- * @property float|null $dpp
- * @property float|null $ppn
- * @property array|null $raw_request
- * @property array|null $raw_response
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property float       $dpp
+ * @property float       $ppn
+ * @property array|null  $raw_request
+ * @property array|null  $raw_response
  */
 class EFaktur extends Model
 {
@@ -34,10 +39,13 @@ class EFaktur extends Model
         'bast_id',
         'po_id',
         'invoice_id',
-        'nofa',           // Nomor Faktur Pajak (assigned by DJP)
-        'transaction_id', // Pajak.io transactionId (UUID)
-        'status',         // CREATED, APPROVED, CANCELLED, etc.
-        'no_invoice',     // PO number used as invoice reference
+        'pajak_express_id',
+        'vat_type',
+        'npwp_penjual',
+        'kd_jenis_transaksi',
+        'nofa',
+        'status',
+        'no_invoice',
         'masa_pajak',
         'tahun_pajak',
         'tanggal_faktur',
@@ -45,6 +53,8 @@ class EFaktur extends Model
         'ppn',
         'raw_request',
         'raw_response',
+        // Legacy — kept for backward compat, not used by new service
+        'transaction_id',
     ];
 
     protected $casts = [
@@ -53,6 +63,8 @@ class EFaktur extends Model
         'dpp'          => 'float',
         'ppn'          => 'float',
     ];
+
+    /* ── Relations ──────────────────────────────────────────────── */
 
     public function bast()
     {
@@ -67,5 +79,32 @@ class EFaktur extends Model
     public function invoice()
     {
         return $this->belongsTo(\App\Domain\Order\Models\Invoice::class);
+    }
+
+    /* ── Helpers ────────────────────────────────────────────────── */
+
+    public function isVatOut(): bool
+    {
+        return $this->vat_type === 'VAT_OUT';
+    }
+
+    public function isVatIn(): bool
+    {
+        return $this->vat_type === 'VAT_IN';
+    }
+
+    public function isDraft(): bool
+    {
+        return strtoupper($this->status) === 'DRAFT';
+    }
+
+    public function isApproved(): bool
+    {
+        return strtoupper($this->status) === 'APPROVED';
+    }
+
+    public function isCancelled(): bool
+    {
+        return strtoupper($this->status) === 'CANCELLED';
     }
 }

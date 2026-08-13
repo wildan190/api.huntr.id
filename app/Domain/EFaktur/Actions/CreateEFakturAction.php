@@ -3,36 +3,39 @@
 namespace App\Domain\EFaktur\Actions;
 
 use App\Domain\EFaktur\Models\EFaktur;
-use App\Domain\EFaktur\Services\PajakIoService;
+use App\Domain\EFaktur\Services\PajakExpressService;
 use App\Domain\Order\Models\Bast;
 use App\Domain\Order\Models\PurchaseOrder;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * CreateEFakturAction
+ *
+ * Membuat Faktur Pajak Keluaran (VAT Out) via PajakExpress dalam dua langkah:
+ *   1. POST /IF_TXR_001/create  — buat draft, dapat pajak_express_id
+ *   2. POST /IF_TXR_001/upload  — upload ke DJP, dapat nomorFaktur resmi
+ */
 class CreateEFakturAction
 {
     public function __construct(
-        private readonly PajakIoService $pajakIo
+        private readonly PajakExpressService $pajakExpress
     ) {}
 
     /**
-     * Create an e-Faktur (Pajak Keluaran) after BAST is issued.
-     * The vendor (PKP) issues the faktur to the buyer (lawan transaksi).
-     *
-     * @param Bast          $bast
-     * @param PurchaseOrder $po
-     * @param array         $extra  Override/extend payload fields (e.g. penandatangan)
+     * @param  Bast          $bast
+     * @param  PurchaseOrder $po
+     * @param  array         $extra  Override signer: signer_name, signer_jabatan, signer_npwp
      * @return EFaktur
      */
     public function execute(Bast $bast, PurchaseOrder $po, array $extra = []): EFaktur
     {
-        // Load relationships (note: PO doesn't have direct 'items', only historicalItems or rfq.items)
         $po->load(['invoices', 'historicalItems', 'rfq.items', 'vendor', 'buyer']);
         $bast->load(['vendorCompany', 'buyerCompany']);
 
         $vendor = $po->vendor ?? $bast->vendorCompany;
         $buyer  = $po->buyer  ?? $bast->buyerCompany;
 
-        // Use final invoice if available, else proforma
+        // Pilih invoice final, fallback proforma
         $invoice = $po->invoices
             ->where('type', 'final')
             ->whereIn('status', ['unpaid', 'paid', 'pending_finance', 'disbursing'])
@@ -40,208 +43,216 @@ class CreateEFakturAction
             ?? $po->invoices->where('type', 'proforma')->first();
 
         $baseAmount = (float) ($invoice?->base_amount ?? $invoice?->amount ?? $po->total_amount ?? 0);
-        $tanggal    = now()->format('Y-m-d');
-        $masa       = now()->format('m');
-        $tahun      = now()->format('Y');
 
-        // Build barangJasa from PO items
-        $items = $this->buildBarangJasa($po, $baseAmount);
+        $tanggal  = now()->format('dmY');          // format PajakExpress: ddmmyyyy
+        $masa     = now()->format('m');             // 01–12
+        $tahun    = now()->format('Y');
 
-        // Calculate DPP and PPN
-        $totalDpp = collect($items)->sum('dpp');
-        $totalPpn = collect($items)->sum('ppn');
+        // Normalize NPWP → 16 digit
+        $vendorNpwp = $this->normalizeNpwp($vendor?->npwp ?? '', config('services.pajak_express.npwp', '0717166367077000'));
+        $buyerNpwp  = $this->normalizeNpwp($buyer?->npwp  ?? '', '1091031210912281');
 
-        // Normalize NPWPs to 16 digits
-        $vendorNpwpRaw = preg_replace('/[^0-9]/', '', $vendor?->npwp ?? '');
-        $vendorNpwp16 = str_pad($vendorNpwpRaw ?: '1305202311840002', 16, '0', STR_PAD_LEFT);
+        // TKU = NPWP 16 digit + 000000
+        $vendorTku = $vendorNpwp . '000000';
+        $buyerTku  = $buyerNpwp  . '000000';
 
-        $buyerNpwpRaw = preg_replace('/[^0-9]/', '', $buyer?->npwp ?? '');
-        $buyerNpwp16 = str_pad($buyerNpwpRaw ?: '1091031210911629', 16, '0', STR_PAD_LEFT);
+        // Build objekFaktur
+        $objekFaktur = $this->buildObjekFaktur($po, $baseAmount);
+        $totalDpp    = collect($objekFaktur)->sum(fn($i) => (float) $i['dpp']);
+        $totalDppLain= collect($objekFaktur)->sum(fn($i) => (float) ($i['dppLain'] ?? $i['dpp']));
+        $totalPpn    = collect($objekFaktur)->sum(fn($i) => (float) $i['ppn']);
 
-        // Lawan transaksi = buyer company
-        $lawanTransaksi = [
-            'identityType'  => 'NPWP',
-            'identityValue' => $buyerNpwp16,
-            'nama'          => $buyer?->name ?? 'Kongsi Tirta',
-            'nitku'         => $buyerNpwp16 . '000000',
-            'telp'          => $buyer?->phone ?? '0218720712',
-            'kodeNegara'    => 'IDN',
-            'alamatJalan'   => $buyer?->address ?? 'Jakarta',
-            'kota'          => $buyer?->city ?? 'DKI Jakarta',
-            'email'         => $buyer?->email ?? '',
+        // Signer info (penandatangan)
+        $signerNpwp   = $this->normalizeNpwp($extra['signer_npwp'] ?? $vendorNpwp, $vendorNpwp);
+        $signerKota   = $extra['signer_kota'] ?? $vendor?->city ?? 'Jakarta';
+
+        // ── Step 1: Create draft ───────────────────────────────────────
+        $createPayload = [
+            'fgUangMuka'            => false,
+            'fgPelunasan'           => false,
+            'nomorFaktur'           => '',
+            'nomorFakturDiganti'    => '',
+            'detailTransaksi'       => 'TD.00304',
+            'idKeteranganTambahan'  => '',
+            'keteranganTambahan'    => '',
+            'masaPajak'             => $masa,
+            'tahunPajak'            => $tahun,
+            'refDoc'                => '',
+            'referensi'             => $po->po_number,
+            'namaTokoPenjual'       => $vendorNpwp . '000000',   // NPWP + 6 zeros
+            'npwpPembeli'           => $buyerNpwp,
+            'idLainPembeli'         => '',
+            'kdNegaraPembeli'       => 'IDN',
+            'nikPaspPembeli'        => '',
+            'namaPembeli'           => $buyer?->name ?? 'Pembeli',
+            'tkuPembeli'            => $buyerTku,
+            'alamatPembeli'         => $buyer?->address ?? 'Jakarta',
+            'emailPembeli'          => $buyer?->email ?? '',
+            'keterangan1'           => '',
+            'keterangan2'           => '',
+            'keterangan3'           => '',
+            'keterangan4'           => '',
+            'keterangan5'           => '',
+            'objekFaktur'           => $objekFaktur,
+            'jumlahUangMuka'        => '0',
+            'totalDpp'              => (string) round($totalDpp),
+            'totalDppLain'          => (string) round($totalDppLain),
+            'totalPpn'              => (string) round($totalPpn),
+            'totalPpnbm'            => '0',
+            'tanggalFaktur'         => $tanggal,
+            'approvalSign'          => '',
+            'fgPengganti'           => '0',
+            'capKetTambahan'        => '',
         ];
 
-        // Penandatangan (signer) = from vendor company or defaults
-        $penandatangan = array_merge([
-            'npwp'       => $vendorNpwp16,
-            'passphrase' => config('services.pajakio.passphrase', 'test'),
-            'nama'       => $extra['signer_name'] ?? ($vendor?->owner_name ?? 'FERRY IRAWAN'),
-            'kota'       => $vendor?->city ?? 'DKI Jakarta',
-            'jabatan'    => $extra['signer_jabatan'] ?? 'CEO',
-        ], $extra['penandatangan'] ?? []);
-
-        $payload = [
-            'autoUploadDjp'       => true, // auto upload to DJP
-            'pengganti'           => false,
-            'nofaDiganti'         => '',
-            'kdJenisTransaksi'    => 'TD.00301', // Penjualan H2H / B2B biasa
-            'keteranganTambahan'  => [
-                'kode'                   => '',
-                'nomorDokumenPendukung'  => $bast->bast_number,
-            ],
-            'masaPajak'           => $masa,
-            'tahunPajak'          => $tahun,
-            'tanggalFaktur'       => $tanggal,
-            'noInvoice'           => $po->po_number,
-            'barangJasa'          => $items,
-            'lawanTransaksi'      => $lawanTransaksi,
-            'terminPembayaran'    => [
-                'type'  => 'NORMAL',
-                'dpp'   => 0,
-                'ppn'   => 0,
-                'ppnbm' => 0,
-                'nofa'  => '',
-            ],
-            'totalDpp'            => $totalDpp,
-            'totalDppLain'        => $totalDpp,
-            'totalPpn'            => $totalPpn,
-            'totalPpnBm'          => 0,
-            'penandatangan'       => $penandatangan,
-            'pembuatFaktur'       => [
-                'npwp' => $vendorNpwp16,
-                'nama' => $penandatangan['nama'],
-            ],
-            'nitkuPkp'            => [
-                'nitku' => $vendorNpwp16 . '000000',
-                'nama'  => 'HO',
-            ],
-        ];
-
-        // Merge any extra top-level payload overrides
-        if (isset($extra['payload'])) {
-            $payload = array_merge($payload, $extra['payload']);
-        }
-
-        Log::info('CreateEFakturAction: sending payload to Pajak.io', [
+        Log::info('CreateEFakturAction: Step 1 — create draft', [
             'bast_id'   => $bast->id,
             'po_number' => $po->po_number,
-            'no_invoice' => $payload['noInvoice'],
         ]);
 
-        // Call Pajak.io sandbox API
-        $response = $this->pajakIo->createFaktur($payload);
+        $createResponse = $this->pajakExpress->createVatOut($createPayload);
 
-        // Get status, transactionId, and nofa with proper clean-up from API response structure
-        $resCode = $response['code'] ?? null;
-        $resData = $response['data'] ?? [];
-        
-        $transactionId = $resData['transactionId'] ?? $response['transactionId'] ?? null;
-        $nofa = $resData['nofa'] ?? $response['nofa'] ?? null;
-        
-        // Map successful creation status
-        $status = 'CREATED';
-        if (isset($response['status']) && strtoupper($response['status']) === 'OK') {
-            $status = 'APPROVED'; // Mark approved if transactionId returned successfully in sandbox
+        $pajakExpressId = (int) ($createResponse['data']['id'] ?? 0);
+        $statusFaktur   = $createResponse['data']['statusFaktur'] ?? 'DRAFT';
+
+        if (!$pajakExpressId) {
+            throw new \RuntimeException('PajakExpress tidak mengembalikan ID faktur dari step create.');
         }
 
-        // Persist record
+        // ── Step 2: Upload ke DJP ─────────────────────────────────────
+        Log::info('CreateEFakturAction: Step 2 — upload to DJP', [
+            'pajak_express_id' => $pajakExpressId,
+        ]);
+
+        $uploadResponse = $this->pajakExpress->uploadVatOut(
+            $pajakExpressId,
+            $signerKota,
+            $signerNpwp
+        );
+
+        $nomorFaktur  = $uploadResponse['data']['nomorFaktur']  ?? null;
+        $statusFaktur = $uploadResponse['data']['statusFaktur'] ?? $statusFaktur;
+
+        // ── Persist ───────────────────────────────────────────────────
         return EFaktur::create([
-            'bast_id'        => $bast->id,
-            'po_id'          => $po->id,
-            'invoice_id'     => $invoice?->id,
-            'nofa'           => $nofa,
-            'transaction_id' => $transactionId,
-            'status'         => $status,
-            'no_invoice'     => $po->po_number,
-            'masa_pajak'     => $masa,
-            'tahun_pajak'    => $tahun,
-            'tanggal_faktur' => $tanggal,
-            'dpp'            => $totalDpp,
-            'ppn'            => $totalPpn,
-            'raw_request'    => $payload,
-            'raw_response'   => $response,
+            'bast_id'           => $bast->id,
+            'po_id'             => $po->id,
+            'invoice_id'        => $invoice?->id,
+            'pajak_express_id'  => (string) $pajakExpressId,
+            'nofa'              => $nomorFaktur,
+            'status'            => strtoupper($statusFaktur),
+            'no_invoice'        => $po->po_number,
+            'masa_pajak'        => $masa,
+            'tahun_pajak'       => $tahun,
+            'tanggal_faktur'    => now()->toDateString(),
+            'dpp'               => round($totalDpp, 2),
+            'ppn'               => round($totalPpn, 2),
+            'raw_request'       => $createPayload,
+            'raw_response'      => [
+                'create' => $createResponse,
+                'upload' => $uploadResponse,
+            ],
         ]);
     }
 
+    /* ─────────────────────────────────────────────────────────────── */
+    /*  Helpers                                                         */
+    /* ─────────────────────────────────────────────────────────────── */
+
     /**
-     * Build barangJasa array from PO items.
-     * Falls back to a single summary line if no items.
+     * Normalize NPWP: strip non-digit, pad/trim to 16 chars.
      */
-    private function buildBarangJasa(PurchaseOrder $po, float $baseAmount): array
+    private function normalizeNpwp(string $raw, string $fallback): string
     {
-        // Get items from either historicalItems or rfq.items
+        $digits = preg_replace('/[^0-9]/', '', $raw);
+        if (strlen($digits) < 10) {
+            $digits = preg_replace('/[^0-9]/', '', $fallback);
+        }
+        return str_pad(substr($digits, 0, 16), 16, '0', STR_PAD_RIGHT);
+    }
+
+    /**
+     * Build objekFaktur array sesuai format PajakExpress IF_TXR_001/create.
+     * Tarif PPN 12% dengan DPP Lain = 11/12 × Harga (PMK-131/2024).
+     */
+    private function buildObjekFaktur(PurchaseOrder $po, float $baseAmount): array
+    {
         $items = null;
-        
-        if ($po->is_historical && $po->historicalItems && $po->historicalItems->isNotEmpty()) {
+
+        if ($po->is_historical && $po->historicalItems?->isNotEmpty()) {
             $items = $po->historicalItems;
-        } elseif ($po->rfq && $po->rfq->items && $po->rfq->items->isNotEmpty()) {
+        } elseif ($po->rfq?->items?->isNotEmpty()) {
             $items = $po->rfq->items;
         }
 
         if (!$items || $items->isEmpty()) {
-            // Fallback single-line faktur from base amount
-            $dpp = $baseAmount;
-            $ppn = round($dpp * 0.11);
-
-            return [[
-                'jenis'       => 'BARANG',
-                'nama'        => 'Barang/Jasa - PO ' . $po->po_number,
-                'kode'        => '000000',
-                'jumlah'      => 1,
-                'kodeSatuan'  => 'UM.0021',
-                'harga'       => $dpp,
-                'totalHarga'  => (string) $dpp,
-                'diskon'      => 0,
-                'tarifPpn'    => 11,
-                'dpp'         => $dpp,
-                'cekDppLain'  => false,
-                'dppLain'     => $dpp,
-                'ppn'         => $ppn,
-                'tarifPpnbm'  => 0,
-                'ppnbm'       => 0,
-            ]];
+            return [$this->buildSingleLine($po->po_number, $baseAmount)];
         }
 
         return $items->map(function ($item) use ($po) {
-            // Handle both historicalItems and rfq.items
             if ($po->is_historical) {
-                // Historical item structure
                 $qty       = (float) ($item->qty ?? 1);
                 $unitPrice = (float) ($item->unit_price ?? 0);
-                $itemName  = $item->inventory_name ?? 'Barang';
-                $itemCode  = $item->inventory_code ?? '000000';
+                $nama      = $item->inventory_name ?? 'Barang';
+                $kode      = $item->inventory_code  ?? '000000';
             } else {
-                // RFQ item structure - need to get price from accepted proposal
                 $qty       = (float) ($item->qty ?? 1);
-                $itemName  = $item->catalogue->name ?? 'Barang';
-                $itemCode  = $item->catalogue->item_code ?? '000000';
-                
-                // Get unit price from proposal (if available)
-                $proposal = $po->rfq->proposals->where('status', 'accepted')->first();
-                $proposalItem = $proposal ? $proposal->items->where('rfq_item_id', $item->id)->first() : null;
-                $unitPrice = (float) ($proposalItem->price_offer ?? $item->catalogue->price ?? 0);
+                $nama      = $item->catalogue->name      ?? 'Barang';
+                $kode      = $item->catalogue->item_code ?? '000000';
+                $proposal  = $po->rfq->proposals->where('status', 'accepted')->first();
+                $pItem     = $proposal?->items->where('rfq_item_id', $item->id)->first();
+                $unitPrice = (float) ($pItem?->price_offer ?? $item->catalogue->price ?? 0);
             }
-            
-            $total     = round($qty * $unitPrice);
-            $ppn       = round($total * 0.11);
 
-            return [
-                'jenis'       => 'BARANG',
-                'nama'        => $itemName,
-                'kode'        => $itemCode,
-                'jumlah'      => $qty,
-                'kodeSatuan'  => 'UM.0021',
-                'harga'       => $unitPrice,
-                'totalHarga'  => (string) $total,
-                'diskon'      => 0,
-                'tarifPpn'    => 11,
-                'dpp'         => $total,
-                'cekDppLain'  => false,
-                'dppLain'     => $total,
-                'ppn'         => $ppn,
-                'tarifPpnbm'  => 0,
-                'ppnbm'       => 0,
-            ];
+            $totalHarga = round($qty * $unitPrice);
+            return $this->makeObjekLine($nama, $kode, $qty, $unitPrice, $totalHarga);
         })->toArray();
+    }
+
+    private function buildSingleLine(string $poNumber, float $baseAmount): array
+    {
+        return $this->makeObjekLine(
+            "Barang/Jasa - PO {$poNumber}",
+            '000000',
+            1,
+            $baseAmount,
+            $baseAmount
+        );
+    }
+
+    /**
+     * Satu baris objekFaktur dengan kalkulasi DPP Lain (PMK-131/2024):
+     *   DPP Lain = totalHarga × 11/12
+     *   PPN      = DPP Lain × 12%  =  totalHarga × 11%
+     */
+    private function makeObjekLine(
+        string $nama,
+        string $kode,
+        float  $jumlah,
+        float  $harga,
+        float  $totalHarga
+    ): array {
+        $dpp      = $totalHarga;
+        $dppLain  = round($totalHarga * 11 / 12, 2);
+        $ppn      = round($dppLain * 0.12, 2);   // 12% dari DPP Lain = 11% dari harga
+
+        return [
+            'brgJasa'       => 'GOODS',
+            'kdBrgJasa'     => $kode,
+            'namaBrgJasa'   => $nama,
+            'satuanBrgJasa' => 'UM.0001',
+            'hargaSatuan'   => (string) round($harga),
+            'jmlBrgJasa'    => (string) $jumlah,
+            'totalHarga'    => (string) round($totalHarga),
+            'diskon'        => '0',
+            'cekDppLain'    => true,
+            'dpp'           => (string) round($dpp),
+            'dppLain'       => (string) $dppLain,
+            'tarifPpn'      => '12',
+            'ppn'           => (string) round($ppn),
+            'tarifPpnbm'    => '0',
+            'ppnbm'         => '0',
+            'fgPmk'         => '0',
+        ];
     }
 }
