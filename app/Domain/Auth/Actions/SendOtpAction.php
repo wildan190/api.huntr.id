@@ -55,7 +55,7 @@ class SendOtpAction
             $response['delivery_error'] = $delivery['detail'] ?? 'unknown';
         }
 
-        if (app()->environment('local') || config('app.debug')) {
+        if (app()->environment('local') || config('app.debug') || env('DEMO_MODE', false)) {
             $response['otp'] = (string) $otp;
         }
 
