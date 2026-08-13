@@ -4,6 +4,7 @@ namespace App\Domain\Admin\Http\Controllers;
 
 use App\Domain\Admin\Actions\AdminLoginAction;
 use App\Domain\Admin\Actions\CreateAdminAction;
+use App\Domain\Admin\Actions\DeleteUserAction;
 use App\Domain\Admin\Actions\GetAdminUsersAction;
 use App\Domain\Admin\Models\Admin;
 use Illuminate\Http\JsonResponse;
@@ -61,5 +62,20 @@ class AdminController extends \App\Http\Controllers\Controller
                 'email' => $admin->email,
             ],
         ], 201);
+    }
+
+    /**
+     * Delete a user (only allowed if user has no company).
+     */
+    public function deleteUser(string $userId, DeleteUserAction $action): JsonResponse
+    {
+        try {
+            $action->execute($userId);
+            return response()->json(['message' => 'User berhasil dihapus.']);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
     }
 }
