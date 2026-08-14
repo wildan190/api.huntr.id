@@ -342,6 +342,152 @@ class EFakturController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Download PDF faktur menggunakan approvalSign URL dari DJP.
+     * POST /api/efaktur/{id}/pdf
+     */
+    public function pdf(string $id): JsonResponse
+    {
+        $efaktur = EFaktur::findOrFail($id);
+
+        $raw          = $efaktur->raw_response ?? [];
+        $approvalSign = $raw['upload']['data']['approvalSign']
+            ?? $raw['upload']['data']['approvalsign']
+            ?? $raw['create']['data']['approvalSign']
+            ?? $raw['create']['data']['approvalsign']
+            ?? $raw['approvalsign']
+            ?? null;
+
+        // Treat empty string sebagai tidak tersedia
+        if (empty($approvalSign)) {
+            return response()->json([
+                'message' => 'approvalSign belum tersedia dari DJP. '
+                    . 'Coba gunakan "Verify Prepop" terlebih dahulu untuk mendapatkan approval sign, '
+                    . 'atau tunggu beberapa menit setelah faktur disetujui DJP.',
+            ], 422);
+        }
+
+        try {
+            $result = $this->pajakExpress->downloadPdf($approvalSign);
+            return response()->json(['pdf' => $result]);
+        } catch (\Exception $e) {
+            Log::error('EFakturController.pdf error', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * Verifikasi faktur ke DJP via IF_TXR_063.
+     * POST /api/efaktur/{id}/verify
+     */
+    public function verify(Request $request, string $id): JsonResponse
+    {
+        $efaktur = EFaktur::findOrFail($id);
+
+        if (!$efaktur->nofa) {
+            return response()->json(['message' => 'Nomor faktur belum tersedia.'], 422);
+        }
+
+        $npwpPenjual = $efaktur->npwp_penjual
+            ?? config('services.pajak_express.npwp', '0717166367077000');
+
+        $raw         = $efaktur->raw_response ?? [];
+        $npwpPembeli = $raw['create']['npwpPembeli']
+            ?? $raw['create']['data']['npwpPembeli']
+            ?? $request->input('npwp_pembeli', '');
+
+        try {
+            $result = $this->pajakExpress->verifyVat(
+                $efaktur->nofa,
+                $npwpPenjual,
+                $npwpPembeli,
+                $request->input('user_id', '')
+            );
+
+            // Cek error dari PajakExpress yang dikembalikan sebagai HTTP 200
+            $isError = ($result['status'] ?? '') === 'error'
+                || (isset($result['code']) && (int) $result['code'] === 0);
+
+            if ($isError) {
+                return response()->json(['message' => $result['message'] ?? 'Verifikasi gagal.'], 422);
+            }
+
+            return response()->json([
+                'message' => $result['message'] ?? 'Verifikasi berhasil dikirim ke DJP.',
+                'result'  => $result,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * Verifikasi prepopulated data faktur via IF_TXR_063/prepop.
+     * POST /api/efaktur/{id}/verify-prepop
+     */
+    public function verifyPrepop(Request $request, string $id): JsonResponse
+    {
+        $efaktur = EFaktur::findOrFail($id);
+
+        if (!$efaktur->nofa) {
+            return response()->json(['message' => 'Nomor faktur belum tersedia.'], 422);
+        }
+
+        $npwpPenjual = $efaktur->npwp_penjual
+            ?? config('services.pajak_express.npwp', '0717166367077000');
+
+        $raw         = $efaktur->raw_response ?? [];
+        $npwpPembeli = $raw['create']['data']['npwpPembeli']
+            ?? $raw['create']['npwpPembeli']
+            ?? $request->input('npwp_pembeli', '');
+
+        try {
+            $result = $this->pajakExpress->verifyPrepopulated(
+                $efaktur->nofa,
+                $npwpPenjual,
+                $npwpPembeli,
+                $request->input('user_id', '')
+            );
+
+            // PajakExpress bisa return HTTP 200 dengan code: 0 (error)
+            $isError = ($result['status'] ?? '') === 'error'
+                || (isset($result['code']) && (int) $result['code'] === 0);
+
+            if ($isError) {
+                $errMsg = $result['message'] ?? 'Verify prepopulated gagal.';
+                if (stripos($errMsg, 'nomorfaktur tidak ditemukan') !== false
+                    || stripos($errMsg, 'not found') !== false) {
+                    $errMsg = "Nomor faktur tidak ditemukan di sistem DJP. "
+                        . "Kemungkinan akun sandbox tidak memiliki akses ke faktur ini, "
+                        . "atau faktur belum diproses oleh DJP. "
+                        . "approvalSign dapat dilihat langsung dari portal PajakExpress.";
+                }
+                return response()->json(['message' => $errMsg], 422);
+            }
+
+            // Sync approval sign ke raw_response jika ada
+            if (!empty($result['data']['approvalSign'])) {
+                $merged = array_merge($raw, [
+                    'verify_prepop' => $result,
+                    'upload' => array_merge($raw['upload'] ?? [], [
+                        'data' => array_merge($raw['upload']['data'] ?? [], [
+                            'approvalSign' => $result['data']['approvalSign'],
+                        ]),
+                    ]),
+                ]);
+                $efaktur->update(['raw_response' => $merged]);
+                $efaktur->refresh();
+            }
+
+            return response()->json([
+                'message' => $result['message'] ?? 'Verifikasi prepopulated berhasil.',
+                'result'  => $result,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * List faktur keluaran langsung dari PajakExpress (tanpa filter company lokal).
      * GET /api/efaktur/vat-out/list?page=1&limit=20
      */
