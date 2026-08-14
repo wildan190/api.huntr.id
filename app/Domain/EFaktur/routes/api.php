@@ -24,5 +24,8 @@ Route::prefix('api/efaktur')->middleware(['api', 'auth:sanctum'])->group(functio
     Route::get('{id}',                    [EFakturController::class, 'show']);    // Detail + refresh status
     Route::post('{id}/upload',            [EFakturController::class, 'upload']); // Upload DRAFT → DJP
     Route::post('{id}/cancel',            [EFakturController::class, 'cancel']); // Cancel approved faktur
+    Route::post('{id}/pdf',               [EFakturController::class, 'pdf']);    // Download PDF
+    Route::post('{id}/verify',            [EFakturController::class, 'verify']); // Verify ke DJP
+    Route::post('{id}/verify-prepop',     [EFakturController::class, 'verifyPrepop']); // Verify prepopulated
     Route::delete('{id}',                 [EFakturController::class, 'destroy']); // Hapus draft
 });

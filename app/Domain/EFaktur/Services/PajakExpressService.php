@@ -248,4 +248,123 @@ class PajakExpressService extends \App\Domain\Company\Services\PajakExpressServi
 
         return $data;
     }
+
+    /* ─────────────────────────────────────────────────────────────── */
+    /*  PDF Download                                                    */
+    /* ─────────────────────────────────────────────────────────────── */
+
+    /**
+     * Download PDF faktur menggunakan approvalSign URL dari DJP.
+     * Endpoint: POST https://restdev.pajakexpress.com:9922/report/ctas/cetak
+     * Mengembalikan base64 arraybuff PDF.
+     *
+     * @param  string $approvalSignUrl  URL dari field approvalSign / approvalsign
+     * @return array  ['KdStatus'=>'1', 'data'=>['arraybuff'=>'base64...']]
+     */
+    public function downloadPdf(string $approvalSignUrl): array
+    {
+        $pdfBaseUrl = config(
+            'services.pajak_express.pdf_url',
+            'https://restdev.pajakexpress.com:9922'
+        );
+        $url = rtrim($pdfBaseUrl, '/') . '/report/ctas/cetak';
+
+        \Illuminate\Support\Facades\Log::info('PajakExpressService: downloadPdf', [
+            'url'             => $url,
+            'approvalSignUrl' => $approvalSignUrl,
+        ]);
+
+        try {
+            // PDF endpoint mungkin membutuhkan autentikasi yang sama
+            $headers = [
+                'Authorization' => 'Bearer ' . $this->getJwtToken(),
+                'x-token'       => $this->getAuthToken(),
+                'Content-Type'  => 'application/json',
+                'Accept'        => 'application/json',
+            ];
+
+            $response = \Illuminate\Support\Facades\Http::withHeaders($headers)
+                ->timeout(60)
+                ->post($url, ['url' => $approvalSignUrl]);
+
+            if ($response->successful()) {
+                return $response->json() ?? [];
+            }
+
+            // Fallback: coba tanpa auth (mungkin public endpoint)
+            $response = \Illuminate\Support\Facades\Http::timeout(60)
+                ->post($url, ['url' => $approvalSignUrl]);
+
+            if ($response->successful()) {
+                return $response->json() ?? [];
+            }
+
+            $body = $response->json() ?? [];
+            throw new \RuntimeException('PDF download failed: ' . ($body['message'] ?? "HTTP {$response->status()}"));
+
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            \Illuminate\Support\Facades\Log::error('PajakExpressService: PDF download connection failed', ['error' => $e->getMessage()]);
+            throw new \RuntimeException('Tidak dapat terhubung ke server PDF PajakExpress: ' . $e->getMessage());
+        }
+    }
+
+    /* ─────────────────────────────────────────────────────────────── */
+    /*  Verify VAT                                                      */
+    /* ─────────────────────────────────────────────────────────────── */
+
+    /**
+     * Verifikasi faktur pajak.
+     * POST /IF_TXR_063
+     *
+     * @param  string $nomorFaktur   Nomor faktur (boleh dengan prefix "INV#")
+     * @param  string $npwpPenjual
+     * @param  string $npwpPembeli
+     * @param  string $userId        NPWP/NIK user yang melakukan verifikasi
+     */
+    public function verifyVat(
+        string $nomorFaktur,
+        string $npwpPenjual,
+        string $npwpPembeli,
+        string $userId = ''
+    ): array {
+        // PajakExpress IF_TXR_063 membutuhkan prefix "INV#" pada nomorFaktur
+        $nomorWithPrefix = str_starts_with($nomorFaktur, 'INV#')
+            ? $nomorFaktur
+            : 'INV#' . $nomorFaktur;
+
+        \Illuminate\Support\Facades\Log::info('PajakExpressService: verifyVat', [
+            'nomorFaktur' => $nomorWithPrefix,
+        ]);
+
+        return $this->request('POST', 'IF_TXR_063', [
+            'nomorFaktur' => $nomorWithPrefix,
+            'npwpPenjual' => $npwpPenjual,
+            'npwpPembeli' => $npwpPembeli,
+            'userId'      => $userId ?: $this->npwp,
+        ]);
+    }
+
+    /**
+     * Verifikasi prepopulated data faktur.
+     * POST /IF_TXR_063/prepop
+     */
+    public function verifyPrepopulated(
+        string $nomorFaktur,
+        string $npwpPenjual,
+        string $npwpPembeli,
+        string $userId  = '',
+        string $idKanal = '14'
+    ): array {
+        $nomorWithPrefix = str_starts_with($nomorFaktur, 'INV#')
+            ? $nomorFaktur
+            : 'INV#' . $nomorFaktur;
+
+        return $this->request('POST', 'IF_TXR_063/prepop', [
+            'nomorFaktur' => $nomorWithPrefix,
+            'npwpPenjual' => $npwpPenjual,
+            'npwpPembeli' => $npwpPembeli,
+            'userId'      => $userId ?: $this->npwp,
+            'IdKanal'     => $idKanal,
+        ]);
+    }
 }
