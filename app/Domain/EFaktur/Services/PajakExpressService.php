@@ -204,4 +204,48 @@ class PajakExpressService extends \App\Domain\Company\Services\PajakExpressServi
             'kanal'                => '14',
         ]);
     }
+
+    /* ─────────────────────────────────────────────────────────────── */
+    /*  Reference Data                                                  */
+    /* ─────────────────────────────────────────────────────────────── */
+
+    /**
+     * Ambil kode barang (mst_goods) atau jasa (mst_services) dari PajakExpress.
+     * Hasil di-cache selama 24 jam.
+     */
+    public function getReference(string $type = 'goods'): array
+    {
+        $endpoint = $type === 'services' ? 'mst_services' : 'mst_goods';
+        $cacheKey = "pajakexpress_ref_{$type}";
+
+        if (\Illuminate\Support\Facades\Cache::has($cacheKey)) {
+            return \Illuminate\Support\Facades\Cache::get($cacheKey);
+        }
+
+        $res  = $this->request('GET', $endpoint, [], ['limit' => 9999]);
+        $data = $res['data'] ?? [];
+
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $data, now()->addHours(24));
+
+        return $data;
+    }
+
+    /**
+     * Ambil kode satuan (mst_satuan) dari PajakExpress. Cache 24 jam.
+     */
+    public function getSatuanReference(): array
+    {
+        $cacheKey = 'pajakexpress_ref_satuan';
+
+        if (\Illuminate\Support\Facades\Cache::has($cacheKey)) {
+            return \Illuminate\Support\Facades\Cache::get($cacheKey);
+        }
+
+        $res  = $this->request('GET', 'mst_satuan', [], ['page' => 1, 'limit' => 1000]);
+        $data = $res['data'] ?? [];
+
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $data, now()->addHours(24));
+
+        return $data;
+    }
 }

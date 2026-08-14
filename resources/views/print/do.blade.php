@@ -87,66 +87,6 @@
         </tbody>
     </table>
 
-    @php
-        $doBaseAmt = $po['total_amount'];
-        // Platform fee: tier-based
-        if ($doBaseAmt <= 100000000) {
-            $doPlatFeeRate = 0.05;
-        } elseif ($doBaseAmt <= 250000000) {
-            $doPlatFeeRate = 0.03;
-        } else {
-            $doPlatFeeRate = 0.02;
-        }
-        $doPlatFee      = $doBaseAmt * $doPlatFeeRate;
-        $doPpnPlatform  = $doPlatFee * 0.11;
-        $doAdminBank    = 4400;
-        $doPph23        = $doPlatFee * 0.02;
-        $doBiayaLayanan = ($doPlatFee + $doPpnPlatform) + $doAdminBank - $doPph23;
-        $doPpn          = $doBaseAmt * 0.11;
-        $doTotal        = $doBaseAmt + $doBiayaLayanan + $doPpn;
-    @endphp
-    <div class="section-title" style="margin-top: 24px;">Ringkasan Biaya / Financial Summary</div>
-    <table style="margin-bottom: 16px;">
-        <tbody>
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($doBaseAmt) }}</td>
-            </tr>
-            {{-- Platform Fee + PPN --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="2" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">{{ number_format($doPlatFeeRate * 100, 0) }}% + 11%</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($doPlatFee + $doPpnPlatform) }}</td>
-            </tr>
-            {{-- Admin Bank --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">Admin Bank</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($doAdminBank) }}</td>
-            </tr>
-            {{-- PPH 23 --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="2" style="text-align: right; color: #78350f;">PPH 23</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">2%</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($doPph23) }}</td>
-            </tr>
-            {{-- Biaya Layanan --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($doBiayaLayanan) }}</td>
-            </tr>
-            {{-- PPN 11% --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="2" style="text-align: right; color: #78350f;">PPN</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">11%</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($doPpn) }}</td>
-            </tr>
-            <tr class="total-row">
-                <td colspan="3" style="text-align: right;">TOTAL PAYABLE ({{ $po['currency'] }})</td>
-                <td style="text-align: right;">{{ number_format($doTotal) }}</td>
-            </tr>
-        </tbody>
-    </table>
-
     <div class="section-title">Document Signatures</div>
     <div class="signature-section">
         @include('print._signature_block', [

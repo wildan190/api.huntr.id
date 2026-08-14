@@ -14,6 +14,10 @@ Route::prefix('api/efaktur')->middleware(['api', 'auth:sanctum'])->group(functio
     /* ── VAT OUT — direct PajakExpress list (static path) ────────── */
     Route::get('vat-out/list',            [EFakturController::class, 'vatOutList']);
 
+    /* ── Reference data ───────────────────────────────────────────── */
+    Route::get('references',              [EFakturController::class, 'references']);
+    Route::get('bast/{bastId}/items',     [EFakturController::class, 'bastItems']);
+
     /* ── VAT OUT — local CRUD ─────────────────────────────────────── */
     Route::post('',                       [EFakturController::class, 'store']);   // Terbitkan dari BAST
     Route::get('',                        [EFakturController::class, 'index']);   // List lokal per company

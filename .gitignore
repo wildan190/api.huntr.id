@@ -37,3 +37,23 @@ ROLE_ASSIGNMENT_FLOW.md
 NOTIFICATION_SYSTEM_AUDIT.md
 .gitignore
 deploy.sh
+pajak-express.md
+fix.md
+.gitignore
+doc-api-vat-in.md
+API VSWP.html
+.gitignore
+city-reference.md
+country-reference.md
+doc-api-vat-out.md
+kelurahan-reference.md
+province-reference.md
+reference-barang.md
+reference-satuan.md
+reference-service.md
+status
+subdistrict-reference.md
+tax-object-code-billing-reference.md
+vat-code-reference.md
+vat-download-pdf.md
+verify-vat.md
