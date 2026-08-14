@@ -3,6 +3,11 @@
 namespace App\Domain\EFaktur\Http\Controllers;
 
 use App\Domain\EFaktur\Actions\CreateEFakturAction;
+use App\Domain\EFaktur\Http\Requests\StoreEFakturRequest;
+use App\Domain\EFaktur\Http\Requests\UploadEFakturRequest;
+use App\Domain\EFaktur\Http\Requests\VatInPrepopulatedRequest;
+use App\Domain\EFaktur\Http\Requests\VatInUploadRequest;
+use App\Domain\EFaktur\Http\Requests\VatInVerifyRequest;
 use App\Domain\EFaktur\Models\EFaktur;
 use App\Domain\EFaktur\Services\PajakExpressService;
 use App\Domain\Order\Models\Bast;
@@ -21,19 +26,91 @@ class EFakturController extends \App\Http\Controllers\Controller
     /* ═══════════════════════════════════════════════════════════════ */
 
     /**
+     * Reference data: goods codes + satuan codes dari PajakExpress.
+     * GET /api/efaktur/references
+     */
+    public function references(): JsonResponse
+    {
+        try {
+            [$goods, $satuan] = [
+                $this->pajakExpress->getReference('goods'),
+                $this->pajakExpress->getSatuanReference(),
+            ];
+
+            return response()->json([
+                'goods'  => $goods,
+                'satuan' => $satuan,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * Ambil item-item dari BAST (via PO) untuk preview sebelum terbitkan faktur.
+     * GET /api/efaktur/bast/{bastId}/items
+     */
+    public function bastItems(string $bastId): JsonResponse
+    {
+        $bast = Bast::with(['purchaseOrder.historicalItems', 'purchaseOrder.rfq.items.catalogue', 'purchaseOrder.rfq.proposals.items'])->findOrFail($bastId);
+        $po   = $bast->purchaseOrder;
+
+        if (!$po) {
+            return response()->json(['message' => 'Purchase Order tidak ditemukan.'], 422);
+        }
+
+        $items = [];
+
+        if ($po->is_historical && $po->historicalItems?->isNotEmpty()) {
+            $items = $po->historicalItems->map(fn($i) => [
+                'id'         => $i->id,
+                'nama'       => $i->inventory_name ?? 'Barang',
+                'qty'        => (float) ($i->qty ?? 1),
+                'unit_price' => (float) ($i->unit_price ?? 0),
+                'uom'        => $i->uom ?? 'Pc',
+                'total'      => round((float)($i->qty ?? 1) * (float)($i->unit_price ?? 0)),
+            ])->values()->toArray();
+        } elseif ($po->rfq?->items?->isNotEmpty()) {
+            $proposal = $po->rfq->proposals->where('status', 'accepted')->first();
+            $items = $po->rfq->items->map(function ($i) use ($proposal) {
+                $pItem     = $proposal?->items->where('rfq_item_id', $i->id)->first();
+                $unitPrice = (float) ($pItem?->price_offer ?? $i->catalogue->price ?? 0);
+                $qty       = (float) ($i->qty ?? 1);
+                return [
+                    'id'         => $i->id,
+                    'nama'       => $i->catalogue->name ?? 'Barang',
+                    'qty'        => $qty,
+                    'unit_price' => $unitPrice,
+                    'uom'        => $i->catalogue->uom ?? 'Pc',
+                    'total'      => round($qty * $unitPrice),
+                ];
+            })->values()->toArray();
+        }
+
+        // Fallback: satu baris dari total PO
+        if (empty($items)) {
+            $items = [[
+                'id'         => 'fallback',
+                'nama'       => 'Barang/Jasa - PO ' . $po->po_number,
+                'qty'        => 1,
+                'unit_price' => (float) ($po->total_amount ?? 0),
+                'uom'        => 'Unit',
+                'total'      => (float) ($po->total_amount ?? 0),
+            ]];
+        }
+
+        return response()->json([
+            'po_number' => $po->po_number,
+            'items'     => $items,
+        ]);
+    }
+
+    /**
      * Terbitkan e-Faktur baru dari sebuah BAST yang sudah completed.
      * POST /api/efaktur
      */
-    public function store(Request $request, CreateEFakturAction $action): JsonResponse
+    public function store(StoreEFakturRequest $request, CreateEFakturAction $action): JsonResponse
     {
-        $request->validate([
-            'bast_id'        => 'required|uuid|exists:basts,id',
-            'signer_name'    => 'nullable|string|max:255',
-            'signer_jabatan' => 'nullable|string|max:255',
-            'signer_npwp'    => 'nullable|string|max:20',
-            'signer_kota'    => 'nullable|string|max:100',
-        ]);
-
         $bast = Bast::with(['purchaseOrder', 'vendorCompany', 'buyerCompany'])->findOrFail($request->bast_id);
         $po   = $bast->purchaseOrder;
 
@@ -130,13 +207,8 @@ class EFakturController extends \App\Http\Controllers\Controller
      * Upload faktur DRAFT ke DJP untuk mendapat nomor faktur resmi.
      * POST /api/efaktur/{id}/upload
      */
-    public function upload(Request $request, string $id): JsonResponse
+    public function upload(UploadEFakturRequest $request, string $id): JsonResponse
     {
-        $request->validate([
-            'tempat_penandatangan'  => 'required|string|max:100',
-            'npwp_nik_penandatangan'=> 'required|string|max:20',
-        ]);
-
         $efaktur = EFaktur::findOrFail($id);
 
         if (!$efaktur->pajak_express_id) {
@@ -153,6 +225,35 @@ class EFakturController extends \App\Http\Controllers\Controller
                 $request->tempat_penandatangan,
                 $request->npwp_nik_penandatangan
             );
+
+            // PajakExpress mengembalikan HTTP 200 bahkan saat error — cek field status/code
+            $isError = ($result['status'] ?? '') === 'error'
+                || (isset($result['code']) && (int) $result['code'] === 0);
+
+            if ($isError) {
+                $errMsg = $result['message'] ?? 'Upload ke DJP gagal.';
+
+                // Pesan passphrase lebih informatif
+                if (stripos($errMsg, 'passphrase') !== false) {
+                    preg_match('/npwp\s+([0-9]+)/i', $errMsg, $m);
+                    $npwp = $m[1] ?? $request->npwp_nik_penandatangan;
+                    $errMsg = "Passphrase belum dibuat untuk NPWP {$npwp}. "
+                        . "Silakan login ke portal PajakExpress dan buat passphrase untuk NPWP tersebut sebelum upload.";
+                }
+
+                // Tetap simpan raw_response untuk audit trail
+                $efaktur->update([
+                    'raw_response' => array_merge($efaktur->raw_response ?? [], ['upload' => $result]),
+                ]);
+
+                Log::warning('EFakturController.upload: PajakExpress error response', [
+                    'id'       => $id,
+                    'message'  => $result['message'] ?? null,
+                    'code'     => $result['code'] ?? null,
+                ]);
+
+                return response()->json(['message' => $errMsg], 422);
+            }
 
             $nomorFaktur  = $result['data']['nomorFaktur']  ?? $efaktur->nofa;
             $statusFaktur = strtoupper($result['data']['statusFaktur'] ?? 'APPROVED');
@@ -283,15 +384,8 @@ class EFakturController extends \App\Http\Controllers\Controller
      * Inquiry prepopulated faktur masukan dari DJP.
      * POST /api/efaktur/vat-in/prepopulated
      */
-    public function vatInPrepopulated(Request $request): JsonResponse
+    public function vatInPrepopulated(VatInPrepopulatedRequest $request): JsonResponse
     {
-        $request->validate([
-            'tahun_pajak'    => 'required|string|size:4',
-            'masa_pajak'     => 'required|string',
-            'npwp_penjual'   => 'nullable|string',
-            'nomor_faktur'   => 'nullable|string',
-        ]);
-
         try {
             $result = $this->pajakExpress->prepopulatedVatIn(
                 $request->tahun_pajak,
@@ -309,15 +403,8 @@ class EFakturController extends \App\Http\Controllers\Controller
      * Konfirmasi pengkreditan faktur masukan.
      * POST /api/efaktur/vat-in/upload
      */
-    public function vatInUpload(Request $request): JsonResponse
+    public function vatInUpload(VatInUploadRequest $request): JsonResponse
     {
-        $request->validate([
-            'nomor_faktur'              => 'required|string',
-            'masa_pajak'                => 'required|string',
-            'tahun_pajak'               => 'required|string|size:4',
-            'konfirmasi_pengkreditan'   => 'nullable|integer|in:0,1',
-        ]);
-
         try {
             $result = $this->pajakExpress->uploadVatIn(
                 $request->nomor_faktur,
@@ -357,15 +444,8 @@ class EFakturController extends \App\Http\Controllers\Controller
      * Verifikasi faktur masukan.
      * POST /api/efaktur/vat-in/verify
      */
-    public function vatInVerify(Request $request): JsonResponse
+    public function vatInVerify(VatInVerifyRequest $request): JsonResponse
     {
-        $request->validate([
-            'tahun_pajak'    => 'required|string|size:4',
-            'masa_pajak'     => 'required|string',
-            'npwp_penjual'   => 'nullable|string',
-            'nomor_faktur'   => 'nullable|string',
-        ]);
-
         try {
             $result = $this->pajakExpress->verifyVatIn(
                 $request->tahun_pajak,

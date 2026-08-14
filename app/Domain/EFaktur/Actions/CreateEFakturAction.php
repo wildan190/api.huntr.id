@@ -21,6 +21,149 @@ class CreateEFakturAction
         private readonly PajakExpressService $pajakExpress
     ) {}
 
+    /* ─── Cached reference lookup ────────────────────────────────── */
+
+    private ?array $goodsRef   = null;
+    private ?array $serviceRef = null;
+    private ?array $satuanRef  = null;
+
+    /**
+     * Cari kode barang DJP yang paling cocok dengan nama produk.
+     * Fallback ke '000000' (Barang generic) jika tidak ada match.
+     */
+    private function lookupGoodsCode(string $nama): string
+    {
+        if ($this->goodsRef === null) {
+            $this->goodsRef = $this->pajakExpress->getReference('goods');
+        }
+
+        $namaLower = mb_strtolower($nama);
+
+        // Keywords sederhana → kode yang tepat
+        $keywordMap = [
+            'spare part'    => '840000',
+            'sparepart'     => '840000',
+            'mesin'         => '840000',
+            'machine'       => '840000',
+            'equipment'     => '840000',
+            'alat'          => '820000',
+            'elektronik'    => '850000',
+            'electronic'    => '850000',
+            'besi'          => '730000',
+            'baja'          => '730000',
+            'steel'         => '730000',
+            'pipa'          => '730000',
+            'pipe'          => '730000',
+            'cable'         => '850000',
+            'kabel'         => '850000',
+            'chemical'      => '380000',
+            'kimia'         => '380000',
+            'safety'        => '620000',
+            'helm'          => '620000',
+            'seragam'       => '620000',
+            'baju'          => '620000',
+            'kertas'        => '480000',
+            'paper'         => '480000',
+            'atk'           => '480000',
+            'komputer'      => '847000',
+            'laptop'        => '847000',
+            'computer'      => '847000',
+            'oli'           => '271000',
+            'pelumas'       => '271000',
+            'fuel'          => '271000',
+            'bbm'           => '271000',
+            'ban'           => '401100',
+            'tyre'          => '401100',
+            'bearing'       => '840000',
+            'valve'         => '840000',
+            'pump'          => '840000',
+            'pompa'         => '840000',
+            'hydraulic'     => '840000',
+            'hidrolik'      => '840000',
+        ];
+
+        foreach ($keywordMap as $keyword => $code) {
+            if (str_contains($namaLower, $keyword)) {
+                return $code;
+            }
+        }
+
+        // Cari di reference list berdasarkan kesamaan kata kunci bahasa Indonesia
+        $words = array_filter(explode(' ', preg_replace('/[^a-z0-9 ]/i', ' ', $namaLower)));
+        foreach ($words as $word) {
+            if (strlen($word) < 4) continue;
+            foreach ($this->goodsRef as $item) {
+                $desc = mb_strtolower($item['bahasa'] ?? '');
+                if (str_contains($desc, $word)) {
+                    return $item['code'];
+                }
+            }
+        }
+
+        return '000000'; // Barang generic — selalu valid
+    }
+
+    /**
+     * Map UOM internal (Pc, Kg, L, M, dll) ke kode satuan PajakExpress.
+     */
+    private function lookupSatuanCode(string $uom): string
+    {
+        if ($this->satuanRef === null) {
+            $this->satuanRef = $this->pajakExpress->getSatuanReference();
+        }
+
+        // Cari exact match (case-insensitive) di deskripsi satuan
+        $uomLower = mb_strtolower(trim($uom));
+        foreach ($this->satuanRef as $s) {
+            if (mb_strtolower($s['description'] ?? '') === $uomLower) {
+                return $s['code'];
+            }
+        }
+
+        // Fallback map untuk UOM umum — berdasarkan reference aktual PajakExpress
+        $map = [
+            'pc'        => 'UM.0021', // Piece
+            'pcs'       => 'UM.0021',
+            'piece'     => 'UM.0021',
+            'unit'      => 'UM.0018', // Unit
+            'set'       => 'UM.0019', // Set
+            'kg'        => 'UM.0003', // Kilogram
+            'kilogram'  => 'UM.0003',
+            'gram'      => 'UM.0004', // Gram
+            'ton'       => 'UM.0001', // Metrik Ton
+            'l'         => 'UM.0007', // Liter
+            'liter'     => 'UM.0007',
+            'litre'     => 'UM.0007',
+            'kl'        => 'UM.0006', // Kiloliter
+            'm'         => 'UM.0013', // Meter
+            'meter'     => 'UM.0013',
+            'm2'        => 'UM.0012', // Meter Persegi
+            'm3'        => 'UM.0034', // Meter Kubik
+            'cm'        => 'UM.0015', // Sentimeter
+            'box'       => 'UM.0022', // Boks
+            'drum'      => 'UM.0036', // Drum
+            'roll'      => 'UM.0039', // Roll
+            'karton'    => 'UM.0037', // Karton
+            'carton'    => 'UM.0037',
+            'sheet'     => 'UM.0020', // Lembar
+            'lembar'    => 'UM.0020',
+            'lusin'     => 'UM.0017', // Lusin
+            'dozen'     => 'UM.0017',
+            'pallet'    => 'UM.0018', // Unit (paling dekat)
+            'pair'      => 'UM.0021', // Piece
+            'kwh'       => 'UM.0038', // Kwh
+            'barrel'    => 'UM.0008', // Barrel
+            'inch'      => 'UM.0014', // Inches
+            'yard'      => 'UM.0016', // Yard
+        ];
+
+        if (isset($map[$uomLower])) {
+            return $map[$uomLower];
+        }
+
+        return 'UM.0021'; // Default: Piece
+    }
+
     /**
      * @param  Bast          $bast
      * @param  PurchaseOrder $po
@@ -56,8 +199,12 @@ class CreateEFakturAction
         $vendorTku = $vendorNpwp . '000000';
         $buyerTku  = $buyerNpwp  . '000000';
 
-        // Build objekFaktur
-        $objekFaktur = $this->buildObjekFaktur($po, $baseAmount);
+        // Build objekFaktur — pakai items_override dari user jika ada
+        if (!empty($extra['items_override'])) {
+            $objekFaktur = $this->buildFromOverride($extra['items_override']);
+        } else {
+            $objekFaktur = $this->buildObjekFaktur($po, $baseAmount);
+        }
         $totalDpp    = collect($objekFaktur)->sum(fn($i) => (float) $i['dpp']);
         $totalDppLain= collect($objekFaktur)->sum(fn($i) => (float) ($i['dppLain'] ?? $i['dpp']));
         $totalPpn    = collect($objekFaktur)->sum(fn($i) => (float) $i['ppn']);
@@ -194,18 +341,20 @@ class CreateEFakturAction
                 $qty       = (float) ($item->qty ?? 1);
                 $unitPrice = (float) ($item->unit_price ?? 0);
                 $nama      = $item->inventory_name ?? 'Barang';
-                $kode      = $item->inventory_code  ?? '000000';
+                $uom       = $item->uom ?? 'Pc';
             } else {
                 $qty       = (float) ($item->qty ?? 1);
                 $nama      = $item->catalogue->name      ?? 'Barang';
-                $kode      = $item->catalogue->item_code ?? '000000';
+                $uom       = $item->catalogue->uom       ?? 'Pc';
                 $proposal  = $po->rfq->proposals->where('status', 'accepted')->first();
                 $pItem     = $proposal?->items->where('rfq_item_id', $item->id)->first();
                 $unitPrice = (float) ($pItem?->price_offer ?? $item->catalogue->price ?? 0);
             }
 
             $totalHarga = round($qty * $unitPrice);
-            return $this->makeObjekLine($nama, $kode, $qty, $unitPrice, $totalHarga);
+            $kodeDJP    = $this->lookupGoodsCode($nama);
+            $satuanDJP  = $this->lookupSatuanCode($uom);
+            return $this->makeObjekLine($nama, $kodeDJP, $satuanDJP, $qty, $unitPrice, $totalHarga);
         })->toArray();
     }
 
@@ -214,6 +363,7 @@ class CreateEFakturAction
         return $this->makeObjekLine(
             "Barang/Jasa - PO {$poNumber}",
             '000000',
+            'UM.0021',
             1,
             $baseAmount,
             $baseAmount
@@ -221,26 +371,74 @@ class CreateEFakturAction
     }
 
     /**
-     * Satu baris objekFaktur dengan kalkulasi DPP Lain (PMK-131/2024):
-     *   DPP Lain = totalHarga × 11/12
-     *   PPN      = DPP Lain × 12%  =  totalHarga × 11%
+     * Build objekFaktur dari items_override yang dipilih user.
+     * Setiap item sudah mengandung kd_brg dan satuan yang valid dari DJP.
      */
+    private function buildFromOverride(array $overrides): array
+    {
+        return array_map(function (array $item) {
+            $qty        = (float) ($item['qty'] ?? 1);
+            $unitPrice  = (float) ($item['unit_price'] ?? 0);
+            $totalHarga = round($qty * $unitPrice);
+
+            return $this->makeObjekLine(
+                $item['nama'] ?? 'Barang',
+                $item['kd_brg'] ?? '000000',
+                $item['satuan'] ?? 'UM.0021',
+                $qty,
+                $unitPrice,
+                $totalHarga
+            );
+        }, $overrides);
+    }
+
+    /**
+     * Satu baris objekFaktur dengan kalkulasi DPP Lain (PMK-131/2024).
+     * Sanitize nama & kode barang agar kompatibel dengan PajakExpress API.
+     */
+    /**
+     * Sanitize nama barang: strip karakter non-ASCII/non-Latin agar
+     * PajakExpress tidak reject payload (API hanya terima ASCII).
+     */
+    private function sanitizeName(string $nama): string
+    {
+        // Transliterate ke ASCII, hapus yang tidak bisa dikonversi
+        $ascii = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $nama);
+        // Hapus karakter di luar printable ASCII (32-126)
+        $clean = preg_replace('/[^\x20-\x7E]/', ' ', $ascii ?: $nama);
+        // Compress multiple spaces, trim
+        $clean = trim(preg_replace('/\s+/', ' ', $clean));
+        return $clean !== '' ? substr($clean, 0, 100) : 'Barang';
+    }
+
+    /**
+     * Normalize kode barang ke format DJP.
+     * kdBrgJasa harus '000000' (kode generic barang) karena item code
+     * internal katalog bukan kode BKP/JKP yang diakui DJP.
+     * Menggunakan kode selain '000000' menyebabkan ERR_GOODS_SERVICES_CODE_NOT_ALLOWABLE.
+     */
+    private function normalizeKodeBrg(string $kode): string
+    {
+        return '000000';
+    }
+
     private function makeObjekLine(
         string $nama,
         string $kode,
+        string $satuan,
         float  $jumlah,
         float  $harga,
         float  $totalHarga
     ): array {
         $dpp      = $totalHarga;
         $dppLain  = round($totalHarga * 11 / 12, 2);
-        $ppn      = round($dppLain * 0.12, 2);   // 12% dari DPP Lain = 11% dari harga
+        $ppn      = round($dppLain * 0.12, 2);
 
         return [
             'brgJasa'       => 'GOODS',
-            'kdBrgJasa'     => $kode,
-            'namaBrgJasa'   => $nama,
-            'satuanBrgJasa' => 'UM.0001',
+            'kdBrgJasa'     => $this->normalizeKodeBrg($kode),
+            'namaBrgJasa'   => $this->sanitizeName($nama),
+            'satuanBrgJasa' => $satuan,
             'hargaSatuan'   => (string) round($harga),
             'jmlBrgJasa'    => (string) $jumlah,
             'totalHarga'    => (string) round($totalHarga),
