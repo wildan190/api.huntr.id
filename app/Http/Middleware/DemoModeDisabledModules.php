@@ -37,7 +37,7 @@ class DemoModeDisabledModules
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (!env('DEMO_MODE', false)) {
+        if (!config('app.demo_mode', false)) {
             return $next($request);
         }
 

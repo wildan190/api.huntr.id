@@ -43,10 +43,22 @@ class NegotiationController extends Controller
     public function store(StoreNegotiationRequest $request, CreateNegotiationAction $action): JsonResponse
     {
         $proposal = Proposal::with('rfq', 'company.users')->findOrFail($request->proposal_id);
-        
+        $negotiation = $action->execute($proposal, $request->validated());
+
+        // Demo Mode: AI Bot auto-responds AFTER the transaction commits
+        if (config('app.demo_mode', false)) {
+            try {
+                app(\App\Domain\AI\Services\DemoBotService::class)->handleBotNegotiation($negotiation);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning("DemoBotService negotiation auto-response failed: " . $e->getMessage());
+            }
+            // Re-fetch the updated negotiation so the response reflects accepted status
+            $negotiation = $negotiation->fresh('items.proposalItem.rfqItem.catalogue');
+        }
+
         return response()->json([
             'message' => 'Negotiation submitted successfully.',
-            'negotiation' => $action->execute($proposal, $request->validated())
+            'negotiation' => $negotiation
         ]);
     }
 

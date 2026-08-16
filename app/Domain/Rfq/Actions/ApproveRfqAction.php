@@ -52,6 +52,15 @@ class ApproveRfqAction
         // Notify relevant vendors
         $this->notifyVendorsAction->execute($rfq);
 
+        // Demo Mode: Trigger 5 AI Vendor Bots
+        if (config('app.demo_mode', false)) {
+            try {
+                app(\App\Domain\AI\Services\DemoBotService::class)->generateFiveVendorBotsForRfq($rfq);
+            } catch (\Exception $e) {
+                Log::warning("DemoBotService auto-trigger failed: " . $e->getMessage());
+            }
+        }
+
         return $rfq;
     }
 }

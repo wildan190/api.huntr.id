@@ -26,7 +26,7 @@ class CreateRfqAction
      * @param array $cartItems Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
      * @return Rfq
      */
-    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null): Rfq
+    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null): Rfq
     {
         // Debug: Log jumlah item yang akan diproses
         Log::info('DEBUG: CreateRfqAction - Cart items processing', [
@@ -43,6 +43,7 @@ class CreateRfqAction
             'status'        => $status,
             'duration_days' => $durationDays ?? 7,
             'delivery_point' => $deliveryPoint,
+            'department'    => $department,
         ]);
 
         $lineItems = array_map(fn($item) => [
@@ -94,6 +95,15 @@ class CreateRfqAction
 
         if ($status === 'active') {
             $this->notifyVendorsAction->execute($rfq);
+        }
+
+        // Demo Mode: Trigger 5 AI Vendor Bots if active or demo mode
+        if (config('app.demo_mode', false) && ($status === 'active' || $status === 'pending_approval')) {
+            try {
+                app(\App\Domain\AI\Services\DemoBotService::class)->generateFiveVendorBotsForRfq($rfq);
+            } catch (\Exception $e) {
+                Log::warning("DemoBotService auto-trigger failed: " . $e->getMessage());
+            }
         }
 
         return $rfq;

@@ -46,7 +46,7 @@ class AwardVendorAction
         // 3. Generate Purchase Order
         $poNumber = 'PO-' . date('Ymd') . '-' . str_pad($rfq->id, 4, '0', STR_PAD_LEFT);
 
-        return $this->orderRepository->createPurchaseOrder([
+        $po = $this->orderRepository->createPurchaseOrder([
             'rfq_id'          => $rfq->id,
             'vendor_id'       => $winningProposal->company_id,
             'po_number'       => $poNumber,
@@ -56,6 +56,18 @@ class AwardVendorAction
             'total_amount'    => $winningProposal->price_offer,
             'purchase_type'   => $winningProposal->payment_term,
             'delivery_point'  => $rfq->delivery_point,
+            'department'      => $rfq->department ?? 'General Procurement',
         ]);
+
+        // Demo Mode: AI Bot Auto-confirms PO
+        if (config('app.demo_mode', false)) {
+            try {
+                app(\App\Domain\AI\Services\DemoBotService::class)->handleBotConfirmPo($po);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning("DemoBotService PO auto-confirm failed: " . $e->getMessage());
+            }
+        }
+
+        return $po->fresh();
     }
 }

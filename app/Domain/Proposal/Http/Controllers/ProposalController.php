@@ -130,6 +130,18 @@ class ProposalController extends \App\Http\Controllers\Controller
 
             $awardedProposal = $action->execute($proposal, $userId, $rfq);
 
+            // Demo Mode: run AFTER transaction commits — auto approve winner, generate PO, confirm PO
+            if (config('app.demo_mode', false)) {
+                try {
+                    $approvedProposal = app(ApproveWinnerAction::class)->execute($awardedProposal->fresh(), $userId);
+                    if (!empty($approvedProposal->generatedPurchaseOrder)) {
+                        app(\App\Domain\AI\Services\DemoBotService::class)->handleBotConfirmPo($approvedProposal->generatedPurchaseOrder);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("Demo auto approve+confirm failed: " . $e->getMessage());
+                }
+            }
+
             return response()->json([
                 'message' => 'Proposal awarded as winner. Sending to manager for approval.',
                 'proposal' => $awardedProposal->load('rfq', 'company'),
@@ -158,6 +170,17 @@ class ProposalController extends \App\Http\Controllers\Controller
         }
 
         $approvedProposal = $action->execute($proposal, $userId);
+
+        // Demo Mode: auto-confirm PO after transaction commits
+        if (config('app.demo_mode', false)) {
+            try {
+                if (!empty($approvedProposal->generatedPurchaseOrder)) {
+                    app(\App\Domain\AI\Services\DemoBotService::class)->handleBotConfirmPo($approvedProposal->generatedPurchaseOrder);
+                }
+            } catch (\Exception $e) {
+                Log::warning("Demo PO auto-confirm failed: " . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'message' => 'Winner approved successfully.',

@@ -27,6 +27,7 @@ class CreateRfqRequest extends FormRequest
             'duration_days' => ['nullable', 'integer', 'min:1'],
             'document' => ['nullable', 'file', 'max:10240'],
             'delivery_point' => ['nullable', 'string', 'max:255'],
+            'department' => ['nullable', 'string', 'max:100'],
         ];
     }
 }

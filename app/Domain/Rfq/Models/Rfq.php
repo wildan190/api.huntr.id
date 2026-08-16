@@ -40,6 +40,7 @@ class Rfq extends Model
         'approved_by',
         'approved_at',
         'delivery_point',
+        'department',
     ];
 
     protected $casts = [
