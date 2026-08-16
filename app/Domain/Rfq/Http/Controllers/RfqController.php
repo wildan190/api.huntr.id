@@ -107,7 +107,8 @@ class RfqController extends \App\Http\Controllers\Controller
             $data['status'] ?? 'pending_approval',
             $data['duration_days'] ?? 7,
             $documentPath,
-            $data['delivery_point'] ?? null
+            $data['delivery_point'] ?? null,
+            $data['department'] ?? null
         );
 
         return response()->json(['rfq' => $rfq], 201);

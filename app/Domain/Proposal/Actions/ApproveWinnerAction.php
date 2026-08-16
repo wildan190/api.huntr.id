@@ -23,6 +23,8 @@ class ApproveWinnerAction
      * This transitions the proposal from 'awarded' to 'approved' status
      * and automatically generates a Purchase Order (PO).
      *
+     * Returns the proposal. The generated PO (if new) is attached as $proposal->generatedPurchaseOrder.
+     *
      * @param Proposal $proposal The awarded proposal to approve
      * @param string $managerUserId The manager user ID who approved
      * @return Proposal
@@ -57,6 +59,9 @@ class ApproveWinnerAction
                     'approved_by_user_id' => $proposal->approved_by_user_id ?? $managerUserId,
                 ]);
             }
+
+            // Attach PO for caller (e.g. demo bot)
+            $proposal->generatedPurchaseOrder = $existingPoForThisProposal->fresh();
             return $proposal;
         } elseif ($existingPoByNumber) {
             // If duplicate po_number, just increment a suffix
@@ -74,7 +79,9 @@ class ApproveWinnerAction
             ]);
         }
 
-        return DB::transaction(function () use ($proposal, $managerUserId, $rfq, $poNumber) {
+        $generatedPo = null;
+
+        DB::transaction(function () use ($proposal, $managerUserId, $rfq, $poNumber, &$generatedPo) {
             // Re-check inside transaction with lock to prevent race conditions
             $existingPoInside = \App\Domain\Order\Models\PurchaseOrder::whereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])
                 ->lockForUpdate()
@@ -100,7 +107,8 @@ class ApproveWinnerAction
                     ]);
                 }
 
-                return $proposal;
+                $generatedPo = $existingPoInside->fresh();
+                return;
             }
 
             // 1. Update proposal to approved and accepted
@@ -124,14 +132,17 @@ class ApproveWinnerAction
                 'approved_by'      => $managerUserId,
                 'total_amount'     => $proposal->price_offer,
                 'purchase_type'    => $proposal->payment_term,
+                'department'       => $rfq->department ?? 'General Procurement',
             ]);
 
             // Generate placeholder PDF for the Purchase Order
-            $dummyPath = storage_path('app/public/invoices/dummy_proforma.pdf'); // Reuse same dummy for now
+            $dummyPath = storage_path('app/public/invoices/dummy_proforma.pdf');
             $targetPath = storage_path("app/public/invoices/po_{$purchaseOrder->id}.pdf");
             if (file_exists($dummyPath)) {
                 copy($dummyPath, $targetPath);
             }
+
+            $generatedPo = $purchaseOrder;
 
             DB::afterCommit(function () use ($rfq, $poNumber, $proposal) {
                 $proposal->load(['company.users']);
@@ -179,8 +190,9 @@ class ApproveWinnerAction
                     );
                 }
             });
-
-            return $proposal->fresh();
         });
+
+        $proposal->generatedPurchaseOrder = $generatedPo?->fresh();
+        return $proposal->fresh();
     }
 }

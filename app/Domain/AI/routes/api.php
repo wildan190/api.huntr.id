@@ -26,3 +26,11 @@ Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
         Route::post('generate-pr',    [AiController::class, 'generatePr']);
     });
 });
+
+// Demo Mode AI Vendor Bots Routes
+Route::prefix('api/demo')->middleware(['api', 'cors'])->group(function () {
+    Route::get('bots', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'getBotRoster']);
+    Route::post('rfq/{rfq}/generate-bots', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'generateBotsForRfq']);
+    Route::post('negotiation/{negotiation}/respond', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'respondNegotiation']);
+    Route::post('po/{po}/confirm', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'confirmPo']);
+});

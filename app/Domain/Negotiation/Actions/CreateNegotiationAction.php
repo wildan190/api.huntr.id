@@ -91,7 +91,7 @@ class CreateNegotiationAction
                 );
             }
 
-            return $negotiation->load('items.proposalItem.rfqItem.catalogue');
+            return $negotiation->fresh('items.proposalItem.rfqItem.catalogue');
         });
     }
 }
