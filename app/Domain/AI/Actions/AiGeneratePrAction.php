@@ -2,19 +2,19 @@
 
 namespace App\Domain\AI\Actions;
 
-use App\Domain\AI\Services\GenkitService;
+use App\Domain\AI\Services\OpenAiService;
 use App\Domain\Catalogue\Models\Catalogue;
 
 /**
  * AiGeneratePrAction
  *
  * Membuat draft Purchase Requisition (PR/RFQ) secara otomatis
- * berdasarkan natural language prompt user dan produk yang cocok.
+ * berdasarkan natural language prompt user dan produk yang cocok menggunakan OpenAI.
  */
 class AiGeneratePrAction
 {
     public function __construct(
-        private readonly GenkitService $genkit
+        private readonly OpenAiService $openAi
     ) {}
 
     /**
@@ -42,41 +42,26 @@ class AiGeneratePrAction
             'vendor'         => $c->company?->name,
         ])->toArray();
 
-        if (empty($matchedItems)) {
-            // Fallback: cari berdasarkan prompt saja
-            return [
-                'title'           => 'PR - ' . substr($userPrompt, 0, 60),
-                'description'     => $userPrompt,
-                'suggested_items' => [],
-                'duration_days'   => 7,
-                'priority'        => 'Normal',
-                'notes'           => 'Item tidak ditemukan di katalog. Silakan tambahkan manual.',
-                'source'          => 'fallback',
-            ];
-        }
-
-        $draft = $this->genkit->generatePrDraft($userPrompt, $matchedItems);
+        $draft = $this->openAi->generatePrDraft($userPrompt, $matchedItems);
 
         // Validasi dan enrich suggested items dengan data asli
         $enrichedItems = [];
         foreach ($draft['suggested_items'] ?? [] as $suggested) {
             $catalogueId = $suggested['catalogue_id'] ?? null;
-            if (!$catalogueId) continue;
+            $catalogue = $catalogueId ? collect($matchedItems)->firstWhere('id', $catalogueId) : null;
 
-            $catalogue = collect($matchedItems)->firstWhere('id', $catalogueId);
-            if ($catalogue) {
-                $enrichedItems[] = array_merge($suggested, [
-                    'catalogue'     => $catalogue,
-                    'catalogue_id'  => $catalogueId,
-                    'qty'           => max(1, (int) ($suggested['qty'] ?? 1)),
-                    'estimated_price' => (float) ($suggested['estimated_price'] ?? 0),
-                ]);
-            }
+            $enrichedItems[] = array_merge($suggested, [
+                'catalogue'       => $catalogue,
+                'catalogue_id'    => $catalogueId,
+                'name'            => $suggested['name'] ?? ($catalogue['name'] ?? 'Item Pengadaan'),
+                'qty'             => max(1, (int) ($suggested['qty'] ?? 1)),
+                'estimated_price' => (float) ($suggested['estimated_price'] ?? 0),
+            ]);
         }
 
         return array_merge($draft, [
             'suggested_items' => $enrichedItems,
-            'source'          => 'ai',
+            'source'          => 'ai_openai',
         ]);
     }
 }

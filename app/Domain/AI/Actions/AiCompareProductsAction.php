@@ -2,18 +2,18 @@
 
 namespace App\Domain\AI\Actions;
 
-use App\Domain\AI\Services\GenkitService;
+use App\Domain\AI\Services\OpenAiService;
 use App\Domain\Catalogue\Models\Catalogue;
 
 /**
  * AiCompareProductsAction
  *
- * Membandingkan beberapa produk katalog menggunakan AI.
+ * Membandingkan beberapa produk katalog menggunakan AI OpenAI.
  */
 class AiCompareProductsAction
 {
     public function __construct(
-        private readonly GenkitService $genkit
+        private readonly OpenAiService $openAi
     ) {}
 
     /**
@@ -51,7 +51,7 @@ class AiCompareProductsAction
             throw new \RuntimeException('Produk tidak ditemukan.');
         }
 
-        $aiResult = $this->genkit->compareProducts($catalogues);
+        $aiResult = $this->openAi->compareProducts($catalogues);
 
         return [
             'catalogues'  => $catalogues,

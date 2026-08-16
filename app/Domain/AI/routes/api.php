@@ -6,10 +6,14 @@ use App\Domain\AI\Http\Controllers\AiController;
 /**
  * AI Domain Routes
  *
- * Semua endpoint AI — tidak memerlukan auth agar buyer bisa search
- * tanpa login, tapi rank-proposals dan generate-pr memerlukan auth.
+ * Endpoint AI & Agentic Procurement di platform Huntr.
  */
 Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
+
+    // Agentic Procurement Endpoints
+    Route::post('agentic-procurement/run', [AiController::class, 'agenticRun']);
+    Route::post('agentic-procurement/chat', [AiController::class, 'agenticChat']);
+    Route::post('agentic-procurement/create-pr', [AiController::class, 'agenticCreatePr'])->middleware('auth:api');
 
     // Public: AI search katalog (buyer maupun guest bisa search)
     Route::post('search', [AiController::class, 'search']);
