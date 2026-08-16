@@ -2,21 +2,22 @@
 
 namespace App\Domain\AI\Actions;
 
-use App\Domain\AI\Services\GenkitService;
+use App\Domain\AI\Services\OpenAiService;
 use App\Domain\Catalogue\Models\Catalogue;
 use App\Domain\Catalogue\Models\SearchLog;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * AiSearchCatalogueAction
  *
- * Menggunakan AI untuk memahami natural language query dari user,
+ * Menggunakan AI OpenAI untuk memahami natural language query dari user,
  * kemudian mencari produk yang relevan di katalog.
  */
 class AiSearchCatalogueAction
 {
     public function __construct(
-        private readonly GenkitService $genkit
+        private readonly OpenAiService $openAi
     ) {}
 
     /**
@@ -29,20 +30,20 @@ class AiSearchCatalogueAction
         // 1. Log pencarian untuk analitik frekuensi
         SearchLog::record($query, 'ai', $params['company_id'] ?? null);
 
-        // 2. Extract intent dari natural language
-        $intent = $this->genkit->extractSearchIntent($query);
+        // 2. Extract intent dari natural language menggunakan OpenAI
+        $intent = $this->openAi->extractSearchIntent($query);
 
         $comparisonAnalysis = null;
         if (!empty($intent['is_comparison'])) {
             try {
-                $comparisonAnalysis = $this->genkit->generateComparisonText($query);
+                $comparisonAnalysis = $this->openAi->generateComparisonText($query);
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('generateComparisonText failed', ['error' => $e->getMessage()]);
+                Log::error('generateComparisonText failed', ['error' => $e->getMessage()]);
             }
         }
         $intent['comparison_analysis'] = $comparisonAnalysis;
 
-        // 2. Build DB query berdasarkan intent
+        // 3. Build DB query berdasarkan intent
         $dbQuery = Catalogue::query()->with('company');
 
         // Filter hanya vendor yang approved/pending
@@ -86,23 +87,23 @@ class AiSearchCatalogueAction
 
         $products = $dbQuery->limit(30)->get();
 
-        // 3. AI Re-ranking: Send DB candidates to Gemini to evaluate exact match & scores
+        // 4. AI Re-ranking: Send DB candidates to OpenAI to evaluate exact match & scores
         try {
             $candidates = $products->toArray();
-            $aiRankings = $this->genkit->rankSearchProducts($query, $candidates);
+            $aiRankings = $this->openAi->rankSearchProducts($query, $candidates);
 
             $rankedProducts = $products->map(function ($product) use ($aiRankings) {
                 $rankInfo = collect($aiRankings)->firstWhere('product_id', $product->id);
                 $product->ai_match = $rankInfo['is_match'] ?? true;
                 $product->ai_score = $rankInfo['relevance_score'] ?? 50;
-                $product->ai_explanation = $rankInfo['explanation'] ?? null;
+                $product->ai_explanation = $rankInfo['fit_reason'] ?? ($rankInfo['explanation'] ?? null);
                 return $product;
             });
 
             // Sort products by AI relevance score descending
             $products = $rankedProducts->sortByDesc('ai_score')->values();
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::warning('AI Re-ranking failed, falling back to database order', ['error' => $e->getMessage()]);
+            Log::warning('AI Re-ranking failed, falling back to database order', ['error' => $e->getMessage()]);
         }
 
         return [
