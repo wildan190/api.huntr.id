@@ -44,37 +44,49 @@ WORKDIR /var/www
 # Configure PHP settings
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
+
 # ==========================================
 # Development Stage
 # ==========================================
 FROM base AS development
 
-# Switch back to development ini for better errors
+# Switch to development PHP configuration
 RUN mv "$PHP_INI_DIR/php.ini" "$PHP_INI_DIR/php.ini-production" \
     && mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
-# Create a non-root user for development to prevent permission issues
-RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
+# Create non-root user for development
+RUN usermod -u 1000 www-data \
+    && groupmod -g 1000 www-data
+
 USER www-data
+
 
 # ==========================================
 # Production Stage
 # ==========================================
 FROM base AS production
 
-# Set environment variables
+# Production environment
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 
 # Copy application files
 COPY --chown=www-data:www-data . .
 
-# Run Composer Install optimized for production
-RUN composer install --no-interaction --no-dev --optimize-autoloader --prefer-dist
+# Install Composer dependencies
+# Use source instead of GitHub dist ZIP/codeload
+RUN composer install \
+    --no-interaction \
+    --no-dev \
+    --optimize-autoloader \
+    --prefer-source
 
-# Create a non-root user for security
-RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
+# Create non-root user
+RUN usermod -u 1000 www-data \
+    && groupmod -g 1000 www-data
+
 USER www-data
 
 EXPOSE 9000
+
 CMD ["php-fpm"]
