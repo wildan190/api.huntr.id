@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Log;
  * @property string|null $whatsapp
  * @property string $password
  * @property string|null $company_id
+ * @property \Illuminate\Support\Carbon|null $trial_ends_at
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -38,6 +39,7 @@ class User extends Authenticatable
         'whatsapp',
         'password',
         'company_id',
+        'trial_ends_at',
     ];
 
     /**
@@ -70,6 +72,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'trial_ends_at' => 'datetime',
         ];
     }
 
