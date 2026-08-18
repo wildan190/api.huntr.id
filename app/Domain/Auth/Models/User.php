@@ -55,6 +55,27 @@ class User extends Authenticatable
     ];
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var list<string>
+     */
+    protected $appends = [
+        'trial_days_remaining',
+    ];
+
+    /**
+     * Bootstrap the model and its traits.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function ($user) {
+            if (empty($user->trial_ends_at)) {
+                $user->trial_ends_at = now()->addDays(30);
+            }
+        });
+    }
+
+    /**
      * Create a new factory instance for the model.
      */
     protected static function newFactory(): UserFactory
@@ -74,6 +95,18 @@ class User extends Authenticatable
             'password' => 'hashed',
             'trial_ends_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Calculate remaining days of trial.
+     */
+    public function getTrialDaysRemainingAttribute(): ?int
+    {
+        if (!$this->trial_ends_at) {
+            return null;
+        }
+        $seconds = now()->diffInSeconds($this->trial_ends_at, false);
+        return (int) ceil($seconds / 86400);
     }
 
     /**
