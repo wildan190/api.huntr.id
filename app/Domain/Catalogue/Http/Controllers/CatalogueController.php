@@ -3,6 +3,7 @@
 namespace App\Domain\Catalogue\Http\Controllers;
 
 use App\Domain\Catalogue\Actions\CreateCatalogueAction;
+use App\Domain\Catalogue\Actions\DeleteAdminCatalogueAction;
 use App\Domain\Catalogue\Actions\GetCataloguesAction;
 use App\Domain\Catalogue\Http\Requests\CreateCatalogueRequest;
 use App\Domain\Catalogue\Http\Requests\ImportHistoricalDataRequest;
@@ -137,5 +138,20 @@ class CatalogueController extends \App\Http\Controllers\Controller
         $cacheService->storeDetails($catalogue, $data);
         
         return response()->json(['data' => $data], 200);
+    }
+
+    /**
+     * Delete a catalogue product.
+     */
+    public function destroy(Catalogue $catalogue, DeleteAdminCatalogueAction $action, CatalogueCacheService $cacheService): JsonResponse
+    {
+        $action->execute($catalogue);
+
+        // Invalidate cache for deleted catalogue
+        $cacheService->invalidateDetails($catalogue);
+        $cacheService->invalidateSeoData($catalogue);
+        $cacheService->invalidateAll();
+
+        return response()->json(['message' => 'Product successfully deleted from catalogue.']);
     }
 }

@@ -9,7 +9,7 @@ class CalculateInvoiceFeesAction
     /**
      * Hitung biaya layanan dan PPN sesuai struktur baru:
      *
-     * - Platform fee : tier-based dari base amount (gratis jika dalam masa trial 14 hari)
+     * - Platform fee : tier-based dari base amount (gratis jika dalam masa trial 30 hari)
      *     0 - 100.000.000           → 5%
      *     100.000.001 - 250.000.000 → 3%
      *     250.000.001 ke atas       → 2%
@@ -24,7 +24,7 @@ class CalculateInvoiceFeesAction
     {
         $isTrial = false;
         if ($buyerCompany && $buyerCompany->created_at) {
-            $isTrial = $buyerCompany->created_at->addDays(14)->isAfter(now());
+            $isTrial = $buyerCompany->created_at->addDays(30)->isAfter(now());
         }
 
         // Platform fee: tier-based dari total pembelian sebelum PPN (gratis jika trial)
