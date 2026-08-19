@@ -44,15 +44,21 @@ class ImportHistoricalPoJob implements ShouldQueue
             return;
         }
 
-        $disk = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
-        if (!$disk->exists($this->filePath)) {
-            Log::error("ImportHistoricalPoJob: File not found at path: {$this->filePath}");
+        // Download file from S3 to a local temp file.
+        // NOTE: We intentionally skip Storage::exists() because it sends an
+        // unauthenticated HEAD request which returns 403 on this bucket.
+        // Storage::get() uses signed SDK calls and works correctly.
+        $disk     = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+        $tempFile = tempnam(sys_get_temp_dir(), 'po_import_');
+        try {
+            $contents = $disk->get($this->filePath);
+        } catch (\Exception $e) {
+            Log::error("ImportHistoricalPoJob: Cannot read file from storage at path: {$this->filePath}. Error: " . $e->getMessage());
+            @unlink($tempFile);
             return;
         }
-
-        // Download file from S3 to local temp file
-        $tempFile = tempnam(sys_get_temp_dir(), 'po_import_');
-        file_put_contents($tempFile, $disk->get($this->filePath));
+        file_put_contents($tempFile, $contents);
+        unset($contents); // free memory
 
         Log::info("ImportHistoricalPoJob: Starting import for company '{$company->name}' (ID: {$company->id}) from file {$tempFile}");
 

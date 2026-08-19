@@ -130,6 +130,11 @@ class Company extends Model
         return $this->hasMany(Catalogue::class);
     }
 
+    public function historicalPos()
+    {
+        return $this->hasMany(\App\Domain\Order\Models\PurchaseOrder::class, 'buyer_company_id')->where('is_historical', true);
+    }
+
     public function documents()
     {
         return $this->hasMany(CompanyDocument::class);
