@@ -14,6 +14,7 @@ Route::prefix('api/catalogues')->middleware(['api', 'cors'])->group(function () 
     Route::middleware('auth:api')->group(function () {
         Route::post('', [CatalogueController::class, 'store']);
         Route::put('{catalogue}', [CatalogueController::class, 'update']);
+        Route::delete('{catalogue}', [CatalogueController::class, 'destroy']);
         Route::post('import', [CatalogueController::class, 'import']);
     });
 });
