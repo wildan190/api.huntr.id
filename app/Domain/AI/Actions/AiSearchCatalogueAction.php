@@ -89,19 +89,28 @@ class AiSearchCatalogueAction
 
         // 4. AI Re-ranking: Send DB candidates to OpenAI to evaluate exact match & scores
         try {
-            $candidates = $products->toArray();
-            $aiRankings = $this->openAi->rankSearchProducts($query, $candidates);
+            $candidates   = $products->toArray();
+            $companyId    = $params['company_id'] ?? null;
+            $aiRankings   = $this->openAi->rankSearchProducts($query, $candidates, $companyId);
+            $rankingsById = collect($aiRankings)->keyBy('product_id');
 
-            $rankedProducts = $products->map(function ($product) use ($aiRankings) {
-                $rankInfo = collect($aiRankings)->firstWhere('product_id', $product->id);
-                $product->ai_match = $rankInfo['is_match'] ?? true;
-                $product->ai_score = $rankInfo['relevance_score'] ?? 50;
+            $rankedProducts = $products->map(function ($product) use ($rankingsById) {
+                $rankInfo = $rankingsById->get($product->id);
+                $product->ai_match       = $rankInfo['is_match'] ?? true;
+                $product->ai_score       = (int) ($rankInfo['relevance_score'] ?? 50);
                 $product->ai_explanation = $rankInfo['fit_reason'] ?? ($rankInfo['explanation'] ?? null);
+                $product->estimated_price= !empty($rankInfo['estimated_unit_price_idr']) && $rankInfo['estimated_unit_price_idr'] > 0
+                    ? (float) $rankInfo['estimated_unit_price_idr']
+                    : 0;
                 return $product;
             });
 
-            // Sort products by AI relevance score descending
-            $products = $rankedProducts->sortByDesc('ai_score')->values();
+            // Filter produk yang match, fallback ke semua jika tidak ada yang match
+            $matched = $rankedProducts->filter(fn($p) => ($p->ai_match ?? true) === true);
+            $finalProducts = $matched->isNotEmpty() ? $matched : $rankedProducts;
+
+            // Sort by AI score descending — values() menjamin integer keys dari 0
+            $products = $finalProducts->sortByDesc('ai_score')->values();
         } catch (\Exception $e) {
             Log::warning('AI Re-ranking failed, falling back to database order', ['error' => $e->getMessage()]);
         }

@@ -28,6 +28,7 @@ Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
     Route::middleware('auth:api')->group(function () {
         Route::post('rank-proposals', [AiController::class, 'rankProposals']);
         Route::post('generate-pr',    [AiController::class, 'generatePr']);
+        Route::get('usage',           [AiController::class, 'getUsage']);
     });
 });
 

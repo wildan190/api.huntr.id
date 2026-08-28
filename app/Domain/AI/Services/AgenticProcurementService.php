@@ -230,22 +230,31 @@ INSTRUCTION;
 
             // Re-ranking dengan AI jika ada kandidat
             if ($results->isNotEmpty()) {
-                $ranked = $this->openAi->rankSearchProducts($intent['ai_summary'] ?? '', $results->toArray());
-                $mapped = $results->map(function ($p) use ($ranked) {
+                $companyId = $options['company_id'] ?? null;
+                $ranked = $this->openAi->rankSearchProducts($intent['ai_summary'] ?? '', $results->toArray(), $companyId);
+                $rankedById = collect($ranked)->keyBy('product_id');
+
+                $mapped = $results->map(function ($p) use ($rankedById) {
                     $item = $this->mapCatalogueItem($p);
-                    $rankInfo = collect($ranked)->firstWhere('product_id', $p->id);
+                    $rankInfo = $rankedById->get($p->id);
                     if ($rankInfo) {
-                        $item['ai_match'] = $rankInfo['is_match'] ?? true;
-                        $item['ai_score'] = $rankInfo['relevance_score'] ?? 75;
-                        $item['fit_reason'] = $rankInfo['fit_reason'] ?? null;
-                        if (!empty($rankInfo['estimated_unit_price_idr'])) {
-                            $item['estimated_price'] = $rankInfo['estimated_unit_price_idr'];
+                        $aiMatch = $rankInfo['is_match'] ?? true;
+                        $item['ai_match']  = $aiMatch;
+                        $item['ai_score']  = (int) ($rankInfo['relevance_score'] ?? 75);
+                        $item['fit_reason']= $rankInfo['fit_reason'] ?? null;
+                        // Override harga HANYA jika AI memberikan harga > 0
+                        if (!empty($rankInfo['estimated_unit_price_idr']) && $rankInfo['estimated_unit_price_idr'] > 0) {
+                            $item['estimated_price'] = (float) $rankInfo['estimated_unit_price_idr'];
                         }
                     }
                     return $item;
                 });
 
-                return $mapped->sortByDesc('ai_score')->values()->toArray();
+                // Filter: prioritaskan ai_match=true, tapi jika semua false tetap tampilkan semua
+                $matched = $mapped->filter(fn($i) => ($i['ai_match'] ?? true) === true);
+                $finalList = $matched->isNotEmpty() ? $matched : $mapped;
+
+                return $finalList->sortByDesc('ai_score')->values()->toArray();
             }
         } catch (\Throwable $e) {
             Log::warning('AgenticProcurementService: discoverCatalogues fallback', ['error' => $e->getMessage()]);
@@ -324,19 +333,20 @@ INSTRUCTION;
     private function mapCatalogueItem(Catalogue $c): array
     {
         return [
-            'id'             => $c->id,
-            'name'           => $c->name,
-            'item_code'      => $c->item_code,
-            'category'       => $c->category,
-            'brand'          => $c->brand,
-            'specifications' => $c->specifications,
-            'uom'            => $c->uom ?? 'unit',
-            'image_path'     => $c->image_path,
-            'image_url'      => $c->image_url,
-            'vendor'         => $c->company?->name,
-            'company_id'     => $c->company_id,
-            'estimated_price'=> 0,
-            'ai_score'       => 85,
+            'id'              => $c->id,
+            'name'            => $c->name,
+            'item_code'       => $c->item_code,
+            'category'        => $c->category,
+            'brand'           => $c->brand,
+            'specifications'  => $c->specifications,
+            'uom'             => $c->uom ?? 'unit',
+            'image_path'      => $c->image_path,
+            'image_url'       => $c->image_url,
+            'vendor'          => $c->company?->name,
+            'company_id'      => $c->company_id,
+            'estimated_price' => 0,   // Akan di-override oleh rankSearchProducts atau enrichPrItems
+            'ai_score'        => 85,
+            'ai_match'        => true,
         ];
     }
 
@@ -355,23 +365,39 @@ INSTRUCTION;
     private function enrichPrItems(array $suggestedItems, array $catalogues, array $intent = []): array
     {
         $catalogueMap = collect($catalogues)->keyBy('id');
-        $targetItems = collect($intent['target_items'] ?? []);
+        $targetItems  = collect($intent['target_items'] ?? []);
+        $totalBudget  = $intent['estimated_total_budget_idr'] ?? 0;
+        $itemCount    = count($suggestedItems) ?: 1;
 
-        return array_map(function ($item) use ($catalogueMap, $targetItems) {
+        return array_map(function ($item) use ($catalogueMap, $targetItems, $totalBudget, $itemCount) {
             $catId = $item['catalogue_id'] ?? null;
-            $cat = $catId ? $catalogueMap->get($catId) : null;
+            $cat   = $catId ? $catalogueMap->get($catId) : null;
 
-            $price = $this->parsePrice($item['estimated_price'] ?? ($cat['estimated_price'] ?? 0));
+            // Layer 1: harga dari AI (suggested_items[].estimated_price)
+            $price = $this->parsePrice($item['estimated_price'] ?? 0);
 
-            // If price is still 0, try to check target_items budget hint
+            // Layer 2: harga dari katalog yang di-ranking AI (estimated_price dari rankSearchProducts)
+            if ($price <= 0 && $cat && ($cat['estimated_price'] ?? 0) > 0) {
+                $price = (float) $cat['estimated_price'];
+            }
+
+            // Layer 3: cek target_items budget_hint_idr berdasarkan nama item
             if ($price <= 0) {
-                $matchedTarget = $targetItems->first(fn($t) => 
+                $matchedTarget = $targetItems->first(fn($t) =>
                     str_contains(strtolower($t['name'] ?? ''), strtolower($item['name'] ?? '')) ||
                     str_contains(strtolower($item['name'] ?? ''), strtolower($t['name'] ?? ''))
                 );
                 if ($matchedTarget && !empty($matchedTarget['budget_hint_idr'])) {
-                    $price = $this->parsePrice($matchedTarget['budget_hint_idr']);
+                    $qty   = max(1, (int) ($item['qty'] ?? 1));
+                    $hints = $this->parsePrice($matchedTarget['budget_hint_idr']);
+                    // budget_hint_idr biasanya total untuk kuantitas itu
+                    $price = $qty > 0 ? round($hints / $qty) : $hints;
                 }
+            }
+
+            // Layer 4: bagi rata total budget jika masih 0
+            if ($price <= 0 && $totalBudget > 0) {
+                $price = round($totalBudget / $itemCount);
             }
 
             return [
