@@ -267,4 +267,30 @@ class AiController extends \App\Http\Controllers\Controller
             ], 200);
         }
     }
+
+    /**
+     * GET /api/ai/usage
+     *
+     * Ambil ringkasan penggunaan AI bulan ini untuk perusahaan aktif user.
+     */
+    public function getUsage(Request $request, OpenAiService $openAi): JsonResponse
+    {
+        $request->validate([
+            'company_id' => 'required|string|exists:companies,id',
+        ]);
+
+        try {
+            $summary = $openAi->getUsageSummary($request->input('company_id'));
+
+            return response()->json([
+                'success' => true,
+                'data'    => $summary,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'Gagal mengambil data usage.',
+            ], 200);
+        }
+    }
 }

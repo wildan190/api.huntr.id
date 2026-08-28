@@ -2,6 +2,7 @@
 
 namespace App\Domain\AI\Services;
 
+use App\Domain\AI\Models\AiUsageLog;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Log;
  *
  * Wrapper untuk OpenAI ChatGPT API (gpt-4o-mini / gpt-4o).
  * Bertanggung jawab untuk semua komunikasi AI & Agentic Procurement di platform Huntr.
+ * Setiap call ke API dicatat di ai_usage_logs untuk tracking quota & billing.
  */
 class OpenAiService
 {
@@ -115,8 +117,10 @@ class OpenAiService
 
     /**
      * Kirim prompt ke OpenAI dan dapatkan teks response.
+     * @param string|null $companyId Untuk tracking usage log per perusahaan
+     * @param string|null $endpoint  Nama endpoint/fitur yang memanggil (untuk audit)
      */
-    public function ask(string $prompt, string $systemInstruction = ''): string
+    public function ask(string $prompt, string $systemInstruction = '', ?string $companyId = null, string $endpoint = 'ask'): string
     {
         if (empty($this->apiKey)) {
             Log::warning('OpenAiService: OpenAI API key is missing.');
@@ -150,6 +154,10 @@ class OpenAiService
             }
 
             $data = $response->json();
+
+            // Track usage setiap call berhasil
+            $this->trackUsage($data['usage'] ?? [], $endpoint, $companyId);
+
             return $data['choices'][0]['message']['content'] ?? '';
 
         } catch (\Exception $e) {
@@ -160,8 +168,10 @@ class OpenAiService
 
     /**
      * Kirim percakapan multi-turn ke OpenAI.
+     * @param string|null $companyId Untuk tracking usage log per perusahaan
+     * @param string|null $endpoint  Nama endpoint/fitur yang memanggil
      */
-    public function chat(array $messages, string $systemInstruction = ''): string
+    public function chat(array $messages, string $systemInstruction = '', ?string $companyId = null, string $endpoint = 'chat'): string
     {
         if (empty($this->apiKey)) {
             Log::warning('OpenAiService: OpenAI API key is missing.');
@@ -200,6 +210,10 @@ class OpenAiService
             }
 
             $data = $response->json();
+
+            // Track usage setiap call berhasil
+            $this->trackUsage($data['usage'] ?? [], $endpoint, $companyId);
+
             return $data['choices'][0]['message']['content'] ?? '';
 
         } catch (\Exception $e) {
@@ -210,11 +224,13 @@ class OpenAiService
 
     /**
      * Kirim prompt dan minta JSON response dari OpenAI.
+     * @param string|null $companyId Untuk tracking usage log per perusahaan
+     * @param string|null $endpoint  Nama endpoint/fitur yang memanggil
      */
-    public function askJson(string $prompt, string $systemInstruction = ''): array
+    public function askJson(string $prompt, string $systemInstruction = '', ?string $companyId = null, string $endpoint = 'askJson'): array
     {
         $jsonPrompt = $prompt . "\n\nPenting: Balas HANYA dengan JSON valid, tanpa markdown format ```json, tanpa teks pengantar atau penutup.";
-        $rawResponse = $this->ask($jsonPrompt, $systemInstruction);
+        $rawResponse = $this->ask($jsonPrompt, $systemInstruction, $companyId, $endpoint);
 
         $cleaned = preg_replace('/^```(?:json)?\s*/m', '', $rawResponse);
         $cleaned = preg_replace('/\s*```$/m', '', $cleaned);
@@ -265,7 +281,7 @@ Balas dalam format JSON:
 PROMPT;
 
         try {
-            $result = $this->askJson($prompt, 'Kamu adalah AI Procurement Specialist yang ahli menganalisis kebutuhan pengadaan barang/jasa perusahaan.');
+            $result = $this->askJson($prompt, 'Kamu adalah AI Procurement Specialist yang ahli menganalisis kebutuhan pengadaan barang/jasa perusahaan.', null, 'extractSearchIntent');
             if (!empty($result) && is_array($result)) {
                 if (empty($result['estimated_total_budget_idr'])) {
                     $result['estimated_total_budget_idr'] = $this->extractBudgetFromText($userQuery);
@@ -301,8 +317,9 @@ PROMPT;
 
     /**
      * Re-rank & nilai kesesuaian produk katalog terhadap kebutuhan procurement.
+     * @param string|null $companyId Untuk tracking usage log per perusahaan
      */
-    public function rankSearchProducts(string $userQuery, array $products): array
+    public function rankSearchProducts(string $userQuery, array $products, ?string $companyId = null): array
     {
         if (empty($products)) {
             return [];
@@ -343,7 +360,7 @@ Balas dengan format JSON:
 PROMPT;
 
         try {
-            $response = $this->askJson($prompt, 'Kamu adalah AI Technical Procurement Evaluator.');
+            $response = $this->askJson($prompt, 'Kamu adalah AI Technical Procurement Evaluator.', $companyId, 'rankSearchProducts');
             if (!empty($response['results'])) {
                 return $response['results'];
             }
@@ -351,15 +368,17 @@ PROMPT;
             Log::warning('OpenAiService: rankSearchProducts fallback', ['error' => $e->getMessage()]);
         }
 
-        // Fallback rankings
-        return array_map(fn($p) => [
-            'product_id'               => $p['id'],
-            'is_match'                 => true,
-            'relevance_score'          => 85,
-            'fit_reason'               => 'Katalog sesuai dengan kriteria kategori.',
-            'suggested_qty'            => 1,
-            'estimated_unit_price_idr' => 15000000,
-        ], $candidates);
+        // Fallback rankings — beri score berbeda per posisi agar sorting tetap deterministik
+        return array_map(function ($p, $idx) {
+            return [
+                'product_id'               => $p['id'],
+                'is_match'                 => true,
+                'relevance_score'          => max(50, 90 - ($idx * 5)), // 90, 85, 80, 75...
+                'fit_reason'               => 'Katalog sesuai dengan kriteria kategori.',
+                'suggested_qty'            => 1,
+                'estimated_unit_price_idr' => 0, // Biarkan 0, enrichPrItems akan handle
+            ];
+        }, $candidates, array_keys($candidates));
     }
 
     /**
@@ -409,7 +428,7 @@ Balas dengan format JSON:
 PROMPT;
 
         try {
-            $res = $this->askJson($prompt, 'Kamu adalah Procurement Consultant & Hardware/Product Specialist senior.');
+            $res = $this->askJson($prompt, 'Kamu adalah Procurement Consultant & Hardware/Product Specialist senior.', null, 'compareProducts');
             if (!empty($res['comparison_matrix'])) {
                 return $res;
             }
@@ -506,8 +525,32 @@ Balas HANYA dengan JSON valid format:
 PROMPT;
 
         try {
-            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) & Senior Procurement Manager yang membuat dokumen Purchase Requisition berkualitas enterprise dengan kalkulasi anggaran yang akurat.');
+            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) & Senior Procurement Manager yang membuat dokumen Purchase Requisition berkualitas enterprise dengan kalkulasi anggaran yang akurat.', null, 'generatePrDraft');
             if (!empty($res['suggested_items'])) {
+                // Pastikan setiap suggested_item punya catalogue_id yang benar dari matchedItems jika AI tidak isi
+                $catalogueById = collect($matchedItems)->keyBy('id');
+                $res['suggested_items'] = array_map(function ($item) use ($catalogueById) {
+                    if (empty($item['catalogue_id']) || !$catalogueById->has($item['catalogue_id'])) {
+                        // Coba match by name
+                        $matched = $catalogueById->first(fn($c) =>
+                            isset($c['name']) && strtolower(trim($c['name'])) === strtolower(trim($item['name'] ?? ''))
+                        );
+                        if ($matched) {
+                            $item['catalogue_id'] = $matched['id'];
+                            // Carry over estimated_price dari AI ranking jika ada di katalog
+                            if (empty($item['estimated_price']) || $item['estimated_price'] <= 0) {
+                                $item['estimated_price'] = $matched['estimated_price'] ?? 0;
+                            }
+                        }
+                    } else {
+                        // catalogue_id valid — carry over harga dari katalog jika AI tidak isi
+                        $cat = $catalogueById->get($item['catalogue_id']);
+                        if (($item['estimated_price'] ?? 0) <= 0 && isset($cat['estimated_price']) && $cat['estimated_price'] > 0) {
+                            $item['estimated_price'] = $cat['estimated_price'];
+                        }
+                    }
+                    return $item;
+                }, $res['suggested_items']);
                 return $res;
             }
         } catch (\Exception $e) {
@@ -586,10 +629,44 @@ Tambahkan narasi singkat rekomendasi procurement di bawah tabel.
 PROMPT;
 
         try {
-            return $this->ask($prompt, 'Kamu adalah asisten pengadaan barang yang objektif dan ahli dalam spesifikasi teknis produk.');
+            return $this->ask($prompt, 'Kamu adalah asisten pengadaan barang yang objektif dan ahli dalam spesifikasi teknis produk.', null, 'generateComparisonText');
         } catch (\Exception $e) {
             Log::error('OpenAiService: generateComparisonText failed', ['error' => $e->getMessage()]);
             return 'Gagal memuat perbandingan produk.';
         }
+    }
+
+    /**
+     * Track penggunaan OpenAI ke database.
+     */
+    private function trackUsage(array $usage, string $endpoint, ?string $companyId = null): void
+    {
+        try {
+            $promptTokens     = (int) ($usage['prompt_tokens']     ?? 0);
+            $completionTokens = (int) ($usage['completion_tokens'] ?? 0);
+            $totalTokens      = (int) ($usage['total_tokens']      ?? ($promptTokens + $completionTokens));
+
+            AiUsageLog::create([
+                'company_id'       => $companyId,
+                'user_id'          => null, // bisa diisi dari request context jika diperlukan
+                'endpoint'         => $endpoint,
+                'model'            => $this->model,
+                'prompt_tokens'    => $promptTokens,
+                'completion_tokens'=> $completionTokens,
+                'total_tokens'     => $totalTokens,
+                'estimated_cost_usd' => AiUsageLog::estimateCost($this->model, $promptTokens, $completionTokens),
+            ]);
+        } catch (\Throwable $e) {
+            // Jangan sampai tracking error memblok fitur AI
+            Log::warning('OpenAiService: trackUsage failed', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Ambil ringkasan penggunaan AI bulan ini untuk satu company.
+     */
+    public function getUsageSummary(string $companyId): array
+    {
+        return AiUsageLog::getMonthlySummary($companyId);
     }
 }
