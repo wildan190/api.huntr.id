@@ -614,6 +614,158 @@ PROMPT;
     }
 
     /**
+     * Autofill metadata & spesifikasi katalog produk menggunakan OpenAI ChatGPT.
+     */
+    public function autofillCatalogue(string $name, ?string $categoryHint = null, ?string $companyId = null): array
+    {
+        $categoryHintText = $categoryHint ? "Kategori yang disarankan: {$categoryHint}" : "";
+        $prompt = <<<PROMPT
+Nama Produk: "{$name}"
+{$categoryHintText}
+
+Lengkapi data katalog produk B2B di atas secara akurat dan profesional.
+PILIH SALAH SATU Kategori yang paling tepat dari daftar ini:
+- Electronics
+- Spareparts
+- Construction
+- Software
+- Furniture
+- Stationery
+- Mechanical
+- Chemicals
+- General
+
+PILIH SALAH SATU Satuan UOM yang paling sesuai:
+- Unit
+- Pc
+- Set
+- Box
+- Pack
+- Roll
+- Litre
+- Kg
+- Meter
+- License
+
+Balas HANYA dengan JSON valid format:
+{
+  "category": "Salah satu kategori di atas",
+  "brand": "Nama merk/brand spesifik atau 'Generic'",
+  "uom": "Salah satu UOM di atas",
+  "specifications": "Ringkasan spesifikasi teknis lengkap, dimensi/kapasitas, material, dan fitur utama produk (2-4 kalimat/bullet points)",
+  "keywords": "kata-kunci-1, kata-kunci-2, merek, kategori, spesifikasi-kunci",
+  "image_search_query": "Keyword pencarian gambar produk bahasa inggris yang sangat spesifik dan akurat di Wikipedia/Commons"
+}
+PROMPT;
+
+        try {
+            $res = $this->askJson($prompt, 'Kamu adalah B2B Product Master Data Specialist dan Technical Catalogue Manager yang sangat teliti.', $companyId, 'autofillCatalogue');
+            if (!empty($res['category'])) {
+                return $res;
+            }
+        } catch (\Exception $e) {
+            Log::warning('OpenAiService: autofillCatalogue fallback', ['error' => $e->getMessage()]);
+        }
+
+        return [
+            'category'           => $categoryHint ?: 'General',
+            'brand'              => 'Generic',
+            'uom'                => 'Unit',
+            'specifications'     => "{$name} - Spesifikasi standar industri kualitas enterprise.",
+            'keywords'           => strtolower("{$name}, general, procurement"),
+            'image_search_query' => $name,
+        ];
+    }
+
+    /**
+     * Generate gambar produk profesional menggunakan AI Image Generation (OpenAI / AI Diffusion Engine).
+     * Mengembalikan base64 data image yang siap disimpan sebagai file katalog.
+     */
+    public function generateProductImage(string $productName, ?string $category = null, ?string $brand = null, ?string $companyId = null): array
+    {
+        $brandText = $brand && strtolower($brand) !== 'generic' ? "{$brand} " : "";
+        $prompt = "Clean professional studio commercial product photography of {$brandText}{$productName}, isolated on clean white background, high quality commercial B2B product photography, sharp details, realistic studio lighting, e-commerce catalog style";
+        $encodedPrompt = urlencode($prompt);
+
+        // 1. Coba OpenAI Image API jika didukung oleh project key
+        if (!empty($this->apiKey)) {
+            try {
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $this->apiKey,
+                    'Content-Type'  => 'application/json',
+                ])
+                ->timeout(20)
+                ->post('https://api.openai.com/v1/images/generations', [
+                    'prompt' => substr($prompt, 0, 1000),
+                    'n'      => 1,
+                    'size'   => '1024x1024',
+                ]);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    $b64 = $data['data'][0]['b64_json'] ?? null;
+                    $url = $data['data'][0]['url'] ?? null;
+
+                    if (!$b64 && $url) {
+                        $imgFetch = Http::timeout(25)->get($url);
+                        if ($imgFetch->successful()) {
+                            $b64 = base64_encode($imgFetch->body());
+                        }
+                    }
+
+                    if ($b64) {
+                        $this->trackUsage(['prompt_tokens' => 1000, 'completion_tokens' => 0, 'total_tokens' => 1000], 'generateProductImage', $companyId);
+                        return ['success' => true, 'b64_json' => $b64, 'url' => $url];
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('OpenAI Image API generation skipped/unavailable, falling back to AI Diffusion engine', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // 2. High Quality Fast AI Diffusion Image Generator (Pollinations AI Studio)
+        try {
+            $diffusionUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?width=800&height=800&nologo=true&enhance=true&model=flux";
+            $res = Http::timeout(30)->get($diffusionUrl);
+
+            if ($res->successful() && strlen($res->body()) > 2000) {
+                $b64 = base64_encode($res->body());
+                $this->trackUsage(['prompt_tokens' => 500, 'completion_tokens' => 0, 'total_tokens' => 500], 'generateProductImage', $companyId);
+
+                return [
+                    'success'  => true,
+                    'b64_json' => $b64,
+                    'url'      => $diffusionUrl,
+                ];
+            }
+        } catch (\Exception $e) {
+            Log::warning('Pollinations Flux generation failed, trying Turbo model', ['error' => $e->getMessage()]);
+        }
+
+        // 3. Fallback Fast Turbo Diffusion Model
+        try {
+            $turboUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?width=600&height=600&nologo=true&model=turbo";
+            $res = Http::timeout(20)->get($turboUrl);
+
+            if ($res->successful() && strlen($res->body()) > 2000) {
+                $b64 = base64_encode($res->body());
+                return [
+                    'success'  => true,
+                    'b64_json' => $b64,
+                    'url'      => $turboUrl,
+                ];
+            }
+        } catch (\Exception $e) {
+            Log::error('All generative image engines failed', ['error' => $e->getMessage()]);
+            throw new \RuntimeException('Gagal meng-generate gambar produk AI: ' . $e->getMessage());
+        }
+
+        throw new \RuntimeException('Gagal mendapatkan gambar produk dari AI.');
+    }
+
+
+
+    /**
      * Teks perbandingan markdown dari prompt bebas.
      */
     public function generateComparisonText(string $userQuery): string

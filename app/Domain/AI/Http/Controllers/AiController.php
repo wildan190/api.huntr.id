@@ -293,4 +293,68 @@ class AiController extends \App\Http\Controllers\Controller
             ], 200);
         }
     }
+
+    /**
+     * POST /api/ai/autofill-catalogue
+     *
+     * Autofill metadata spesifikasi, kategori, brand, uom, & query gambar katalog menggunakan OpenAI ChatGPT.
+     */
+    public function autofillCatalogue(Request $request, OpenAiService $openAi): JsonResponse
+    {
+        $request->validate([
+            'name'       => 'required|string|min:2|max:300',
+            'category'   => 'nullable|string',
+            'company_id' => 'nullable|string',
+        ]);
+
+        try {
+            $result = $openAi->autofillCatalogue(
+                $request->input('name'),
+                $request->input('category'),
+                $request->input('company_id')
+            );
+
+            return response()->json([
+                'success' => true,
+                'data'    => $result,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'Gagal auto-fill spesifikasi katalog: ' . $e->getMessage(),
+            ], 200);
+        }
+    }
+
+    /**
+     * POST /api/ai/generate-image
+     *
+     * Generate gambar produk e-commerce / katalog B2B menggunakan AI DALL-E.
+     */
+    public function generateProductImage(Request $request, OpenAiService $openAi): JsonResponse
+    {
+        $request->validate([
+            'name'       => 'required|string|min:2|max:300',
+            'category'   => 'nullable|string',
+            'brand'      => 'nullable|string',
+            'company_id' => 'nullable|string',
+        ]);
+
+        try {
+            $result = $openAi->generateProductImage(
+                $request->input('name'),
+                $request->input('category'),
+                $request->input('brand'),
+                $request->input('company_id')
+            );
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'Gagal generate gambar dengan AI: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
 }
+
