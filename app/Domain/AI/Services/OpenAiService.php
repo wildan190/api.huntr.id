@@ -678,59 +678,51 @@ PROMPT;
     }
 
     /**
-     * Generate gambar produk profesional menggunakan AI Image Generation (OpenAI / AI Diffusion Engine).
-     * Mengembalikan base64 data image yang siap disimpan sebagai file katalog.
+     * Generate foto produk katalog komersial nyata menggunakan AI Diffusion Engine & ChatGPT Prompt Optimizer.
+     * Menghasilkan foto produk nyata studio profesional tanpa halusinasi ilustrasi / 3D cartoon.
      */
     public function generateProductImage(string $productName, ?string $category = null, ?string $brand = null, ?string $companyId = null): array
     {
-        $brandText = $brand && strtolower($brand) !== 'generic' ? "{$brand} " : "";
-        $prompt = "Clean professional studio commercial product photography of {$brandText}{$productName}, isolated on clean white background, high quality commercial B2B product photography, sharp details, realistic studio lighting, e-commerce catalog style";
-        $encodedPrompt = urlencode($prompt);
+        $brandClean = $brand && strtolower($brand) !== 'generic' ? $brand : '';
+        
+        // 1. Gunakan ChatGPT untuk merumuskan prompt visual foto produk yang detail, akurat, dan fotorealistis
+        $optimizedPrompt = "commercial product photography of {$brandClean} {$productName}, official real product packaging and hardware, centered, studio lighting, plain clean pure white background, 8k resolution, crisp sharp focus, real photo, unedited realistic materials, canon eos r5";
 
-        // 1. Coba OpenAI Image API jika didukung oleh project key
-        if (!empty($this->apiKey)) {
-            try {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $this->apiKey,
-                    'Content-Type'  => 'application/json',
-                ])
-                ->timeout(20)
-                ->post('https://api.openai.com/v1/images/generations', [
-                    'prompt' => substr($prompt, 0, 1000),
-                    'n'      => 1,
-                    'size'   => '1024x1024',
-                ]);
+        try {
+            $chatGptPrompt = <<<PROMPT
+Nama Produk: "{$productName}"
+Kategori: "{$category}"
+Brand: "{$brandClean}"
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    $b64 = $data['data'][0]['b64_json'] ?? null;
-                    $url = $data['data'][0]['url'] ?? null;
+Tulis deskripsi visual bahasa Inggris singkat (1-2 kalimat) untuk foto produk katalog e-commerce NYATA (bukan gambar animasi/kartun/lukisan).
+Deskripsikan bentuk fisik barang yang tepat, material nyata (metal, plastik matte, kaca, packaging resmi), dan posisinya di atas background putih studio bersih.
+Wajib diakhiri dengan: "commercial product photo, centered, pure white background, 8k, sharp focus, real photograph".
 
-                    if (!$b64 && $url) {
-                        $imgFetch = Http::timeout(25)->get($url);
-                        if ($imgFetch->successful()) {
-                            $b64 = base64_encode($imgFetch->body());
-                        }
-                    }
+Balas HANYA dengan teks prompt bahasa Inggris tersebut tanpa tanda petik atau pengantar.
+PROMPT;
 
-                    if ($b64) {
-                        $this->trackUsage(['prompt_tokens' => 1000, 'completion_tokens' => 0, 'total_tokens' => 1000], 'generateProductImage', $companyId);
-                        return ['success' => true, 'b64_json' => $b64, 'url' => $url];
-                    }
-                }
-            } catch (\Exception $e) {
-                Log::warning('OpenAI Image API generation skipped/unavailable, falling back to AI Diffusion engine', ['error' => $e->getMessage()]);
+            $aiPrompt = trim($this->ask($chatGptPrompt, 'You are an expert commercial product photographer and catalog image prompt engineer.', $companyId, 'optimizeImagePrompt'));
+            if (!empty($aiPrompt) && strlen($aiPrompt) > 20) {
+                $optimizedPrompt = $aiPrompt;
             }
+        } catch (\Exception $e) {
+            Log::warning('ChatGPT image prompt optimization fallback to default', ['error' => $e->getMessage()]);
         }
 
-        // 2. High Quality Fast AI Diffusion Image Generator (Pollinations AI Studio)
+        // Negative prompt untuk mematikan halusinasi (gambar kartun, teks aneh, lukisan, render 3D murahan)
+        $negativePrompt = "blurry, low quality, cartoon, anime, 3d render, drawing, painting, illustration, watermark, text, signature, duplicate, distorted, fantasy, deformed";
+        
+        $encodedPrompt = urlencode($optimizedPrompt);
+        $encodedNegative = urlencode($negativePrompt);
+
+        // 2. High Quality Realistic AI Diffusion Image Generator (Flux / Realistic Photo Engine)
         try {
-            $diffusionUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?width=800&height=800&nologo=true&enhance=true&model=flux";
-            $res = Http::timeout(30)->get($diffusionUrl);
+            $diffusionUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?negative={$encodedNegative}&width=800&height=800&nologo=true&enhance=false&model=flux";
+            $res = Http::timeout(35)->get($diffusionUrl);
 
             if ($res->successful() && strlen($res->body()) > 2000) {
                 $b64 = base64_encode($res->body());
-                $this->trackUsage(['prompt_tokens' => 500, 'completion_tokens' => 0, 'total_tokens' => 500], 'generateProductImage', $companyId);
+                $this->trackUsage(['prompt_tokens' => 300, 'completion_tokens' => 0, 'total_tokens' => 300], 'generateProductImage', $companyId);
 
                 return [
                     'success'  => true,
@@ -739,12 +731,12 @@ PROMPT;
                 ];
             }
         } catch (\Exception $e) {
-            Log::warning('Pollinations Flux generation failed, trying Turbo model', ['error' => $e->getMessage()]);
+            Log::warning('Pollinations Flux realistic photo generation failed, trying Turbo model', ['error' => $e->getMessage()]);
         }
 
-        // 3. Fallback Fast Turbo Diffusion Model
+        // 3. Fallback High-Speed Turbo Diffusion Model
         try {
-            $turboUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?width=600&height=600&nologo=true&model=turbo";
+            $turboUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?negative={$encodedNegative}&width=600&height=600&nologo=true&model=turbo";
             $res = Http::timeout(20)->get($turboUrl);
 
             if ($res->successful() && strlen($res->body()) > 2000) {
@@ -757,11 +749,12 @@ PROMPT;
             }
         } catch (\Exception $e) {
             Log::error('All generative image engines failed', ['error' => $e->getMessage()]);
-            throw new \RuntimeException('Gagal meng-generate gambar produk AI: ' . $e->getMessage());
+            throw new \RuntimeException('Gagal meng-generate foto produk AI: ' . $e->getMessage());
         }
 
-        throw new \RuntimeException('Gagal mendapatkan gambar produk dari AI.');
+        throw new \RuntimeException('Gagal mendapatkan foto produk dari AI.');
     }
+
 
 
 
