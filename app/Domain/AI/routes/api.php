@@ -24,6 +24,12 @@ Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
     // Public: AI comparison text from natural language query (external knowledge)
     Route::post('compare-text', [AiController::class, 'compareText']);
 
+    // Public / Vendor: Auto-fill metadata produk menggunakan ChatGPT
+    Route::post('autofill-catalogue', [AiController::class, 'autofillCatalogue']);
+
+    // Public / Vendor: Generate gambar produk menggunakan AI (DALL-E)
+    Route::post('generate-image', [AiController::class, 'generateProductImage']);
+
     // Protected: memerlukan auth (akses data internal)
     Route::middleware('auth:api')->group(function () {
         Route::post('rank-proposals', [AiController::class, 'rankProposals']);
