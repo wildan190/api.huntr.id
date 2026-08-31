@@ -55,7 +55,7 @@ class InviteUserAction
     private function validateRoleForCompanyType(string $role, string $companyType): void
     {
         $buyerRoles = ['buyer', 'manager', 'finance'];
-        $vendorRoles = ['admin', 'manager', 'finance'];
+        $vendorRoles = ['admin', 'manager', 'finance', 'buyer'];
 
         if ($companyType === 'buyer' && !in_array($role, $buyerRoles)) {
             throw new \Exception("Role '{$role}' is not valid for buyer companies. Valid roles: " . implode(', ', $buyerRoles));

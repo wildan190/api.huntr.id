@@ -264,7 +264,7 @@ class CompanyController extends \App\Http\Controllers\Controller
         if ($company->type === 'buyer') {
             $validRoles = ['buyer', 'manager', 'finance'];
         } elseif ($company->type === 'vendor') {
-            $validRoles = ['admin', 'manager', 'finance'];
+            $validRoles = ['admin', 'manager', 'finance', 'buyer'];
         } else {
             return response()->json(['message' => 'Invalid company type for role assignment.'], 422);
         }
