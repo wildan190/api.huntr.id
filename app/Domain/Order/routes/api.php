@@ -44,6 +44,7 @@ Route::prefix('api/returns')->middleware(['api', 'auth:sanctum'])->group(functio
     Route::get('', [ReturnController::class, 'index'])->name('returns.index');
     Route::post('', [ReturnController::class, 'store'])->name('returns.store');
     Route::get('{id}', [ReturnController::class, 'show'])->name('returns.show');
+    Route::get('{id}/pdf', [ReturnController::class, 'showPdf'])->name('returns.pdf')->withoutMiddleware('auth:sanctum');
     Route::patch('{id}/status', [ReturnController::class, 'updateStatus'])->name('returns.update-status');
     Route::post('{id}/inspect', [ReturnController::class, 'inspect'])->name('returns.inspect');
     Route::post('{id}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
