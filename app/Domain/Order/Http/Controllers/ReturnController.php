@@ -205,4 +205,57 @@ class ReturnController extends \App\Http\Controllers\Controller
             'return' => $return,
         ]);
     }
+
+    /**
+     * Generate and display Return PDF in browser (for printing)
+     */
+    public function showPdf(string $id)
+    {
+        $return = GoodsReturn::with(['purchaseOrder', 'buyerCompany', 'vendorCompany', 'inspectedByUser', 'approvedByUser', 'bast'])
+            ->findOrFail($id);
+
+        $disk = config('filesystems.default');
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storageDisk */
+        $storageDisk = \Illuminate\Support\Facades\Storage::disk($disk);
+        $buyerLogoUrl = null;
+        if ($return->buyerCompany && $return->buyerCompany->logo_path) {
+            $buyerLogoUrl = $this->getAssetUrl($storageDisk, $return->buyerCompany->logo_path);
+        }
+        $vendorLogoUrl = null;
+        if ($return->vendorCompany && $return->vendorCompany->logo_path) {
+            $vendorLogoUrl = $this->getAssetUrl($storageDisk, $return->vendorCompany->logo_path);
+        }
+
+        // Return view directly for browser display & printing
+        return view('print.return', [
+            'return' => $return,
+            'buyer_logo_url' => $buyerLogoUrl,
+            'vendor_logo_url' => $vendorLogoUrl,
+        ]);
+    }
+
+    /**
+     * Helper to get asset URL with support for S3 temporary URLs
+     */
+    private function getAssetUrl(\Illuminate\Filesystem\FilesystemAdapter $storage, string $path): string
+    {
+        if (filter_var($path, FILTER_VALIDATE_URL)) {
+            return $path;
+        }
+
+        $diskName = config('filesystems.default');
+        if (in_array($diskName, ['s3', 'spaces', 'gcs', 'azure'])) {
+            try {
+                return $storage->temporaryUrl($path, now()->addHours(1));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to generate temporary URL, falling back to public URL', [
+                    'error' => $e->getMessage(),
+                    'path' => $path
+                ]);
+            }
+        }
+
+        return $storage->url($path);
+    }
 }
+
