@@ -28,6 +28,8 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:api'])->group(f
     Route::put('{company}/users/role', [CompanyController::class, 'updateUserRole']);
     Route::get('{company}/diagnose-roles', [CompanyController::class, 'diagnoseRoles']);
     Route::post('{company}/fix-owner-role', [CompanyController::class, 'fixCompanyOwnerRole']);
+    Route::post('{company}/switch-active', [CompanyController::class, 'switchActiveCompany']);
+
     
     // Debug endpoints untuk role troubleshooting
     Route::prefix('debug')->group(function () {
