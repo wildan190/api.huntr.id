@@ -28,19 +28,8 @@ class GetPurchaseOrdersAction
 
         $company = Company::findOrFail($companyId);
 
-        $query = PurchaseOrder::with([
-            'historicalItems',
-            'invoices',
-            'deliveryOrders',
-            'basts',
-            'efakturs',
-            'rfq.items.catalogue',
-            'rfq.proposals' => function ($q) {
-                $q->where('status', 'accepted')->with(['items', 'acceptedNegotiation.items']);
-            },
-            'vendor',
-            'buyer'
-        ])->orderBy('created_at', 'desc');
+        // Start with base query — relations are added conditionally below
+        $query = PurchaseOrder::query()->orderBy('created_at', 'desc');
 
         if ($company->type === 'buyer') {
             $query->where('buyer_company_id', $companyId);
@@ -65,8 +54,40 @@ class GetPurchaseOrdersAction
             });
         }
 
+        // Paginate first (count query), then conditionally eager load based on what's in the page
         $paginator = $query->paginate($perPage);
         $items = $paginator->items();
+
+        if (!empty($items)) {
+            $hasHistorical  = collect($items)->contains(fn($po) => $po->is_historical);
+            $hasOperational = collect($items)->contains(fn($po) => !$po->is_historical);
+
+            // Always load historical items + buyer info for historical POs
+            // (buyer_name/address needed for print PO; vendor_name is stored as plain text)
+            if ($hasHistorical) {
+                $paginator->getCollection()
+                    ->filter(fn($po) => $po->is_historical)
+                    ->loadMissing(['historicalItems', 'buyer']);
+            }
+
+            // Only load heavy operational relations when there are operational POs on this page
+            if ($hasOperational) {
+                $paginator->getCollection()
+                    ->filter(fn($po) => !$po->is_historical)
+                    ->loadMissing([
+                        'invoices',
+                        'deliveryOrders',
+                        'basts',
+                        'efakturs',
+                        'rfq.items.catalogue',
+                        'rfq.proposals' => function ($q) {
+                            $q->where('status', 'accepted')->with(['items', 'acceptedNegotiation.items']);
+                        },
+                        'vendor',
+                        'buyer',
+                    ]);
+            }
+        }
 
         $this->loadUsersForPos($items);
 
@@ -78,6 +99,7 @@ class GetPurchaseOrdersAction
             'per_page' => $paginator->perPage(),
         ];
     }
+
 
     /**
      * Manual eager loading for creator and approver to avoid UUID errors with historical names.
@@ -174,15 +196,15 @@ class GetPurchaseOrdersAction
             /** @var FilesystemAdapter $storageDisk */
             $storageDisk = Storage::disk(config('filesystems.default'));
             $buyerLogoUrl = null;
-            if ($po->buyer && $po->buyer->logo_path) {
+            if ($po->relationLoaded('buyer') && $po->buyer && $po->buyer->logo_path) {
                 $buyerLogoUrl = $storageDisk->url($po->buyer->logo_path);
             }
             $vendorLogoUrl = null;
-            if ($po->vendor && $po->vendor->logo_path) {
+            if ($po->relationLoaded('vendor') && $po->vendor && $po->vendor->logo_path) {
                 $vendorLogoUrl = $storageDisk->url($po->vendor->logo_path);
             }
             $paymentScheme = null;
-            if ($po->rfq) {
+            if ($po->relationLoaded('rfq') && $po->rfq) {
                 $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first()
                     ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
                     ?? $po->rfq->proposals->first();
@@ -197,18 +219,21 @@ class GetPurchaseOrdersAction
             return [
                 'id' => $po->id,
                 'po_number' => $po->po_number,
-                'vendor_name' => $po->vendor_name ?? $po->vendor?->name ?? 'N/A',
-                'vendor_address' => $po->vendor?->address ?? 'N/A',
-                'vendor_tax_id' => $po->vendor?->formatted_tax_id ?? null,
-                'buyer_name' => $po->buyer?->name ?? 'N/A',
-                'buyer_address' => $po->buyer?->address ?? 'N/A',
-                'buyer_tax_id' => $po->buyer?->formatted_tax_id ?? null,
+                // vendor_name is stored directly on the PO for historical imports; also check relation
+                'vendor_name' => ($po->vendor_name && $po->vendor_name !== '') ? $po->vendor_name : ($po->relationLoaded('vendor') ? ($po->vendor?->name ?? 'N/A') : 'N/A'),
+                'vendor_address' => ($po->relationLoaded('vendor') ? ($po->vendor?->address ?? 'N/A') : 'N/A'),
+                'vendor_tax_id' => ($po->relationLoaded('vendor') ? ($po->vendor?->formatted_tax_id ?? null) : null),
+                'buyer_name' => ($po->relationLoaded('buyer') ? ($po->buyer?->name ?? 'N/A') : 'N/A'),
+                'buyer_address' => ($po->relationLoaded('buyer') ? ($po->buyer?->address ?? 'N/A') : 'N/A'),
+                'buyer_tax_id' => ($po->relationLoaded('buyer') ? ($po->buyer?->formatted_tax_id ?? null) : null),
                 'department' => $po->department ?? 'N/A',
                 'currency' => $po->currency ?? 'IDR',
                 'purchase_category' => $po->purchase_category ?? 'N/A',
                 'purchase_type' => $po->purchase_type ?? 'N/A',
                 'payment_scheme' => $paymentScheme,
-                'order_date' => $po->order_date?->format('Y-m-d') ?? $po->created_at->format('Y-m-d'),
+                // For historical POs, order_date is the actual PO date from the import file.
+                // NEVER fall back to created_at (upload date) for historical — use null instead.
+                'order_date' => $po->order_date?->format('Y-m-d') ?? ($po->is_historical ? null : $po->created_at->format('Y-m-d')),
                 'expected_receiving_date' => $po->expected_receiving_date?->format('Y-m-d'),
                 'delivery_point' => $po->delivery_point ?? $po->rfq?->delivery_point ?? null,
                 'status' => $po->status,
@@ -220,61 +245,66 @@ class GetPurchaseOrdersAction
                 'items' => $mappedItems,
                 'buyer_logo_url' => $buyerLogoUrl,
                 'vendor_logo_url' => $vendorLogoUrl,
-                'delivery_orders' => $po->deliveryOrders->map(function ($do) {
-                    return [
-                        'id' => $do->id,
-                        'do_number' => $do->do_number,
-                        'tracking_number' => $do->tracking_number,
-                        'delivery_address' => $do->delivery_address,
-                        'status' => $do->status,
-                        'handed_by_user_id' => $do->handed_by_user_id,
-                        'handed_by_name' => $do->handed_by_name,
-                        'handed_by_position' => $do->handed_by_position,
-                        'handed_by_signed_at' => $do->handed_by_signed_at?->toIso8601String(),
-                        'received_by_user_id' => $do->received_by_user_id,
-                        'received_by_name' => $do->received_by_name,
-                        'received_by_position' => $do->received_by_position,
-                        'received_by_signed_at' => $do->received_by_signed_at?->toIso8601String(),
-                        'witness_user_id' => $do->witness_user_id,
-                        'witness_name' => $do->witness_name,
-                        'witness_position' => $do->witness_position,
-                        'witness_signed_at' => $do->witness_signed_at?->toIso8601String(),
-                    ];
-                }),
-                'invoices' => $po->invoices->map(function ($inv) {
-                    return [
-                        'id' => $inv->id,
-                        'type' => $inv->type,
-                        'amount' => $inv->amount,
-                        'status' => $inv->status,
-                        'date' => $inv->created_at->format('Y-m-d'),
-                    ];
-                }),
-                'basts' => $po->basts->map(function ($bast) {
-                    return [
-                        'id' => $bast->id,
-                        'bast_number' => $bast->bast_number,
-                        'bast_date' => $bast->bast_date?->format('Y-m-d'),
-                        'status' => $bast->status,
-                        'handed_by_name' => $bast->handed_by_name,
-                        'handed_by_signed_at' => $bast->handed_by_signed_at?->format('Y-m-d H:i:s'),
-                        'received_by_name' => $bast->received_by_name,
-                        'received_by_signed_at' => $bast->received_by_signed_at?->format('Y-m-d H:i:s'),
-                        'witness_name' => $bast->witness_name,
-                        'witness_signed_at' => $bast->witness_signed_at?->format('Y-m-d H:i:s'),
-                    ];
-                }),
-                'efakturs' => $po->efakturs->map(function ($ef) {
-                    return [
-                        'id' => $ef->id,
-                        'nofa' => $ef->nofa,
-                        'transaction_id' => $ef->transaction_id,
-                        'status' => $ef->status,
-                        'tanggal_faktur' => $ef->tanggal_faktur,
-                        'dpp' => $ef->dpp,
-                        'ppn' => $ef->ppn,
-                    ];
-                }),
+                // Use relationLoaded() guard so unloaded relations (e.g. historical POs) return [].
+                'delivery_orders' => $po->relationLoaded('deliveryOrders')
+                    ? $po->deliveryOrders->map(function ($do) {
+                        return [
+                            'id' => $do->id,
+                            'do_number' => $do->do_number,
+                            'tracking_number' => $do->tracking_number,
+                            'delivery_address' => $do->delivery_address,
+                            'status' => $do->status,
+                            'handed_by_user_id' => $do->handed_by_user_id,
+                            'handed_by_name' => $do->handed_by_name,
+                            'handed_by_position' => $do->handed_by_position,
+                            'handed_by_signed_at' => $do->handed_by_signed_at?->toIso8601String(),
+                            'received_by_user_id' => $do->received_by_user_id,
+                            'received_by_name' => $do->received_by_name,
+                            'received_by_position' => $do->received_by_position,
+                            'received_by_signed_at' => $do->received_by_signed_at?->toIso8601String(),
+                            'witness_user_id' => $do->witness_user_id,
+                            'witness_name' => $do->witness_name,
+                            'witness_position' => $do->witness_position,
+                            'witness_signed_at' => $do->witness_signed_at?->toIso8601String(),
+                        ];
+                    })->toArray() : [],
+                'invoices' => $po->relationLoaded('invoices')
+                    ? $po->invoices->map(function ($inv) {
+                        return [
+                            'id' => $inv->id,
+                            'type' => $inv->type,
+                            'amount' => $inv->amount,
+                            'status' => $inv->status,
+                            'date' => $inv->created_at->format('Y-m-d'),
+                        ];
+                    })->toArray() : [],
+                'basts' => $po->relationLoaded('basts')
+                    ? $po->basts->map(function ($bast) {
+                        return [
+                            'id' => $bast->id,
+                            'bast_number' => $bast->bast_number,
+                            'bast_date' => $bast->bast_date?->format('Y-m-d'),
+                            'status' => $bast->status,
+                            'handed_by_name' => $bast->handed_by_name,
+                            'handed_by_signed_at' => $bast->handed_by_signed_at?->format('Y-m-d H:i:s'),
+                            'received_by_name' => $bast->received_by_name,
+                            'received_by_signed_at' => $bast->received_by_signed_at?->format('Y-m-d H:i:s'),
+                            'witness_name' => $bast->witness_name,
+                            'witness_signed_at' => $bast->witness_signed_at?->format('Y-m-d H:i:s'),
+                        ];
+                    })->toArray() : [],
+                'efakturs' => $po->relationLoaded('efakturs')
+                    ? $po->efakturs->map(function ($ef) {
+                        return [
+                            'id' => $ef->id,
+                            'nofa' => $ef->nofa,
+                            'transaction_id' => $ef->transaction_id,
+                            'status' => $ef->status,
+                            'tanggal_faktur' => $ef->tanggal_faktur,
+                            'dpp' => $ef->dpp,
+                            'ppn' => $ef->ppn,
+                        ];
+                    })->toArray() : [],
                 'tracking_timeline' => $po->tracking_timeline ?? [],
             ];
         }, $items);
