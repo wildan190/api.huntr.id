@@ -79,6 +79,61 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Switch the authenticated user's active company (workspace switching).
+     * Allows Vendors to switch to their Buyer workspace and vice versa.
+     */
+    public function switchActiveCompany(Request $request, Company $company): JsonResponse
+    {
+        /** @var \App\Domain\Auth\Models\User $user */
+        $user = $request->user();
+
+        // Authorization: user must be owner OR a member of the target company
+        $isOwner  = $company->owner_id === $user->id;
+        $isMember = $company->users()->where('id', $user->id)->exists();
+
+        if (!$isOwner && !$isMember) {
+            return response()->json([
+                'message' => 'You are not authorized to access this workspace.',
+            ], 403);
+        }
+
+        // Update user's active company
+        $user->update(['company_id' => $company->id]);
+        $user->refresh();
+
+        // Ensure manager role for the owner in the target company
+        if ($isOwner && !$user->hasRole('manager')) {
+            /** @var \App\Domain\Access\Actions\AssignRoleAction $assignRole */
+            $assignRole = app(\App\Domain\Access\Actions\AssignRoleAction::class);
+            $assignRole->execute($user, 'manager');
+            $user->refresh();
+        }
+
+        Log::info('User switched active workspace', [
+            'user_id'     => $user->id,
+            'company_id'  => $company->id,
+            'company_type'=> $company->type,
+            'company_name'=> $company->name,
+        ]);
+
+        $companyData = $company->load('documents')->toArray();
+        $companyData['formatted_tax_id'] = $company->formatted_tax_id;
+
+        return response()->json([
+            'message' => 'Workspace switched successfully.',
+            'company' => $companyData,
+            'user'    => [
+                'id'         => $user->id,
+                'name'       => $user->name,
+                'email'      => $user->email,
+                'whatsapp'   => $user->whatsapp,
+                'role'       => $user->role,
+                'company_id' => $user->company_id,
+            ],
+        ]);
+    }
+
+    /**
      * Update company profile information.
      */
     public function update(UpdateCompanyRequest $request, Company $company, UpdateCompanyAction $action): JsonResponse

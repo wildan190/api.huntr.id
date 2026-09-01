@@ -4,6 +4,7 @@ namespace App\Domain\Company\Http\Requests;
 
 use App\Support\KeywordNormalizer;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class RegisterCompanyRequest extends FormRequest
 {
@@ -17,6 +18,12 @@ class RegisterCompanyRequest extends FormRequest
         if ($this->has('keywords')) {
             $this->merge([
                 'keywords' => KeywordNormalizer::normalize($this->input('keywords')),
+            ]);
+        }
+
+        if ($this->has('tax_id')) {
+            $this->merge([
+                'tax_id' => str_replace(['.', '-'], '', $this->input('tax_id')),
             ]);
         }
     }
@@ -52,12 +59,34 @@ class RegisterCompanyRequest extends FormRequest
         // TIN/NPWP is required only for Indonesia
         $country = $this->input('country');
         if ($this->isIndonesia($country)) {
-            $rules['tax_id'] = ['required', 'string', 'min:15', 'max:16'];
+            $rules['tax_id'] = [
+                'required',
+                'string',
+                'min:15',
+                'max:16',
+                // 1 NPWP can only have 1 Buyer workspace and 1 Vendor workspace
+                Rule::unique('companies', 'tax_id')->where('type', $this->input('type')),
+            ];
         } else {
             $rules['tax_id'] = ['nullable', 'string'];
         }
 
         return $rules;
+    }
+
+    /**
+     * Custom validation messages.
+     */
+    public function messages(): array
+    {
+        $type = $this->input('type');
+        $typeLabel = $type === 'vendor' ? 'Vendor' : 'Buyer';
+        return [
+            'tax_id.unique' =>
+                "NPWP/Tax ID ini sudah terdaftar sebagai perusahaan {$typeLabel}. " .
+                "Anda tidak dapat mendaftarkan akun {$typeLabel} baru dengan NPWP yang sama. " .
+                "Silakan masuk ke workspace yang sudah ada, atau daftarkan perusahaan ini dengan tipe yang berbeda.",
+        ];
     }
 
     /**

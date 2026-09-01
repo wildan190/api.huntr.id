@@ -27,30 +27,50 @@ class RegisterCompanyAction
     {
         Log::info('RegisterCompanyAction data:', $data);
 
-        // Check if a company with the same name or tax_id already exists for this owner
-        // to prevent duplicate submissions, but allow registering different companies.
+        // Check if a company with the same tax_id AND same type already exists.
+        // Business rule: 1 tax_id can register as 1 Vendor AND 1 Buyer (two separate workspaces),
+        // but NOT as 2 Vendors or 2 Buyers.
+        if (!empty($data['tax_id']) && !empty($data['type'])) {
+            $typeDuplicate = Company::where('tax_id', $data['tax_id'])
+                ->where('type', $data['type'])
+                ->first();
+
+            if ($typeDuplicate) {
+                $typeLabel = $data['type'] === 'vendor' ? 'Vendor' : 'Buyer';
+                throw new \Illuminate\Validation\ValidationException(
+                    \Illuminate\Support\Facades\Validator::make([], []),
+                    response()->json([
+                        'message' => "NPWP/Tax ID ini sudah terdaftar sebagai perusahaan {$typeLabel}. " .
+                                     "Anda tidak dapat mendaftarkan akun {$typeLabel} baru dengan NPWP yang sama.",
+                        'errors' => [
+                            'tax_id' => ["NPWP sudah terdaftar sebagai {$typeLabel}"]
+                        ]
+                    ], 422)
+                );
+            }
+        }
+
+        // Check for re-submission of the very same company (same owner + same name + same type)
+        // to prevent accidental duplicates within the same workspace registration.
         $existingCompany = Company::where('owner_id', $user->id)
-            ->where(function($query) use ($data) {
-                $query->where('name', $data['name']);
-                if (!empty($data['tax_id'])) {
-                    $query->orWhere('tax_id', $data['tax_id']);
-                }
-            })
+            ->where('name', $data['name'])
+            ->where('type', $data['type'])
             ->first();
 
         if ($existingCompany) {
-            // Update existing company and ensure status is 'pending' for approval
+            // Re-submission: update and re-submit for approval
             $updateData = array_merge($data, [
-                'status' => 'pending', // Re-submit for approval
+                'status' => 'pending',
             ]);
             $existingCompany->update($updateData);
             $company = $existingCompany;
-            
+
             Log::info('Updated existing company during registration', [
                 'company_id' => $company->id,
-                'status' => $company->status
+                'status'     => $company->status
             ]);
         } else {
+
             // Create a completely new company
             $companyData = array_merge($data, [
                 'status'   => 'pending',
