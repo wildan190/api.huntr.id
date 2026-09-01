@@ -59,13 +59,31 @@ class RegisterCompanyRequest extends FormRequest
         // TIN/NPWP is required only for Indonesia
         $country = $this->input('country');
         if ($this->isIndonesia($country)) {
+            $user = $this->user();
+            $uniqueRule = Rule::unique('companies', 'tax_id')
+                ->where('type', $this->input('type'))
+                ->where(function ($query) {
+                    // Do not treat rejected status as blocking re-registration
+                    $query->where('status', '!=', 'rejected');
+                });
+
+            // If the user already owns this company (e.g. resubmitting/updating), ignore their own company ID
+            if ($user) {
+                $existingOwnCompany = \App\Domain\Company\Models\Company::where('owner_id', $user->id)
+                    ->where('type', $this->input('type'))
+                    ->where('tax_id', $this->input('tax_id'))
+                    ->first();
+                if ($existingOwnCompany) {
+                    $uniqueRule->ignore($existingOwnCompany->id);
+                }
+            }
+
             $rules['tax_id'] = [
                 'required',
                 'string',
                 'min:15',
                 'max:16',
-                // 1 NPWP can only have 1 Buyer workspace and 1 Vendor workspace
-                Rule::unique('companies', 'tax_id')->where('type', $this->input('type')),
+                $uniqueRule,
             ];
         } else {
             $rules['tax_id'] = ['nullable', 'string'];

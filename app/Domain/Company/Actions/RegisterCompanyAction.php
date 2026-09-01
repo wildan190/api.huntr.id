@@ -29,10 +29,13 @@ class RegisterCompanyAction
 
         // Check if a company with the same tax_id AND same type already exists.
         // Business rule: 1 tax_id can register as 1 Vendor AND 1 Buyer (two separate workspaces),
-        // but NOT as 2 Vendors or 2 Buyers.
+        // but NOT as 2 active Vendors or 2 active Buyers.
+        // If the company was rejected or belongs to the current user, allow re-registration/updating.
         if (!empty($data['tax_id']) && !empty($data['type'])) {
             $typeDuplicate = Company::where('tax_id', $data['tax_id'])
                 ->where('type', $data['type'])
+                ->where('status', '!=', 'rejected')
+                ->where('owner_id', '!=', $user->id)
                 ->first();
 
             if ($typeDuplicate) {
@@ -50,22 +53,30 @@ class RegisterCompanyAction
             }
         }
 
-        // Check for re-submission of the very same company (same owner + same name + same type)
-        // to prevent accidental duplicates within the same workspace registration.
+        // Check for re-submission of the existing company (same owner + same type + same tax_id or name)
+        // to prevent duplicate rows and update the rejected/pending record.
         $existingCompany = Company::where('owner_id', $user->id)
-            ->where('name', $data['name'])
             ->where('type', $data['type'])
+            ->where(function ($query) use ($data) {
+                if (!empty($data['tax_id'])) {
+                    $query->where('tax_id', $data['tax_id']);
+                }
+                if (!empty($data['name'])) {
+                    $query->orWhere('name', $data['name']);
+                }
+            })
             ->first();
 
         if ($existingCompany) {
-            // Re-submission: update and re-submit for approval
+            // Re-submission / update: update details and reset status to pending for approval
             $updateData = array_merge($data, [
                 'status' => 'pending',
+                'verification_notes' => null,
             ]);
             $existingCompany->update($updateData);
             $company = $existingCompany;
 
-            Log::info('Updated existing company during registration', [
+            Log::info('Updated existing company during re-registration', [
                 'company_id' => $company->id,
                 'status'     => $company->status
             ]);
