@@ -6,6 +6,7 @@ use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Company\Models\Company;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Subscription\Actions\ResolveSubscriptionBillingAction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -14,7 +15,8 @@ class ConfirmPurchaseOrderAction
     public function __construct(
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction
+        private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction,
+        private readonly ResolveSubscriptionBillingAction $resolveSubscriptionBillingAction,
     ) {
     }
 
@@ -41,7 +43,12 @@ class ConfirmPurchaseOrderAction
             $winningProposal = $this->orderRepository->findAcceptedProposal($po);
             $poAmount = $winningProposal ? $winningProposal->price_offer : ($po->total_amount ?? 0);
 
-            $fees = $this->calculateInvoiceFeesAction->execute($poAmount, $po->buyer);
+            $billing = $this->resolveSubscriptionBillingAction->execute($po->buyer, (float) $poAmount);
+            $fees = $this->calculateInvoiceFeesAction->execute(
+                (float) $poAmount,
+                $po->buyer,
+                $billing['waive_platform_fee'],
+            );
 
             if ($winningProposal && !$po->purchase_type) {
                 $updateData['purchase_type'] = $winningProposal->payment_term;
@@ -62,9 +69,12 @@ class ConfirmPurchaseOrderAction
 
             $this->orderRepository->createInvoice([
                 'purchase_order_id' => $po->id,
+                'company_subscription_id' => $billing['subscription_id'],
                 'type' => 'proforma',
                 'amount' => $fees['total_amount'],
                 'base_amount' => $fees['base_amount'],
+                'billing_mode' => $billing['billing_mode'],
+                'gmv_credited_amount' => $billing['gmv_credited_amount'],
                 'platform_fee' => $fees['platform_fee'],
                 'ppn_platform' => $fees['ppn_platform'],
                 'midtrans_fee' => $fees['midtrans_fee'],

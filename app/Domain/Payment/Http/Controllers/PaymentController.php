@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Domain\Payment\Services\MidtransService;
+use App\Domain\Subscription\Actions\RecordRealizedGmvAction;
 
 use App\Domain\Payment\Http\Requests\StorePaymentRequest;
 
@@ -85,7 +86,11 @@ class PaymentController extends \App\Http\Controllers\Controller
     /**
      * Get payment status.
      */
-    public function show($id, \App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction $broadcastAction): JsonResponse
+    public function show(
+        $id,
+        \App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction $broadcastAction,
+        RecordRealizedGmvAction $recordRealizedGmvAction,
+    ): JsonResponse
     {
         $payment = Payment::with(['invoice.purchaseOrder.buyer', 'invoice.purchaseOrder.vendor.users'])->where('id', $id)->first();
         
@@ -114,6 +119,7 @@ class PaymentController extends \App\Http\Controllers\Controller
                             'status' => 'paid',
                             // type stays as-is (proforma remains proforma after payment)
                         ]);
+                        $recordRealizedGmvAction->execute($payment->invoice->fresh());
                         $po = $payment->invoice->purchaseOrder;
                         $po->update(['status' => 'paid']);
 

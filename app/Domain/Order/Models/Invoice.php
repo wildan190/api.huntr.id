@@ -10,10 +10,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 /**
  * @property string $id
  * @property string $purchase_order_id
+ * @property string|null $company_subscription_id
  * @property string $type
  * @property float $amount
  * @property string $status
  * @property float|null $base_amount
+ * @property string $billing_mode
+ * @property float $gmv_credited_amount
+ * @property \Illuminate\Support\Carbon|null $gmv_consumed_at
  * @property float|null $platform_fee
  * @property float|null $ppn_platform
  * @property float|null $midtrans_fee
@@ -31,10 +35,14 @@ class Invoice extends Model
 
     protected $fillable = [
         'purchase_order_id',
+        'company_subscription_id',
         'type', // proforma, final
         'amount',
         'status', // unpaid, paid, pending_finance
         'base_amount',
+        'billing_mode',
+        'gmv_credited_amount',
+        'gmv_consumed_at',
         'platform_fee',
         'ppn_platform',
         'midtrans_fee',
@@ -47,10 +55,16 @@ class Invoice extends Model
 
     protected $casts = [
         'vendor_signed_at' => 'datetime',
+        'gmv_consumed_at' => 'datetime',
     ];
 
     public function purchaseOrder()
     {
         return $this->belongsTo(PurchaseOrder::class, 'purchase_order_id');
+    }
+
+    public function companySubscription()
+    {
+        return $this->belongsTo(\App\Domain\Subscription\Models\CompanySubscription::class);
     }
 }

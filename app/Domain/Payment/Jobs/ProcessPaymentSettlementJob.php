@@ -4,6 +4,7 @@ namespace App\Domain\Payment\Jobs;
 
 use App\Domain\Payment\Models\Payment;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Subscription\Actions\RecordRealizedGmvAction;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -27,7 +28,10 @@ class ProcessPaymentSettlementJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(BroadcastWebsocketNotificationAction $broadcastAction): void
+    public function handle(
+        BroadcastWebsocketNotificationAction $broadcastAction,
+        RecordRealizedGmvAction $recordRealizedGmvAction,
+    ): void
     {
         $payment = Payment::with(['invoice.purchaseOrder.buyer', 'invoice.purchaseOrder.vendor.users'])->find($this->paymentId);
         
@@ -55,6 +59,7 @@ class ProcessPaymentSettlementJob implements ShouldQueue
                 'status' => 'paid',
                 // type stays as-is (proforma remains proforma after payment)
             ]);
+            $recordRealizedGmvAction->execute($payment->invoice->fresh());
             $po->update(['status' => 'paid']);
             
             \Illuminate\Support\Facades\Log::info('Payment Settlement Successful', [

@@ -58,7 +58,7 @@ class DomainServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI'];
+        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription'];
         foreach ($domains as $domain) {
             $routePath = app_path("Domain/{$domain}/routes/api.php");
             if (file_exists($routePath)) {
@@ -68,4 +68,3 @@ class DomainServiceProvider extends ServiceProvider
         }
     }
 }
-

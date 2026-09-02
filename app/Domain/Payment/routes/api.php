@@ -10,8 +10,7 @@ Route::prefix('api/payments')->group(function () {
     Route::post('webhook', [PaymentController::class, 'webhook']);
 });
 
-Route::prefix('api/admin/transactions')->middleware(['api'])->group(function () {
+Route::prefix('api/admin/transactions')->middleware(['api', 'admin.session'])->group(function () {
     Route::get('', [\App\Domain\Payment\Http\Controllers\AdminTransactionController::class, 'index']);
     Route::get('escrow-summary', [\App\Domain\Payment\Http\Controllers\AdminTransactionController::class, 'escrowSummary']);
 });
-

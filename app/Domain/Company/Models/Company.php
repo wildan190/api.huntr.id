@@ -139,4 +139,9 @@ class Company extends Model
     {
         return $this->hasMany(CompanyDocument::class);
     }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(\App\Domain\Subscription\Models\CompanySubscription::class);
+    }
 }

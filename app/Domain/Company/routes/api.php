@@ -151,9 +151,10 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:api'])->group(f
     });
 });
 
-Route::prefix('api/admin')->middleware(['api'])->group(function () {
+Route::prefix('api/admin')->middleware(['api', 'admin.session'])->group(function () {
     Route::get('companies', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'listCompanies']);
     Route::post('companies/{company}/audit', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'auditCompany']);
     Route::get('companies/{company}/imports', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'getImportData']);
+    Route::get('companies/{company}/subscription', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'getSubscription']);
+    Route::post('companies/{company}/subscription', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'activateSubscription']);
 });
-
