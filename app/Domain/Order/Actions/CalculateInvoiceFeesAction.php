@@ -20,7 +20,11 @@ class CalculateInvoiceFeesAction
      * - PPN Barang    : 11% dari base amount (DPP)
      * - Total         : base amount + biaya layanan + PPN barang
      */
-    public function execute(float $baseAmount, ?Company $buyerCompany = null): array
+    public function execute(
+        float $baseAmount,
+        ?Company $buyerCompany = null,
+        bool $waivePlatformFee = false,
+    ): array
     {
         $isTrial = false;
         if ($buyerCompany && $buyerCompany->created_at) {
@@ -29,7 +33,7 @@ class CalculateInvoiceFeesAction
 
         // Platform fee: tier-based dari total pembelian sebelum PPN (gratis jika trial)
         $platformFee = 0;
-        if (!$isTrial) {
+        if (!$isTrial && !$waivePlatformFee) {
             $platformFeeRate = $this->getPlatformFeeRate($baseAmount);
             $platformFee     = $baseAmount * $platformFeeRate;
         }

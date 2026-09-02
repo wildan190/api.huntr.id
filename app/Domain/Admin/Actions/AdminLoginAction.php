@@ -4,6 +4,8 @@ namespace App\Domain\Admin\Actions;
 
 use App\Domain\Admin\Models\Admin;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AdminLoginAction
@@ -25,6 +27,9 @@ class AdminLoginAction
             ]);
         }
 
+        $token = Str::random(64);
+        Cache::put('admin_session:' . hash('sha256', $token), $admin->id, now()->addHours(8));
+
         return [
             'message' => 'Admin login successful.',
             'admin'   => [
@@ -32,7 +37,7 @@ class AdminLoginAction
                 'name'  => $admin->name,
                 'email' => $admin->email,
             ],
-            'token'   => 'admin_session_token_' . $admin->id,
+            'token'   => $token,
         ];
     }
 }

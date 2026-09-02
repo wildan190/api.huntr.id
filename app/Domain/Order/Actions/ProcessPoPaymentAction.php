@@ -7,12 +7,14 @@ use App\Domain\Order\Models\PurchaseOrder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Subscription\Actions\RecordRealizedGmvAction;
 
 class ProcessPoPaymentAction
 {
     public function __construct(
         private readonly OrderRepositoryInterface $orderRepository,
-        private readonly BroadcastWebsocketNotificationAction $broadcastAction
+        private readonly BroadcastWebsocketNotificationAction $broadcastAction,
+        private readonly RecordRealizedGmvAction $recordRealizedGmvAction,
     ) {}
 
     /**
@@ -62,6 +64,7 @@ class ProcessPoPaymentAction
 
             if ($status === 200 || $status === 201) {
                 $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
+                $this->recordRealizedGmvAction->execute($invoice->fresh());
                 $this->recordPaidTimeline($po);
                 $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
@@ -71,6 +74,7 @@ class ProcessPoPaymentAction
 
             // Fallback for offline testing / sandbox simulation
             $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
+            $this->recordRealizedGmvAction->execute($invoice->fresh());
             $this->recordPaidTimeline($po);
             $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 
@@ -85,6 +89,7 @@ class ProcessPoPaymentAction
             Log::error("ProcessPoPaymentAction Failed: " . $e->getMessage());
 
             $this->orderRepository->updateInvoice($invoice, ['status' => 'paid']);
+            $this->recordRealizedGmvAction->execute($invoice->fresh());
             $this->recordPaidTimeline($po);
             $this->orderRepository->updatePurchaseOrder($po, ['status' => 'paid']);
 

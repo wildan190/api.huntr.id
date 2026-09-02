@@ -11,9 +11,44 @@ use App\Domain\Catalogue\Models\Catalogue;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Domain\Subscription\Actions\ActivateCompanySubscriptionAction;
+use App\Domain\Subscription\Actions\GetSubscriptionSummaryAction;
+use App\Domain\Subscription\Models\CompanySubscription;
 
 class AdminCompanyController extends Controller
 {
+    public function getSubscription(Company $company, GetSubscriptionSummaryAction $action): JsonResponse
+    {
+        return response()->json(['subscription' => $action->execute($company)]);
+    }
+
+    public function activateSubscription(
+        Request $request,
+        Company $company,
+        ActivateCompanySubscriptionAction $action,
+    ): JsonResponse {
+        $payload = $request->validate([
+            'gmv_limit' => ['required', 'numeric', 'gt:0'],
+            'overflow_strategy' => ['required', 'in:transaction_fee,renewal_required'],
+            'payment_verified' => ['required', 'accepted'],
+        ]);
+
+        if ($company->type !== 'buyer') {
+            return response()->json(['message' => 'Subscription GMV hanya berlaku untuk perusahaan buyer.'], 422);
+        }
+
+        $subscription = $action->execute(
+            $company,
+            (float) $payload['gmv_limit'],
+            $payload['overflow_strategy'],
+        );
+
+        return response()->json([
+            'message' => 'Subscription berhasil diaktifkan.',
+            'subscription' => app(GetSubscriptionSummaryAction::class)->execute($company),
+        ], 201);
+    }
+
     public function listCompanies(Request $request, CompanyRepositoryInterface $repository): JsonResponse
     {
         $perPage = $request->query('per_page', 10);

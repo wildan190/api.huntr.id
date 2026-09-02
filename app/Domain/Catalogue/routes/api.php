@@ -24,7 +24,7 @@ Route::prefix('api/orders')->middleware(['api', 'cors'])->group(function () {
     Route::post('historical/import', [CatalogueController::class, 'importHistoricalPos']);
 });
 
-Route::prefix('api/admin/catalogues')->middleware(['api'])->group(function () {
+Route::prefix('api/admin/catalogues')->middleware(['api', 'admin.session'])->group(function () {
     Route::get('', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'index']);
     Route::post('', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'store']);
     Route::post('{catalogue}', [\App\Domain\Catalogue\Http\Controllers\AdminCatalogueController::class, 'update']);
@@ -36,4 +36,3 @@ Route::prefix('api/admin/catalogues')->middleware(['api'])->group(function () {
 Route::prefix('api/analytics')->middleware(['api', 'cors'])->group(function () {
     Route::get('trending-searches', [\App\Domain\Catalogue\Http\Controllers\TrendingSearchController::class, 'index']);
 });
-

@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'cors' => \App\Http\Middleware\HandleCors::class,
             'manager.only' => \App\Http\Middleware\ManagerOnly::class,
+            'admin.session' => \App\Http\Middleware\AuthenticateAdminSession::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
