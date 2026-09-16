@@ -95,11 +95,17 @@ class AgenticProcurementService
         $enrichedItems = $this->enrichPrItems($prDraft['suggested_items'] ?? [], $foundCatalogues, $intent);
         $prDraft['suggested_items'] = $enrichedItems;
 
-        // Recalculate total budget
+        // Recalculate total budget (Zero Hallucination)
+        $hasExplicitBudget = !empty($intent['estimated_total_budget_idr']) && (float)$intent['estimated_total_budget_idr'] > 0;
         $calculatedTotal = collect($enrichedItems)->sum(fn($i) => ($i['qty'] ?? 1) * ($i['estimated_price'] ?? 0));
-        $prDraft['estimated_total_budget'] = $calculatedTotal > 0 
-            ? $calculatedTotal 
-            : $this->parsePrice($prDraft['estimated_total_budget'] ?? ($intent['estimated_total_budget_idr'] ?? 0));
+        
+        if ($calculatedTotal > 0) {
+            $prDraft['estimated_total_budget'] = $calculatedTotal;
+        } elseif ($hasExplicitBudget) {
+            $prDraft['estimated_total_budget'] = (float)$intent['estimated_total_budget_idr'];
+        } else {
+            $prDraft['estimated_total_budget'] = 0;
+        }
 
         $steps[] = [
             'step'        => 'pr_formulation',
@@ -366,7 +372,7 @@ INSTRUCTION;
     {
         $catalogueMap = collect($catalogues)->keyBy('id');
         $targetItems  = collect($intent['target_items'] ?? []);
-        $totalBudget  = $intent['estimated_total_budget_idr'] ?? 0;
+        $totalBudget  = $this->parsePrice($intent['estimated_total_budget_idr'] ?? 0);
         $itemCount    = count($suggestedItems) ?: 1;
 
         return array_map(function ($item) use ($catalogueMap, $targetItems, $totalBudget, $itemCount) {
@@ -375,13 +381,15 @@ INSTRUCTION;
 
             // Layer 1: harga dari AI (suggested_items[].estimated_price)
             $price = $this->parsePrice($item['estimated_price'] ?? 0);
+            $priceStatus = $item['price_status'] ?? 'rfq_required';
 
             // Layer 2: harga dari katalog yang di-ranking AI (estimated_price dari rankSearchProducts)
             if ($price <= 0 && $cat && ($cat['estimated_price'] ?? 0) > 0) {
                 $price = (float) $cat['estimated_price'];
+                $priceStatus = 'verified_catalogue';
             }
 
-            // Layer 3: cek target_items budget_hint_idr berdasarkan nama item
+            // Layer 3: cek target_items budget_hint_idr berdasarkan nama item jika user specify
             if ($price <= 0) {
                 $matchedTarget = $targetItems->first(fn($t) =>
                     str_contains(strtolower($t['name'] ?? ''), strtolower($item['name'] ?? '')) ||
@@ -390,26 +398,36 @@ INSTRUCTION;
                 if ($matchedTarget && !empty($matchedTarget['budget_hint_idr'])) {
                     $qty   = max(1, (int) ($item['qty'] ?? 1));
                     $hints = $this->parsePrice($matchedTarget['budget_hint_idr']);
-                    // budget_hint_idr biasanya total untuk kuantitas itu
                     $price = $qty > 0 ? round($hints / $qty) : $hints;
+                    $priceStatus = 'buyer_budget';
                 }
             }
 
-            // Layer 4: bagi rata total budget jika masih 0
+            // Layer 4: bagi rata total budget HANYA jika buyer menyebutkan total anggaran
             if ($price <= 0 && $totalBudget > 0) {
                 $price = round($totalBudget / $itemCount);
+                $priceStatus = 'buyer_budget';
+            }
+
+            // Jika masih 0, status harus rfq_required (Zero Hallucination)
+            if ($price <= 0) {
+                $price = 0;
+                $priceStatus = 'rfq_required';
+            } elseif (empty($priceStatus)) {
+                $priceStatus = $catId ? 'verified_catalogue' : 'buyer_budget';
             }
 
             return [
                 'catalogue_id'    => $catId ?: ($cat['id'] ?? null),
                 'name'            => $item['name'] ?? ($cat['name'] ?? 'Item Pengadaan'),
-                'item_code'       => $item['item_code'] ?? ($cat['item_code'] ?? null),
+                'item_code'       => $item['item_code'] ?? ($cat['item_code'] ?? ('REQ-' . strtoupper(substr(md5(uniqid()), 0, 6)))),
                 'category'        => $item['category'] ?? ($cat['category'] ?? 'General'),
                 'brand'           => $item['brand'] ?? ($cat['brand'] ?? null),
                 'detailed_specs'  => $item['detailed_specs'] ?? ($cat['specifications'] ?? ''),
                 'qty'             => max(1, (int) ($item['qty'] ?? 1)),
                 'uom'             => $item['uom'] ?? ($cat['uom'] ?? 'unit'),
                 'estimated_price' => $price,
+                'price_status'    => $priceStatus,
                 'expected_date'   => $item['expected_date'] ?? now()->addDays(14)->toDateString(),
                 'reason'          => $item['reason'] ?? 'Sesuai spesifikasi kebutuhan',
                 'image_url'       => $cat['image_url'] ?? null,
