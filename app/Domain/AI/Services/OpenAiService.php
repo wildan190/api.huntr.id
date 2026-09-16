@@ -24,7 +24,7 @@ class OpenAiService
         $rawKey = config('ai.openai_api_key') ?: env('OPENAI_API_KEY');
         $this->apiKey = is_string($rawKey) ? $rawKey : '';
         $rawModel = config('ai.openai_model') ?: env('OPENAI_MODEL');
-        $this->model  = is_string($rawModel) ? $rawModel : 'gpt-4o-mini';
+        $this->model  = is_string($rawModel) ? $rawModel : 'gpt-4o';
         $this->timeout = (int) config('ai.timeout', 45);
     }
 
@@ -36,35 +36,46 @@ class OpenAiService
         $text = strtolower($text);
 
         // "400 juta", "400jt", "400 jt", "400.5 juta"
-        if (preg_match('/([\d\.\,]+)\s*(?:juta|jt)\b/i', $text, $matches)) {
+        if (preg_match('/(?:budget|anggaran|dana|biaya|rp\.?|idr)?\s*([\d\.\,]+)\s*(?:juta|jt)\b/i', $text, $matches)) {
             $raw = str_replace(',', '.', $matches[1]);
-            return ((float) $raw) * 1000000;
+            $val = ((float) $raw) * 1000000;
+            if ($val >= 100000) return $val;
         }
 
-        // "1.5 miliar", "2 milyar", "1.5 M", "1.5m"
-        if (preg_match('/([\d\.\,]+)\s*(?:miliar|milyar|m)\b/i', $text, $matches)) {
+        // "1.5 miliar", "2 milyar", "1.5 M", "1.5m" (jangan cocokkan jika cuma meter / huruf m biasa)
+        if (preg_match('/(?:budget|anggaran|dana|biaya|rp\.?|idr)\s*([\d\.\,]+)\s*(?:miliar|milyar|m)\b/i', $text, $matches) ||
+            preg_match('/([\d\.\,]+)\s*(?:miliar|milyar)\b/i', $text, $matches)) {
             $raw = str_replace(',', '.', $matches[1]);
-            return ((float) $raw) * 1000000000;
+            $val = ((float) $raw) * 1000000000;
+            if ($val >= 100000) return $val;
         }
 
-        // "500 ribu", "500rb", "500k"
-        if (preg_match('/([\d\.\,]+)\s*(?:ribu|rb|k)\b/i', $text, $matches)) {
+        // "500 ribu", "500rb"
+        if (preg_match('/([\d\.\,]+)\s*(?:ribu|rb)\b/i', $text, $matches)) {
             $raw = str_replace(',', '.', $matches[1]);
-            return ((float) $raw) * 1000;
+            $val = ((float) $raw) * 1000;
+            if ($val >= 50000) return $val;
+        }
+
+        // "500k" - HANYA jika didahului kata budget/rp/harga (agar TIDAK bentrok dengan resolusi monitor 4K / 2K)
+        if (preg_match('/(?:budget|anggaran|dana|biaya|rp\.?|idr|harga)\s*[:=]?\s*([\d\.\,]+)\s*k\b/i', $text, $matches)) {
+            $raw = str_replace(',', '.', $matches[1]);
+            $val = ((float) $raw) * 1000;
+            if ($val >= 50000) return $val;
         }
 
         // "Rp 400.000.000"
         if (preg_match('/(?:rp\.?|idr)\s*([\d\.\,]+)/i', $text, $matches)) {
             $cleaned = preg_replace('/[^0-9]/', '', $matches[1]);
-            if (!empty($cleaned) && (float)$cleaned > 1000) {
+            if (!empty($cleaned) && (float)$cleaned >= 50000) {
                 return (float) $cleaned;
             }
         }
 
         // Plain budget number e.g. "budget 400000000"
-        if (preg_match('/(?:budget|anggaran|dana|biaya)\s*(?:sekitar|sebesar|maksimal|maks|min)?\s*([\d\.\,]+)/i', $text, $matches)) {
+        if (preg_match('/(?:budget|anggaran|dana|biaya)\s*(?:sekitar|sebesar|maksimal|maks|min)?\s*[:=]?\s*([\d\.\,]+)/i', $text, $matches)) {
             $cleaned = preg_replace('/[^0-9]/', '', $matches[1]);
-            if (!empty($cleaned) && (float)$cleaned > 1000) {
+            if (!empty($cleaned) && (float)$cleaned >= 50000) {
                 return (float) $cleaned;
             }
         }
@@ -105,10 +116,12 @@ class OpenAiService
             $allocatedPerItemTotal = $totalBudget / $count;
             foreach ($items as &$it) {
                 $it['estimated_price'] = round($allocatedPerItemTotal / $it['qty']);
+                $it['price_status'] = 'buyer_budget';
             }
         } else {
             foreach ($items as &$it) {
-                $it['estimated_price'] = 15000000;
+                $it['estimated_price'] = 0;
+                $it['price_status'] = 'rfq_required';
             }
         }
 
@@ -269,10 +282,10 @@ Balas dalam format JSON:
       "spec_requirements": "ringkasan spesifikasi yang diminta (misal: Core i7/Ryzen 7, 32GB RAM, 1TB SSD)",
       "quantity": 10,
       "uom": "unit",
-      "budget_hint_idr": 25000000
+      "budget_hint_idr": null
     }
   ],
-  "estimated_total_budget_idr": 250000000,
+  "estimated_total_budget_idr": null (atau angka integer jika user eksplisit menyebutkan batas/pagu anggaran),
   "department": "Departemen yang cocok (misal: IT & Engineering, General Affairs, Operations, HR)",
   "urgency": "Normal / Urgent / Critical",
   "ai_summary": "Rangkuman 1 kalimat jelas tentang kebutuhan procurement ini",
@@ -281,10 +294,13 @@ Balas dalam format JSON:
 PROMPT;
 
         try {
-            $result = $this->askJson($prompt, 'Kamu adalah AI Procurement Specialist yang ahli menganalisis kebutuhan pengadaan barang/jasa perusahaan.', null, 'extractSearchIntent');
+            $result = $this->askJson($prompt, 'Kamu adalah AI Procurement Specialist yang ahli menganalisis kebutuhan pengadaan barang/jasa perusahaan. PENTING: Jangan mengarang angka budget jika user tidak menyebutkannya; isi estimated_total_budget_idr dengan null.', null, 'extractSearchIntent');
             if (!empty($result) && is_array($result)) {
-                if (empty($result['estimated_total_budget_idr'])) {
-                    $result['estimated_total_budget_idr'] = $this->extractBudgetFromText($userQuery);
+                $explicitBudget = $this->extractBudgetFromText($userQuery);
+                if ($explicitBudget !== null) {
+                    $result['estimated_total_budget_idr'] = $explicitBudget;
+                } else {
+                    $result['estimated_total_budget_idr'] = null;
                 }
                 return $result;
             }
@@ -305,9 +321,9 @@ PROMPT;
                 'spec_requirements'=> $it['detailed_specs'],
                 'quantity'          => $it['qty'],
                 'uom'               => $it['uom'],
-                'budget_hint_idr'   => $it['estimated_price'],
+                'budget_hint_idr'   => $it['estimated_price'] ?? null,
             ], $detectedItems),
-            'estimated_total_budget_idr' => $detectedBudget ?: ($detectedItems ? collect($detectedItems)->sum(fn($i) => $i['qty'] * $i['estimated_price']) : 250000000),
+            'estimated_total_budget_idr' => $detectedBudget,
             'department'                 => 'Information Technology & Procurement',
             'urgency'                    => 'Normal',
             'ai_summary'                 => 'Pengadaan ' . implode(', ', array_column($detectedItems, 'name')),
@@ -439,6 +455,7 @@ PROMPT;
         // Fallback comparison
         $matrix = [];
         foreach ($catalogues as $idx => $c) {
+            $catPrice = !empty($c['estimated_price']) ? (float)$c['estimated_price'] : 0;
             $matrix[] = [
                 'catalogue_id'        => $c['id'] ?? ("cat-{$idx}"),
                 'product_name'        => $c['name'] ?? 'Produk Katalog',
@@ -447,7 +464,7 @@ PROMPT;
                 'key_specs'           => $c['specifications'] ?? ($c['name'] ?? ''),
                 'pros'                => ['Spesifikasi terstandarisasi', 'Dukungan garansi resmi'],
                 'cons'                => ['Waktu tunggu pengiriman standar'],
-                'estimated_price_idr' => 15000000,
+                'estimated_price_idr' => $catPrice,
                 'best_for'            => 'Kebutuhan tim profesional & operasional',
                 'value_rating'        => 'Sangat Baik',
             ];
@@ -472,8 +489,8 @@ PROMPT;
 
         $intentBudget = $context['estimated_total_budget_idr'] ?? $this->extractBudgetFromText($userPrompt);
         $budgetInstruction = $intentBudget 
-            ? "PENTING: User menyebutkan target total budget sekitar Rp " . number_format((float)$intentBudget, 0, ',', '.') . ". Pastikan 'estimated_total_budget' bernilai persis atau mendekati angka tersebut (misal: " . (int)$intentBudget . "), dan berikan 'estimated_price' satuan untuk setiap item yang realistis sehingga (qty * estimated_price) totalnya mendekati angka tersebut."
-            : "PENTING: 'estimated_price' (harga satuan) dan 'estimated_total_budget' (total anggaran) WAJIB DIISI ANGKA INTEGER REALISTIS DALAM RUPIAH (contoh: 20000000, 350000000, JANGAN 0, tanpa titik atau Rp).";
+            ? "PAGU ANGGARAN DARI BUYER: User menetapkan total anggaran maksimal sekitar Rp " . number_format((float)$intentBudget, 0, ',', '.') . ". Set 'estimated_total_budget' sebesar " . (int)$intentBudget . ", dan alokasikan 'estimated_price' satuan untuk setiap item secara proporsional. Set 'price_status' tiap item menjadi 'buyer_budget'."
+            : "ESTIMASI HARGA PASAR WAJAR INDONESIA (HPS): User tidak menyebutkan nominal budget. JIKA item ada di katalog internal (>0), gunakan harga katalog dan set 'price_status': 'verified_catalogue'. JIKA item TIDAK ADA di katalog internal, berikan estimasi harga satuan wajar pasar B2B/distributor resmi di Indonesia (dalam Rupiah integer realistis, contoh: laptop core i7/ryzen 7 RAM 32GB SSD 1TB kisaran 20000000-25000000, monitor 4K 27 inch kisaran 5000000-7500000). Set 'price_status': 'market_estimate' dan 'reason': 'Estimasi harga pasar wajar (HPS B2B Indonesia)'. 'estimated_total_budget' adalah total akumulasi (qty * estimated_price).";
 
         $prompt = <<<PROMPT
 Permintaan Kebutuhan Pengadaan User:
@@ -484,11 +501,19 @@ Konteks Tambahan:
 
 {$budgetInstruction}
 
-Produk Terpilih / Katalog Tersedia:
+Produk Terpilih / Katalog Tersedia di Database:
 {$itemsJson}
 
-Buat draft Purchase Requisition (PR) resmi perusahaan yang sangat lengkap, terstruktur, dan profesional dalam Bahasa Indonesia formal.
-Setiap item HARUS memiliki estimasi harga satuan wajar ('estimated_price') dalam Rupiah (integer), dan 'estimated_total_budget' adalah total akumulasi semua item.
+PEDOMAN AKURASI HARGA DAN SPESIFIKASI:
+1. JANGAN PERNAH MENGGUNAKAN HARGA TEMPLATE / HARDCODE (misal jangan asal isi 22000000)! Hitung estimasi harga satuan ('estimated_price') secara SPESIFIK berdasarkan tipe barang, generasi prosesor, dan kondisi pasar riil:
+   - Laptop lawas/generasi lama (contoh: ThinkPad X280, Core i5 Gen 8 / 8250U, era 2018): harga pasaran sekitar Rp 3.500.000 - Rp 5.500.000 (JANGAN DIISI 20jt-an!).
+   - Laptop enterprise entry (Core i3 / Core i5 standar): Rp 7.000.000 - Rp 12.000.000.
+   - Laptop high-end / engineering baru (Core i7 / Ryzen 7, RAM 32GB, 1TB SSD): Rp 18.000.000 - Rp 25.000.000.
+   - Monitor 24-27 inch FHD: Rp 1.500.000 - Rp 2.500.000; Monitor 4K 27 inch: Rp 5.000.000 - Rp 7.500.000.
+   - Barang non-IT (kursi, safety, mebel): gunakan standar harga komersial logis di Indonesia.
+2. Jika item tidak ada di katalog internal, berikan estimasi harga pasar wajar (HPS / Harga Perkiraan Sendiri) yang realistis sesuai tingkat spesifikasi dan generasinya.
+3. 'estimated_total_budget' WAJIB dihitung dari SUM(qty * estimated_price) semua line item.
+4. Buat draft Purchase Requisition (PR) resmi perusahaan yang sangat lengkap, terstruktur, dan profesional dalam Bahasa Indonesia formal.
 
 Balas HANYA dengan JSON valid format:
 {
@@ -500,24 +525,25 @@ Balas HANYA dengan JSON valid format:
   "priority": "Normal / Urgent / Critical",
   "suggested_items": [
     {
-      "catalogue_id": "id katalog jika ada",
+      "catalogue_id": "id katalog dari daftar jika cocok, atau null jika item baru",
       "name": "Nama lengkap produk & tipe",
-      "item_code": "Kode barang atau SKU",
+      "item_code": "Kode item dari katalog atau 'REQ-NAMA' jika baru",
       "category": "Kategori barang",
       "brand": "Merk barang",
-      "detailed_specs": "Rincian spesifikasi teknis lengkap item",
+      "detailed_specs": "Rincian spesifikasi teknis lengkap item sesuai standar resmi",
       "qty": 10,
       "uom": "unit / set / pcs / box",
-      "estimated_price": 25000000,
+      "estimated_price": 4500000,
+      "price_status": "verified_catalogue / buyer_budget / market_estimate",
       "expected_date": "2026-09-01",
-      "reason": "Alasan pemilihan item ini"
+      "reason": "Alasan pemilihan item / justifikasi kebutuhan"
     }
   ],
-  "estimated_total_budget": 250000000,
+  "estimated_total_budget": 45000000,
   "delivery_point_recommendation": "Rekomendasi alamat/titik pengiriman barang",
   "vendor_evaluation_criteria": [
     "Kesesuaian spesifikasi teknis 100%",
-    "Garansi resmi minimal 1 tahun",
+    "Garansi resmi pabrikan/distributor terverifikasi",
     "Lead time pengiriman maksimal 14 hari kerja"
   ],
   "manager_notes": "Catatan ringkas untuk approval manager"
@@ -525,11 +551,11 @@ Balas HANYA dengan JSON valid format:
 PROMPT;
 
         try {
-            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) & Senior Procurement Manager yang membuat dokumen Purchase Requisition berkualitas enterprise dengan kalkulasi anggaran yang akurat.', null, 'generatePrDraft');
+            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) dan Senior Procurement Estimator B2B Indonesia. Kamu sangat teliti terhadap generasi hardware, tipe barang, dan estimasi harga pasar wajar (HPS).', null, 'generatePrDraft');
             if (!empty($res['suggested_items'])) {
-                // Pastikan setiap suggested_item punya catalogue_id yang benar dari matchedItems jika AI tidak isi
+                // Pastikan setiap suggested_item punya mapping katalog yang valid
                 $catalogueById = collect($matchedItems)->keyBy('id');
-                $res['suggested_items'] = array_map(function ($item) use ($catalogueById) {
+                $res['suggested_items'] = array_map(function ($item) use ($catalogueById, $intentBudget) {
                     if (empty($item['catalogue_id']) || !$catalogueById->has($item['catalogue_id'])) {
                         // Coba match by name
                         $matched = $catalogueById->first(fn($c) =>
@@ -537,7 +563,6 @@ PROMPT;
                         );
                         if ($matched) {
                             $item['catalogue_id'] = $matched['id'];
-                            // Carry over estimated_price dari AI ranking jika ada di katalog
                             if (empty($item['estimated_price']) || $item['estimated_price'] <= 0) {
                                 $item['estimated_price'] = $matched['estimated_price'] ?? 0;
                             }
@@ -549,6 +574,20 @@ PROMPT;
                             $item['estimated_price'] = $cat['estimated_price'];
                         }
                     }
+
+                    // Tentukan price_status yang transparan
+                    $curPrice = (float)($item['estimated_price'] ?? 0);
+                    if (!empty($item['catalogue_id']) && $curPrice > 0) {
+                        $item['price_status'] = 'verified_catalogue';
+                    } elseif ($intentBudget && $curPrice > 0) {
+                        $item['price_status'] = 'buyer_budget';
+                    } elseif ($curPrice > 0) {
+                        $item['price_status'] = 'market_estimate';
+                    } else {
+                        $item['price_status'] = 'rfq_required';
+                        $item['estimated_price'] = 0;
+                    }
+
                     return $item;
                 }, $res['suggested_items']);
                 return $res;
@@ -572,23 +611,25 @@ PROMPT;
                 'detailed_specs'  => $m['specifications'] ?? ($m['name'] ?? ''),
                 'qty'             => 1,
                 'uom'             => $m['uom'] ?? 'unit',
-                'estimated_price' => $detectedBudget ? round($detectedBudget / count($matchedItems)) : 15000000,
+                'estimated_price' => !empty($m['estimated_price']) ? (float)$m['estimated_price'] : ($detectedBudget ? round($detectedBudget / count($matchedItems)) : 0),
+                'price_status'    => !empty($m['estimated_price']) ? 'verified_catalogue' : ($detectedBudget ? 'buyer_budget' : 'rfq_required'),
                 'expected_date'   => now()->addDays(14)->toDateString(),
-                'reason'          => 'Sesuai spesifikasi kebutuhan',
+                'reason'          => 'Sesuai spesifikasi kebutuhan katalog terdaftar',
             ], $matchedItems);
         } else {
             $suggestedItems = array_map(fn($it) => [
                 'catalogue_id'    => null,
                 'name'            => $it['name'],
-                'item_code'       => 'PR-' . strtoupper(substr(md5($it['name']), 0, 6)),
+                'item_code'       => 'REQ-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $it['name']), 0, 6)),
                 'category'        => 'General Procurement',
-                'brand'           => 'Standard',
+                'brand'           => null,
                 'detailed_specs'  => $it['detailed_specs'],
                 'qty'             => $it['qty'],
                 'uom'             => $it['uom'],
-                'estimated_price' => $it['estimated_price'],
+                'estimated_price' => $it['estimated_price'] ?? 0,
+                'price_status'    => $it['price_status'] ?? ($detectedBudget ? 'buyer_budget' : 'rfq_required'),
                 'expected_date'   => now()->addDays(14)->toDateString(),
-                'reason'          => 'Kebutuhan unit pengadaan sesuai prompt user',
+                'reason'          => 'Kebutuhan unit pengadaan sesuai prompt user (menunggu penawaran vendor)',
             ], $detectedItems);
         }
 
@@ -606,7 +647,7 @@ PROMPT;
             'delivery_point_recommendation' => $context['address'] ?? 'Kantor Pusat',
             'vendor_evaluation_criteria' => [
                 'Kesesuaian spesifikasi teknis 100%',
-                'Garansi resmi minimal 1 tahun',
+                'Garansi resmi pabrikan/distributor terverifikasi',
                 'Waktu pengiriman maksimal 14 hari kerja'
             ],
             'manager_notes'          => 'Mohon review dan approval untuk proses penawaran tender vendor.',
