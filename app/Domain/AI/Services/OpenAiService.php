@@ -481,16 +481,42 @@ PROMPT;
 
     /**
      * Generate PR Draft komprehensif dengan deskripsi profesional, justifikasi bisnis, & line items.
+     *
+     * @param array $historicalPrices Data harga historis nyata dari PO/Proposal database
+     *                                (output dari AgenticProcurementService::queryHistoricalPrices)
      */
-    public function generatePrDraft(string $userPrompt, array $matchedItems, array $context = []): array
+    public function generatePrDraft(string $userPrompt, array $matchedItems, array $context = [], array $historicalPrices = []): array
     {
         $itemsJson = json_encode($matchedItems, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         $contextJson = json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
         $intentBudget = $context['estimated_total_budget_idr'] ?? $this->extractBudgetFromText($userPrompt);
-        $budgetInstruction = $intentBudget 
+
+        // --- Bangun blok referensi harga historis (ground truth dari DB) ---
+        $historicalPriceBlock = '';
+        if (!empty($historicalPrices)) {
+            $historicalLines = [];
+            foreach ($historicalPrices as $data) {
+                $source     = $data['source'] === 'historical_po' ? 'PO Historis Import' : 'Penawaran Tender Menang';
+                $avgFmt     = number_format((float)$data['avg_price'], 0, ',', '.');
+                $minFmt     = number_format((float)$data['min_price'], 0, ',', '.');
+                $maxFmt     = number_format((float)$data['max_price'], 0, ',', '.');
+                $lastFmt    = number_format((float)$data['last_price'], 0, ',', '.');
+                $samples    = $data['sample_count'];
+                $lastDate   = $data['last_date'] ?? 'N/A';
+                $historicalLines[] = "- \"{$data['item_name']}\": Rata-rata Rp {$avgFmt}/unit | Range Rp {$minFmt} - Rp {$maxFmt} | Harga Terakhir Rp {$lastFmt} | {$samples} transaksi | Sumber: {$source} | Tanggal terakhir: {$lastDate}";
+            }
+            $historicalPriceBlock = "\n\n==== REFERENSI HARGA NYATA DARI DATABASE TRANSAKSI HUNTR ====\n"
+                . "Data berikut adalah harga NYATA dari transaksi PO / penawaran vendor yang BENAR-BENAR TERJADI di sistem Huntr.\n"
+                . "WAJIB gunakan harga historis ini sebagai acuan utama untuk item yang cocok. DILARANG mengarang harga jika referensi sudah tersedia.\n"
+                . "Untuk item yang ada referensinya: set 'price_status' = 'historical_reference' dan 'estimated_price' sesuai rata-rata atau harga terakhir.\n"
+                . implode("\n", $historicalLines)
+                . "\n==============================================================";
+        }
+
+        $budgetInstruction = $intentBudget
             ? "PAGU ANGGARAN DARI BUYER: User menetapkan total anggaran maksimal sekitar Rp " . number_format((float)$intentBudget, 0, ',', '.') . ". Set 'estimated_total_budget' sebesar " . (int)$intentBudget . ", dan alokasikan 'estimated_price' satuan untuk setiap item secara proporsional. Set 'price_status' tiap item menjadi 'buyer_budget'."
-            : "ESTIMASI HARGA PASAR WAJAR INDONESIA (HPS): User tidak menyebutkan nominal budget. JIKA item ada di katalog internal (>0), gunakan harga katalog dan set 'price_status': 'verified_catalogue'. JIKA item TIDAK ADA di katalog internal, berikan estimasi harga satuan wajar pasar B2B/distributor resmi di Indonesia (dalam Rupiah integer realistis, contoh: laptop core i7/ryzen 7 RAM 32GB SSD 1TB kisaran 20000000-25000000, monitor 4K 27 inch kisaran 5000000-7500000). Set 'price_status': 'market_estimate' dan 'reason': 'Estimasi harga pasar wajar (HPS B2B Indonesia)'. 'estimated_total_budget' adalah total akumulasi (qty * estimated_price).";
+            : "ESTIMASI HARGA PASAR WAJAR INDONESIA (HPS): User tidak menyebutkan nominal budget. JIKA item ada di katalog internal (>0), gunakan harga katalog dan set 'price_status': 'verified_catalogue'. JIKA item TIDAK ADA di katalog internal DAN tidak ada referensi historis, berikan estimasi harga satuan wajar pasar B2B/distributor resmi di Indonesia (dalam Rupiah integer realistis, contoh: laptop core i7/ryzen 7 RAM 32GB SSD 1TB kisaran 20000000-25000000, monitor 4K 27 inch kisaran 5000000-7500000). Set 'price_status': 'market_estimate' dan 'reason': 'Estimasi harga pasar wajar (HPS B2B Indonesia)'. 'estimated_total_budget' adalah total akumulasi (qty * estimated_price).";
 
         $prompt = <<<PROMPT
 Permintaan Kebutuhan Pengadaan User:
@@ -499,19 +525,22 @@ Permintaan Kebutuhan Pengadaan User:
 Konteks Tambahan:
 {$contextJson}
 
-{$budgetInstruction}
+{$budgetInstruction}{$historicalPriceBlock}
 
 Produk Terpilih / Katalog Tersedia di Database:
 {$itemsJson}
 
 PEDOMAN AKURASI HARGA DAN SPESIFIKASI:
-1. JANGAN PERNAH MENGGUNAKAN HARGA TEMPLATE / HARDCODE (misal jangan asal isi 22000000)! Hitung estimasi harga satuan ('estimated_price') secara SPESIFIK berdasarkan tipe barang, generasi prosesor, dan kondisi pasar riil:
+1. PRIORITAS HARGA (WAJIB DIIKUTI):
+   a. Jika ada "REFERENSI HARGA NYATA" di atas untuk item yang cocok → GUNAKAN harga itu (avg atau last_price), set price_status = 'historical_reference'.
+   b. Jika item ada di katalog internal (>0) → gunakan harga katalog, price_status = 'verified_catalogue'.
+   c. Jika tidak ada referensi sama sekali → estimasi harga pasar wajar B2B Indonesia, price_status = 'market_estimate'.
+2. JANGAN PERNAH MENGGUNAKAN HARGA TEMPLATE / HARDCODE yang tidak masuk akal! Perhatikan generasi & tahun produk:
    - Laptop lawas/generasi lama (contoh: ThinkPad X280, Core i5 Gen 8 / 8250U, era 2018): harga pasaran sekitar Rp 3.500.000 - Rp 5.500.000 (JANGAN DIISI 20jt-an!).
    - Laptop enterprise entry (Core i3 / Core i5 standar): Rp 7.000.000 - Rp 12.000.000.
    - Laptop high-end / engineering baru (Core i7 / Ryzen 7, RAM 32GB, 1TB SSD): Rp 18.000.000 - Rp 25.000.000.
    - Monitor 24-27 inch FHD: Rp 1.500.000 - Rp 2.500.000; Monitor 4K 27 inch: Rp 5.000.000 - Rp 7.500.000.
-   - Barang non-IT (kursi, safety, mebel): gunakan standar harga komersial logis di Indonesia.
-2. Jika item tidak ada di katalog internal, berikan estimasi harga pasar wajar (HPS / Harga Perkiraan Sendiri) yang realistis sesuai tingkat spesifikasi dan generasinya.
+   - Barang non-IT (kursi, safety, mebel, alat berat): gunakan standar harga komersial logis di Indonesia.
 3. 'estimated_total_budget' WAJIB dihitung dari SUM(qty * estimated_price) semua line item.
 4. Buat draft Purchase Requisition (PR) resmi perusahaan yang sangat lengkap, terstruktur, dan profesional dalam Bahasa Indonesia formal.
 
@@ -534,7 +563,8 @@ Balas HANYA dengan JSON valid format:
       "qty": 10,
       "uom": "unit / set / pcs / box",
       "estimated_price": 4500000,
-      "price_status": "verified_catalogue / buyer_budget / market_estimate",
+      "price_status": "historical_reference / verified_catalogue / buyer_budget / market_estimate",
+      "price_note": "Sumber harga: mis. 'Berdasarkan 3 transaksi PO historis (avg Rp 4.500.000)' atau 'Estimasi pasar wajar HPS B2B Indonesia'",
       "expected_date": "2026-09-01",
       "reason": "Alasan pemilihan item / justifikasi kebutuhan"
     }
@@ -551,11 +581,13 @@ Balas HANYA dengan JSON valid format:
 PROMPT;
 
         try {
-            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) dan Senior Procurement Estimator B2B Indonesia. Kamu sangat teliti terhadap generasi hardware, tipe barang, dan estimasi harga pasar wajar (HPS).', null, 'generatePrDraft');
+            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) dan Senior Procurement Estimator B2B Indonesia. Kamu sangat teliti terhadap generasi hardware, tipe barang, dan estimasi harga pasar wajar (HPS). Jika ada data historis transaksi, WAJIB gunakan sebagai referensi utama harga.', null, 'generatePrDraft');
             if (!empty($res['suggested_items'])) {
                 // Pastikan setiap suggested_item punya mapping katalog yang valid
-                $catalogueById = collect($matchedItems)->keyBy('id');
-                $res['suggested_items'] = array_map(function ($item) use ($catalogueById, $intentBudget) {
+                $catalogueById    = collect($matchedItems)->keyBy('id');
+                $historicalByName = collect($historicalPrices)->keyBy(fn($v) => strtolower(trim($v['item_name'])));
+
+                $res['suggested_items'] = array_map(function ($item) use ($catalogueById, $intentBudget, $historicalByName) {
                     if (empty($item['catalogue_id']) || !$catalogueById->has($item['catalogue_id'])) {
                         // Coba match by name
                         $matched = $catalogueById->first(fn($c) =>
@@ -575,9 +607,27 @@ PROMPT;
                         }
                     }
 
-                    // Tentukan price_status yang transparan
-                    $curPrice = (float)($item['estimated_price'] ?? 0);
-                    if (!empty($item['catalogue_id']) && $curPrice > 0) {
+                    // Tentukan price_status yang transparan & akurat
+                    $curPrice    = (float)($item['estimated_price'] ?? 0);
+                    $itemNameKey = strtolower(trim($item['name'] ?? ''));
+
+                    // Cek apakah nama item cocok dengan data historis (fuzzy match sederhana)
+                    $historicalMatch = $historicalByName->first(fn($h, $key) =>
+                        str_contains($itemNameKey, $key) || str_contains($key, $itemNameKey)
+                    );
+
+                    if ($item['price_status'] === 'historical_reference' && $curPrice > 0) {
+                        // AI sudah set historical_reference — pertahankan
+                        $item['price_status'] = 'historical_reference';
+                    } elseif ($historicalMatch && $curPrice > 0) {
+                        // Item cocok data historis — override ke historical_reference
+                        $item['price_status'] = 'historical_reference';
+                        if (empty($item['price_note'])) {
+                            $avgFmt = number_format((float)$historicalMatch['avg_price'], 0, ',', '.');
+                            $samples = $historicalMatch['sample_count'];
+                            $item['price_note'] = "Berdasarkan {$samples} transaksi " . ($historicalMatch['source'] === 'historical_po' ? 'PO historis' : 'penawaran tender') . " (rata-rata Rp {$avgFmt})";
+                        }
+                    } elseif (!empty($item['catalogue_id']) && $curPrice > 0) {
                         $item['price_status'] = 'verified_catalogue';
                     } elseif ($intentBudget && $curPrice > 0) {
                         $item['price_status'] = 'buyer_budget';
@@ -597,40 +647,70 @@ PROMPT;
         }
 
         // Resilient Fallback Heuristic PR Generation
-        $detectedBudget = $intentBudget ?: $this->extractBudgetFromText($userPrompt);
-        $detectedItems = $this->extractItemsFromText($userPrompt, $detectedBudget);
+        $detectedBudget   = $intentBudget ?: $this->extractBudgetFromText($userPrompt);
+        $detectedItems    = $this->extractItemsFromText($userPrompt, $detectedBudget);
+        $historicalByName = collect($historicalPrices)->keyBy(fn($v) => strtolower(trim($v['item_name'])));
+
+        /**
+         * Helper: resolusi harga dari historis (ground truth) atau budget atau 0
+         */
+        $resolvePrice = function (string $name, float $fallbackPrice, string &$priceStatus) use ($historicalByName, $detectedBudget): float {
+            $nameKey = strtolower(trim($name));
+            $hist    = $historicalByName->first(fn($h, $key) =>
+                str_contains($nameKey, $key) || str_contains($key, $nameKey)
+            );
+            if ($hist && (float)$hist['avg_price'] > 0) {
+                $priceStatus = 'historical_reference';
+                return (float)$hist['avg_price'];
+            }
+            if ($fallbackPrice > 0) {
+                $priceStatus = $detectedBudget ? 'buyer_budget' : 'market_estimate';
+                return $fallbackPrice;
+            }
+            $priceStatus = 'rfq_required';
+            return 0;
+        };
 
         $suggestedItems = [];
         if (!empty($matchedItems)) {
-            $suggestedItems = array_map(fn($m) => [
-                'catalogue_id'    => $m['id'] ?? null,
-                'name'            => $m['name'] ?? 'Item Pengadaan',
-                'item_code'       => $m['item_code'] ?? null,
-                'category'        => $m['category'] ?? 'General',
-                'brand'           => $m['brand'] ?? null,
-                'detailed_specs'  => $m['specifications'] ?? ($m['name'] ?? ''),
-                'qty'             => 1,
-                'uom'             => $m['uom'] ?? 'unit',
-                'estimated_price' => !empty($m['estimated_price']) ? (float)$m['estimated_price'] : ($detectedBudget ? round($detectedBudget / count($matchedItems)) : 0),
-                'price_status'    => !empty($m['estimated_price']) ? 'verified_catalogue' : ($detectedBudget ? 'buyer_budget' : 'rfq_required'),
-                'expected_date'   => now()->addDays(14)->toDateString(),
-                'reason'          => 'Sesuai spesifikasi kebutuhan katalog terdaftar',
-            ], $matchedItems);
+            $suggestedItems = array_map(function ($m) use ($resolvePrice, $detectedBudget, $matchedItems) {
+                $fallback    = !empty($m['estimated_price']) ? (float)$m['estimated_price'] : ($detectedBudget ? round($detectedBudget / count($matchedItems)) : 0);
+                $priceStatus = 'rfq_required';
+                $price       = $resolvePrice($m['name'] ?? '', $fallback, $priceStatus);
+                return [
+                    'catalogue_id'    => $m['id'] ?? null,
+                    'name'            => $m['name'] ?? 'Item Pengadaan',
+                    'item_code'       => $m['item_code'] ?? null,
+                    'category'        => $m['category'] ?? 'General',
+                    'brand'           => $m['brand'] ?? null,
+                    'detailed_specs'  => $m['specifications'] ?? ($m['name'] ?? ''),
+                    'qty'             => 1,
+                    'uom'             => $m['uom'] ?? 'unit',
+                    'estimated_price' => $price,
+                    'price_status'    => $priceStatus,
+                    'expected_date'   => now()->addDays(14)->toDateString(),
+                    'reason'          => 'Sesuai spesifikasi kebutuhan katalog terdaftar',
+                ];
+            }, $matchedItems);
         } else {
-            $suggestedItems = array_map(fn($it) => [
-                'catalogue_id'    => null,
-                'name'            => $it['name'],
-                'item_code'       => 'REQ-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $it['name']), 0, 6)),
-                'category'        => 'General Procurement',
-                'brand'           => null,
-                'detailed_specs'  => $it['detailed_specs'],
-                'qty'             => $it['qty'],
-                'uom'             => $it['uom'],
-                'estimated_price' => $it['estimated_price'] ?? 0,
-                'price_status'    => $it['price_status'] ?? ($detectedBudget ? 'buyer_budget' : 'rfq_required'),
-                'expected_date'   => now()->addDays(14)->toDateString(),
-                'reason'          => 'Kebutuhan unit pengadaan sesuai prompt user (menunggu penawaran vendor)',
-            ], $detectedItems);
+            $suggestedItems = array_map(function ($it) use ($resolvePrice) {
+                $priceStatus = 'rfq_required';
+                $price       = $resolvePrice($it['name'] ?? '', (float)($it['estimated_price'] ?? 0), $priceStatus);
+                return [
+                    'catalogue_id'    => null,
+                    'name'            => $it['name'],
+                    'item_code'       => 'REQ-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $it['name']), 0, 6)),
+                    'category'        => 'General Procurement',
+                    'brand'           => null,
+                    'detailed_specs'  => $it['detailed_specs'],
+                    'qty'             => $it['qty'],
+                    'uom'             => $it['uom'],
+                    'estimated_price' => $price,
+                    'price_status'    => $priceStatus,
+                    'expected_date'   => now()->addDays(14)->toDateString(),
+                    'reason'          => 'Kebutuhan unit pengadaan sesuai prompt user (menunggu penawaran vendor)',
+                ];
+            }, $detectedItems);
         }
 
         $totalBudgetCalculated = collect($suggestedItems)->sum(fn($i) => ($i['qty'] ?? 1) * ($i['estimated_price'] ?? 0));
