@@ -29,16 +29,17 @@ services:
     depends_on:
       - app
 
-  # PostgreSQL Database (Production)
   db:
     image: postgres:16-alpine
     container_name: huntr_db_prod
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: huntr
       POSTGRES_USER: huntr
       POSTGRES_PASSWORD: manchester@2025
     volumes:
-      - pgdata:/var/lib/postgresql/data # <--- Direkomendasikan agar data DB tidak hilang saat container di-restart
+      - pgdata:/var/lib/postgresql/data
 
   # Dragonfly Cache (Production)
   cache:
