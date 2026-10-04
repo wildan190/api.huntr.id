@@ -158,6 +158,74 @@ class AgenticProcurementService
         if (count($foundCatalogues) >= 2) {
             $candidatesToCompare = array_slice($foundCatalogues, 0, 5);
             $comparison = $this->openAi->compareProducts($candidatesToCompare, $query, $webSearchResults);
+
+            // Enrich setiap item di comparison_matrix dengan data Brave Search:
+            // gambar thumbnail, harga pasar web, link sumber nyata
+            if (!empty($comparison['comparison_matrix'])) {
+                $catalogueById = collect($foundCatalogues)->keyBy('id');
+
+                $comparison['comparison_matrix'] = array_map(function ($matrixItem) use ($catalogueById, $webSearchResults) {
+                    $catId = $matrixItem['catalogue_id'] ?? null;
+                    $cat   = $catId ? $catalogueById->get($catId) : null;
+
+                    // ── Ambil thumbnail dari katalog internal jika ada ──
+                    $thumbnail = $cat['image_url'] ?? null;
+
+                    // ── Cari data Brave yang cocok dengan nama produk ──
+                    $productName = strtolower(trim($matrixItem['product_name'] ?? ''));
+                    $webSources  = [];
+                    $webPriceMin = null;
+                    $webPriceMax = null;
+                    $webPriceAvg = null;
+
+                    foreach ($webSearchResults as $key => $data) {
+                        if ($key === '__general__') continue;
+                        $dataName = strtolower(trim($data['item_name'] ?? $key));
+
+                        $isMatch = str_contains($productName, $dataName)
+                            || str_contains($dataName, $productName)
+                            || (strlen($productName) >= 5 && str_contains($dataName, substr($productName, 0, 6)))
+                            || (strlen($dataName)    >= 5 && str_contains($productName, substr($dataName, 0, 6)));
+
+                        if (!$isMatch) continue;
+
+                        // Ambil top 3 hasil web sebagai sumber referensi
+                        foreach (array_slice($data['results'] ?? [], 0, 3) as $r) {
+                            $webSources[] = [
+                                'title'     => $r['title']     ?? '',
+                                'link'      => $r['link']      ?? '',
+                                'snippet'   => mb_substr($r['snippet'] ?? '', 0, 140),
+                                'price'     => $r['price']     ?? 0,
+                                'source'    => $r['source']    ?? '',
+                                'thumbnail' => $r['thumbnail'] ?? null,
+                            ];
+                            // Pakai thumbnail dari Brave jika katalog tidak punya gambar
+                            if (!$thumbnail && !empty($r['thumbnail'])) {
+                                $thumbnail = $r['thumbnail'];
+                            }
+                        }
+
+                        // Harga range dari Brave
+                        $wp = $data['web_prices'] ?? [];
+                        if (!empty($wp['avg_price'])) {
+                            $webPriceMin = $wp['min_price'] ?? null;
+                            $webPriceMax = $wp['max_price'] ?? null;
+                            $webPriceAvg = $wp['avg_price'] ?? null;
+                        }
+                        break; // satu match sudah cukup
+                    }
+
+                    return array_merge($matrixItem, [
+                        'thumbnail'       => $thumbnail,
+                        'web_price_min'   => $webPriceMin,
+                        'web_price_max'   => $webPriceMax,
+                        'web_price_avg'   => $webPriceAvg,
+                        'web_sources'     => $webSources,
+                        'vendor_name'     => $matrixItem['vendor_name'] ?? ($cat['vendor'] ?? null),
+                    ]);
+                }, $comparison['comparison_matrix']);
+            }
+
             $steps[] = [
                 'step'     => 'product_comparison',
                 'title'    => 'Komparasi & Evaluasi Produk',
@@ -456,14 +524,14 @@ INSTRUCTION;
             // Filter jika user memberikan ID katalog spesifik
             if (!empty($options['catalogue_ids'])) {
                 $dbQuery->whereIn('id', $options['catalogue_ids']);
-                return $dbQuery->get()->map(fn($c) => $this->mapCatalogueItem($c))->toArray();
+                return $dbQuery->get()->map(fn(Catalogue $c) => $this->mapCatalogueItem($c))->toArray();
             }
 
             $keywords = $intent['keywords'] ?? [];
             $category = $intent['category'] ?? null;
             $brand = $intent['brand'] ?? null;
 
-            $operator = $dbQuery->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+            $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
             if (!empty($keywords)) {
                 $dbQuery->where(function ($q) use ($keywords, $category, $brand, $operator) {
@@ -489,7 +557,7 @@ INSTRUCTION;
                 $ranked = $this->openAi->rankSearchProducts($intent['ai_summary'] ?? '', $results->toArray(), $companyId);
                 $rankedById = collect($ranked)->keyBy('product_id');
 
-                $mapped = $results->map(function ($p) use ($rankedById) {
+                $mapped = $results->map(function (Catalogue $p) use ($rankedById) {
                     $item = $this->mapCatalogueItem($p);
                     $rankInfo = $rankedById->get($p->id);
                     if ($rankInfo) {
@@ -497,10 +565,7 @@ INSTRUCTION;
                         $item['ai_match'] = $aiMatch;
                         $item['ai_score'] = (int) ($rankInfo['relevance_score'] ?? 75);
                         $item['fit_reason'] = $rankInfo['fit_reason'] ?? null;
-                        // Override harga HANYA jika AI memberikan harga > 0
-                        if (!empty($rankInfo['estimated_unit_price_idr']) && $rankInfo['estimated_unit_price_idr'] > 0) {
-                            $item['estimated_price'] = (float) $rankInfo['estimated_unit_price_idr'];
-                        }
+                        // AI selalu return 0 untuk harga — harga dikelola enrichPrItems
                     }
                     return $item;
                 });
@@ -624,22 +689,51 @@ INSTRUCTION;
         $totalBudget  = $this->parsePrice($intent['estimated_total_budget_idr'] ?? 0);
         $itemCount    = count($suggestedItems) ?: 1;
 
-        // Bangun indeks harga Brave: item_name (lowercase) => avg_price
+        // Bangun indeks harga Brave dari webSearchResults yang sudah dikumpulkan
+        // Dua key per item: (1) dari item_name fullSearchName, (2) dari key sederhana
         $webPriceIndex = [];
         foreach ($webSearchResults as $key => $data) {
             if ($key === '__general__') continue;
+
             $wp = $data['web_prices'] ?? [];
-            if (!empty($wp['avg_price']) && (float) $wp['avg_price'] > 0) {
-                $webPriceIndex[strtolower(trim($data['item_name'] ?? $key))] = [
-                    'avg'    => (float) $wp['avg_price'],
-                    'min'    => (float) ($wp['min_price'] ?? $wp['avg_price']),
-                    'max'    => (float) ($wp['max_price'] ?? $wp['avg_price']),
-                    'count'  => count($wp['sources'] ?? []),
+            $avgPrice = (float) ($wp['avg_price'] ?? 0);
+
+            // Jika avg_price tidak tersedia, hitung dari individual raw_results yang punya harga
+            if ($avgPrice <= 0 && !empty($data['results'])) {
+                $rawPrices = collect($data['results'])
+                    ->pluck('price')
+                    ->filter(fn($p) => (float) $p > 0)
+                    ->map(fn($p) => (float) $p);
+
+                if ($rawPrices->isNotEmpty()) {
+                    $avgPrice = $rawPrices->average();
+                    $wp = [
+                        'avg_price' => $avgPrice,
+                        'min_price' => $rawPrices->min(),
+                        'max_price' => $rawPrices->max(),
+                    ];
+                }
+            }
+
+            if ($avgPrice > 0) {
+                $entry = [
+                    'avg'   => $avgPrice,
+                    'min'   => (float) ($wp['min_price'] ?? $avgPrice),
+                    'max'   => (float) ($wp['max_price'] ?? $avgPrice),
+                    'count' => count($wp['sources'] ?? ($data['results'] ?? [])),
                 ];
+                // Index by full item_name
+                $webPriceIndex[strtolower(trim($data['item_name'] ?? $key))] = $entry;
+                // Index by short key as fallback
+                if (strtolower(trim($key)) !== strtolower(trim($data['item_name'] ?? $key))) {
+                    $webPriceIndex[strtolower(trim($key))] = $entry;
+                }
             }
         }
 
-        return array_map(function ($item) use ($catalogueMap, $targetItems, $totalBudget, $itemCount, $webPriceIndex) {
+        $webSearch = $this->webSearch;
+
+        return array_map(function ($item) use ($catalogueMap, $targetItems, $totalBudget, $itemCount, $webPriceIndex, $webSearch) {
             $catId = $item['catalogue_id'] ?? null;
             $cat   = $catId ? $catalogueMap->get($catId) : null;
 
@@ -656,11 +750,17 @@ INSTRUCTION;
                 $priceNote   = $item['price_note'] ?? null;
             }
 
-            // Layer 2: Brave Search / web market price
+            // Layer 2: Brave Search index dari Step 3 web search
             if ($price <= 0 && !empty($webPriceIndex)) {
                 $itemNameKey = strtolower(trim($item['name'] ?? ''));
                 foreach ($webPriceIndex as $webKey => $wp) {
-                    if (str_contains($itemNameKey, $webKey) || str_contains($webKey, $itemNameKey)) {
+                    // Match fleksibel: substring atau overlap kata kunci
+                    $isMatch = str_contains($itemNameKey, $webKey)
+                        || str_contains($webKey, $itemNameKey)
+                        || (strlen($itemNameKey) >= 4 && str_contains($webKey, substr($itemNameKey, 0, min(8, strlen($itemNameKey)))))
+                        || (strlen($webKey) >= 4 && str_contains($itemNameKey, substr($webKey, 0, min(8, strlen($webKey)))));
+
+                    if ($isMatch) {
                         $price       = $wp['avg'];
                         $priceStatus = 'web_market_reference';
                         $srcCount    = $wp['count'];
@@ -669,6 +769,52 @@ INSTRUCTION;
                         $priceNote   = "Referensi Brave Search: Rp {$minFmt} – Rp {$maxFmt} dari {$srcCount} sumber web";
                         break;
                     }
+                }
+            }
+
+            // Layer 2b: Brave Search on-demand — cari langsung jika belum ada harga
+            if ($price <= 0 && $webSearch->isEnabled()) {
+                try {
+                    $itemNameSearch = trim($item['name'] ?? '');
+                    $brandSearch    = trim($item['brand'] ?? '');
+                    $liveData = $webSearch->searchMarketPrice($itemNameSearch, $brandSearch);
+                    $liveAvg  = (float) ($liveData['avg_price'] ?? 0);
+
+                    // Jika avg_price masih 0, scan individual results dengan filter outlier IQR
+                    if ($liveAvg <= 0 && !empty($liveData['raw_results'])) {
+                        $rawPrices = collect($liveData['raw_results'])
+                            ->pluck('price')
+                            ->filter(fn($p) => (float) $p > 0)
+                            ->map(fn($p) => (float) $p)
+                            ->sort()
+                            ->values();
+
+                        if ($rawPrices->count() >= 3) {
+                            // Filter outlier: buang harga di luar Q1 - 1.5×IQR ... Q3 + 1.5×IQR
+                            $q1  = $rawPrices->get((int) floor(($rawPrices->count() - 1) * 0.25));
+                            $q3  = $rawPrices->get((int) floor(($rawPrices->count() - 1) * 0.75));
+                            $iqr = $q3 - $q1;
+                            $lo  = $q1 - 1.5 * $iqr;
+                            $hi  = $q3 + 1.5 * $iqr;
+                            $filtered = $rawPrices->filter(fn($p) => $p >= $lo && $p <= $hi);
+                            $liveAvg  = $filtered->isNotEmpty() ? $filtered->average() : $rawPrices->average();
+                        } elseif ($rawPrices->isNotEmpty()) {
+                            $liveAvg = $rawPrices->average();
+                        }
+                    }
+
+                    if ($liveAvg > 0) {
+                        $price       = round($liveAvg);
+                        $priceStatus = 'web_market_reference';
+                        $liveMin     = (float) ($liveData['min_price'] ?? $liveAvg);
+                        $liveMax     = (float) ($liveData['max_price'] ?? $liveAvg);
+                        $liveCount   = count($liveData['sources'] ?? []);
+                        $minFmt      = number_format($liveMin, 0, ',', '.');
+                        $maxFmt      = number_format($liveMax, 0, ',', '.');
+                        $priceNote   = "Riset Brave Search (on-demand): Rp {$minFmt} – Rp {$maxFmt} dari {$liveCount} sumber web";
+                    }
+                } catch (\Throwable) {
+                    // Brave gagal — lanjut ke layer berikutnya
                 }
             }
 
