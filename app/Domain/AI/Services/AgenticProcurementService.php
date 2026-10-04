@@ -23,8 +23,9 @@ use Illuminate\Support\Facades\Log;
 class AgenticProcurementService
 {
     public function __construct(
-        private readonly OpenAiService $openAi,
-        private readonly CreateRfqAction $createRfqAction
+        private readonly OpenAiService      $openAi,
+        private readonly BraveSearchService $webSearch,
+        private readonly CreateRfqAction    $createRfqAction
     ) {
     }
 
@@ -53,66 +54,137 @@ class AgenticProcurementService
         $historicalPrices = $this->queryHistoricalPrices($intent);
         $historicalCount = count($historicalPrices);
         $steps[] = [
-            'step' => 'historical_price_lookup',
-            'title' => 'Referensi Harga Historis (PO & Tender)',
-            'status' => 'completed',
+            'step'        => 'historical_price_lookup',
+            'title'       => 'Referensi Harga Historis (PO & Tender)',
+            'status'      => 'completed',
             'total_found' => $historicalCount,
-            'summary' => $historicalCount > 0
+            'summary'     => $historicalCount > 0
                 ? "Ditemukan {$historicalCount} referensi harga nyata dari transaksi PO & penawaran vendor sebelumnya."
                 : 'Tidak ada riwayat transaksi yang cocok di database. AI akan menggunakan estimasi harga pasar wajar.',
-            'sources' => array_values(array_map(fn($v) => [
-                'name' => $v['item_name'],
-                'avg_price' => $v['avg_price'],
+            'sources'     => array_values(array_map(fn($v) => [
+                'name'       => $v['item_name'],
+                'avg_price'  => $v['avg_price'],
                 'last_price' => $v['last_price'],
-                'source' => $v['source'],
-                'samples' => $v['sample_count'],
+                'source'     => $v['source'],
+                'samples'    => $v['sample_count'],
             ], $historicalPrices)),
         ];
 
-        // Step 3: Cari produk di katalog database
+        // Step 3: Brave Search — cari produk, harga & spesifikasi dari internet
+        $webSearchResults  = [];
+        $webSearchSummary  = 'Brave Search tidak dikonfigurasi.';
+        if ($this->webSearch->isEnabled()) {
+            $targetItems = $intent['target_items'] ?? [];
+            $keywords    = $intent['keywords']     ?? [];
+
+            // Cari harga & alternatif untuk setiap target item
+            foreach (array_slice($targetItems, 0, 5) as $targetItem) {
+                $itemName = $targetItem['name'] ?? '';
+                $brand    = $targetItem['brand'] ?? '';
+                $specReq  = $targetItem['spec_requirements'] ?? ($targetItem['specs_hint'] ?? '');
+                if (empty($itemName)) continue;
+
+                // Bangun search query yang spesifik agar tidak hanya mencari nama umum (misal: "Excavator Komatsu PC200")
+                $fullSearchName = trim("{$brand} {$itemName} {$specReq}");
+
+                $priceData = $this->webSearch->searchMarketPrice(
+                    $fullSearchName,
+                    $brand,
+                    $specReq
+                );
+
+                if (!empty($priceData['raw_results'])) {
+                    $webSearchResults[strtolower(trim($itemName))] = [
+                        'item_name'  => $fullSearchName,
+                        'brand'      => $brand,
+                        'web_prices' => $priceData,
+                        'results'    => array_slice($priceData['raw_results'], 0, 8),
+                    ];
+                }
+            }
+
+            // Jika target_items kosong, fallback ke pencarian kategori
+            if (empty($webSearchResults) && !empty($keywords)) {
+                $altQuery    = implode(' ', array_slice($keywords, 0, 4));
+                $altResults  = $this->webSearch->searchProducts(
+                    "{$altQuery} harga B2B distributor resmi Indonesia",
+                    8
+                );
+                if (!empty($altResults)) {
+                    $webSearchResults['__general__'] = [
+                        'item_name' => $altQuery,
+                        'results'   => $altResults,
+                    ];
+                }
+            }
+
+            $totalWebFound = count(array_filter(
+                $webSearchResults,
+                fn($v) => !empty($v['results'])
+            ));
+            $webSearchSummary = $totalWebFound > 0
+                ? "Brave Search menemukan {$totalWebFound} kategori produk dengan harga & spesifikasi terkini dari internet."
+                : 'Brave Search aktif namun tidak menemukan hasil yang relevan untuk query ini.';
+        }
+
+        $steps[] = [
+            'step'        => 'web_search',
+            'title'       => 'Brave Search — Harga & Spek Real-time',
+            'status'      => 'completed',
+            'total_found' => count($webSearchResults),
+            'summary'     => $webSearchSummary,
+            'sources'     => collect($webSearchResults)
+                ->flatMap(fn($d) => array_slice($d['results'] ?? [], 0, 2))
+                ->map(fn($r) => ['title' => $r['title'] ?? '', 'link' => $r['link'] ?? '', 'price' => $r['price'] ?? 0])
+                ->values()
+                ->toArray(),
+        ];
+
+
+        // Step 4: Cari produk di katalog database
         $foundCatalogues = $this->discoverCatalogues($intent, $options);
         $steps[] = [
-            'step' => 'catalogue_discovery',
-            'title' => 'Pencarian Katalog Otomatis',
-            'status' => 'completed',
+            'step'        => 'catalogue_discovery',
+            'title'       => 'Pencarian Katalog Otomatis',
+            'status'      => 'completed',
             'total_found' => count($foundCatalogues),
-            'summary' => count($foundCatalogues) > 0
+            'summary'     => count($foundCatalogues) > 0
                 ? 'Ditemukan ' . count($foundCatalogues) . ' produk katalog yang relevan dengan spesifikasi.'
                 : 'Tidak ada produk langsung di database, AI menggenerasi spesifikasi item standar industri.',
         ];
 
-        // Step 4: Evaluasi & Komparasi Produk
+        // Step 5: Evaluasi & Komparasi Produk
         $comparison = null;
         if (count($foundCatalogues) >= 2) {
             $candidatesToCompare = array_slice($foundCatalogues, 0, 5);
-            $comparison = $this->openAi->compareProducts($candidatesToCompare, $query);
+            $comparison = $this->openAi->compareProducts($candidatesToCompare, $query, $webSearchResults);
             $steps[] = [
-                'step' => 'product_comparison',
-                'title' => 'Komparasi & Evaluasi Produk',
-                'status' => 'completed',
-                'summary' => $comparison['executive_summary'] ?? 'Evaluasi komparasi produk selesai.',
+                'step'     => 'product_comparison',
+                'title'    => 'Komparasi & Evaluasi Produk',
+                'status'   => 'completed',
+                'summary'  => $comparison['executive_summary'] ?? 'Evaluasi komparasi produk selesai.',
                 'winner_id' => $comparison['winner_id'] ?? null,
             ];
         } else {
             $steps[] = [
-                'step' => 'product_comparison',
-                'title' => 'Evaluasi Produk Tunggal',
-                'status' => 'completed',
+                'step'    => 'product_comparison',
+                'title'   => 'Evaluasi Produk Tunggal',
+                'status'  => 'completed',
                 'summary' => 'Kandidat produk telah dievaluasi dan siap diproses ke dokumen PR.',
             ];
         }
 
-        // Step 5: Susun Dokumen PR & Deskripsi Lengkap
+        // Step 6: Susun Dokumen PR & Deskripsi Lengkap
         $company = !empty($options['company_id']) ? Company::find($options['company_id']) : null;
         $context = [
-            'company_name' => $company?->name,
-            'address' => $company?->address,
-            'department' => $intent['department'] ?? 'Procurement',
-            'estimated_total_budget_idr' => $intent['estimated_total_budget_idr'] ?? null,
-            'target_items' => $intent['target_items'] ?? [],
+            'company_name'                => $company?->name,
+            'address'                     => $company?->address,
+            'department'                  => $intent['department'] ?? 'Procurement',
+            'estimated_total_budget_idr'  => $intent['estimated_total_budget_idr'] ?? null,
+            'target_items'                => $intent['target_items'] ?? [],
         ];
 
-        $prDraft = $this->openAi->generatePrDraft($query, $foundCatalogues, $context, $historicalPrices);
+        $prDraft = $this->openAi->generatePrDraft($query, $foundCatalogues, $context, $historicalPrices, $webSearchResults);
 
         // Enrich suggested items jika ada mapping katalog
         $enrichedItems = $this->enrichPrItems($prDraft['suggested_items'] ?? [], $foundCatalogues, $intent);
@@ -170,13 +242,14 @@ class AgenticProcurementService
         }
 
         return [
-            'success' => true,
-            'query' => $query,
-            'intent' => $intent,
-            'catalogues' => $foundCatalogues,
-            'comparison' => $comparison,
-            'pr_draft' => $prDraft,
-            'created_rfq' => $createdRfq ? $createdRfq->load(['items.catalogue']) : null,
+            'success'        => true,
+            'query'          => $query,
+            'intent'         => $intent,
+            'catalogues'     => $foundCatalogues,
+            'comparison'     => $comparison,
+            'pr_draft'       => $prDraft,
+            'web_search'     => $webSearchResults,
+            'created_rfq'    => $createdRfq ? $createdRfq->load(['items.catalogue']) : null,
             'workflow_steps' => $steps,
         ];
     }

@@ -1,0 +1,309 @@
+<?php
+
+namespace App\Domain\AI\Services;
+
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+
+/**
+ * BraveSearchService
+ *
+ * Wrapper untuk Brave Search API (Web Search).
+ * Digunakan oleh AgenticProcurementService untuk menemukan:
+ *   1. Produk & spesifikasi teknis di internet
+ *   2. Harga pasar terkini dari distributor resmi / B2B marketplaces
+ *   3. Review & referensi produk secara real-time
+ *
+ * Konfigurasi:
+ *   BRAVE_SEARCH_API_KEY  — API Key dari Brave Search Console (api.search.brave.com)
+ */
+class BraveSearchService
+{
+    private const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
+    private const CACHE_TTL = 3600; // 1 jam
+
+    /**
+     * Daftar domain yang diprioritaskan untuk pencarian harga & produk Indonesia.
+     * Mencakup distributor resmi alat berat, marketplace B2B, dan e-commerce lokal.
+     */
+    private const TARGET_DOMAINS = [
+        'unitedtractors.com',   // UNTR — distributor resmi Komatsu
+        'sanyindonesia.co.id',  // Sany — alat berat
+        'gsmarena.com',         // GSMArena — referensi gadget/elektronik
+        'tokopedia.com',        // Tokopedia — marketplace utama
+        'shopee.co.id',         // Shopee — marketplace
+        'blibli.com',           // Blibli — marketplace
+        'indotrading.com',      // Indotrading — B2B marketplace Indonesia
+    ];
+
+    private string $apiKey;
+    private int $timeout;
+
+    public function __construct()
+    {
+        $this->apiKey  = config('ai.brave_search_api_key', env('BRAVE_SEARCH_API_KEY', ''));
+        $this->timeout = (int) config('ai.timeout', 30);
+    }
+
+    /**
+     * Apakah Brave Search dikonfigurasi dan siap digunakan.
+     */
+    public function isEnabled(): bool
+    {
+        return !empty($this->apiKey);
+    }
+
+    /**
+     * Cari produk di internet berdasarkan query.
+     *
+     * @param  string      $query         Query pencarian
+     * @param  int         $limit         Jumlah hasil maksimal (1-20)
+     * @param  array|null  $targetDomains Domain yang diprioritaskan (null = pakai TARGET_DOMAINS)
+     * @return array                      Array hasil dengan fields: title, link, snippet, price, source, thumbnail
+     */
+    public function searchProducts(string $query, int $limit = 5, ?array $targetDomains = null): array
+    {
+        if (!$this->isEnabled()) {
+            Log::debug('BraveSearchService: API key not configured, skipping search.');
+            return [];
+        }
+
+        $enrichedQuery = $this->buildQueryWithDomains($query, $targetDomains);
+
+        $cacheKey = 'bsearch_' . md5($enrichedQuery . '_' . $limit);
+        return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($enrichedQuery, $limit) {
+            return $this->fetchSearch($enrichedQuery, $limit);
+        });
+    }
+
+    /**
+     * Cari harga pasar terkini untuk satu item/produk.
+     *
+     * @param  string $itemName   Nama produk/barang
+     * @param  string $brand      Merk (optional)
+     * @param  string $specs      Spesifikasi singkat (optional)
+     * @return array              [min_price, max_price, avg_price, sources, raw_results]
+     */
+    public function searchMarketPrice(string $itemName, string $brand = '', string $specs = '', ?array $targetDomains = null): array
+    {
+        $queryParts = array_filter([$brand, $itemName, $specs, 'harga', 'Indonesia', 'distributor resmi']);
+        $query      = implode(' ', $queryParts);
+
+        $results = $this->searchProducts($query, 10, $targetDomains);
+
+        if (empty($results)) {
+            return [
+                'min_price'   => null,
+                'max_price'   => null,
+                'avg_price'   => null,
+                'sources'     => [],
+                'raw_results' => [],
+            ];
+        }
+
+        $prices  = [];
+        $sources = [];
+
+        foreach ($results as $r) {
+            $extracted = $this->extractPriceFromText(($r['title'] ?? '') . ' ' . ($r['snippet'] ?? ''));
+            if ($extracted > 0) {
+                $prices[]  = $extracted;
+                $sources[] = [
+                    'title'  => $r['title'],
+                    'link'   => $r['link'],
+                    'price'  => $extracted,
+                ];
+            }
+        }
+
+        if (empty($prices)) {
+            return [
+                'min_price'   => null,
+                'max_price'   => null,
+                'avg_price'   => null,
+                'sources'     => [],
+                'raw_results' => $results,
+            ];
+        }
+
+        return [
+            'min_price'   => min($prices),
+            'max_price'   => max($prices),
+            'avg_price'   => round(array_sum($prices) / count($prices)),
+            'sources'     => $sources,
+            'raw_results' => $results,
+        ];
+    }
+
+    /**
+     * Cari spesifikasi teknis untuk beberapa item sekaligus.
+     *
+     * @param  array $items  [['name' => ..., 'brand' => ..., 'category' => ...], ...]
+     * @return array         Keyed by item name: hasil searchProducts
+     */
+    public function searchProductSpecs(array $items): array
+    {
+        $results = [];
+
+        foreach ($items as $item) {
+            $name     = $item['name']     ?? '';
+            $brand    = $item['brand']    ?? '';
+            $category = $item['category'] ?? '';
+
+            if (empty($name)) continue;
+
+            $query = trim("{$brand} {$name} {$category} spesifikasi teknis B2B Indonesia");
+            $results[strtolower(trim($name))] = [
+                'query'   => $query,
+                'results' => $this->searchProducts($query, 5),
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Cari alternatif produk dari internet berdasarkan kategori & kebutuhan.
+     *
+     * @param  string $productCategory   Jenis produk (misal: "laptop gaming")
+     * @param  array  $requirements      Spesifikasi yang dibutuhkan
+     * @return array                     Daftar produk alternatif dari web
+     */
+    public function searchProductAlternatives(string $productCategory, array $requirements = [], ?array $targetDomains = null): array
+    {
+        $specsHint = implode(' ', array_slice(array_values($requirements), 0, 3));
+        $query     = trim("rekomendasi {$productCategory} terbaik {$specsHint} harga B2B Indonesia 2025 2026");
+
+        return $this->searchProducts($query, 8, $targetDomains);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Tambahkan filter site: ke query agar Brave memprioritaskan domain tertentu.
+     *
+     * Contoh hasil: "Komatsu PC200 harga (site:unitedtractors.com OR site:tokopedia.com OR ...)"
+     *
+     * @param  string     $query         Query asli
+     * @param  array|null $targetDomains Domain list (null = pakai TARGET_DOMAINS default)
+     * @return string                    Query yang sudah diperkaya
+     */
+    private function buildQueryWithDomains(string $query, ?array $targetDomains): string
+    {
+        $domains = $targetDomains ?? self::TARGET_DOMAINS;
+
+        if (empty($domains)) {
+            return $query;
+        }
+
+        $siteFilter = implode(' OR ', array_map(
+            fn(string $d) => 'site:' . ltrim($d, '.'),
+            $domains
+        ));
+
+        return trim("{$query} ({$siteFilter})");
+    }
+
+    /**
+     * Panggil Brave Search API.
+     */
+    private function fetchSearch(string $query, int $limit): array
+    {
+        try {
+            $response = Http::withHeaders([
+                'Accept'               => 'application/json',
+                'X-Subscription-Token' => $this->apiKey,
+            ])
+            ->timeout($this->timeout)
+            ->retry(2, 1000)
+            ->get(self::ENDPOINT, [
+                'q'       => $query,
+                'count'   => min(max($limit, 1), 20),
+                'country' => 'id',
+            ]);
+
+            if (!$response->successful()) {
+                Log::warning('BraveSearchService: API request failed', [
+                    'status' => $response->status(),
+                    'query'  => $query,
+                    'body'   => $response->body(),
+                ]);
+                return [];
+            }
+
+            $data = $response->json();
+            $webResults = $data['web']['results'] ?? [];
+
+            return array_map(function ($item) {
+                // Strip HTML tags from description
+                $snippet = strip_tags($item['description'] ?? '');
+                $extraSnippets = $item['extra_snippets'] ?? [];
+                if (!empty($extraSnippets)) {
+                    $snippet .= ' ' . implode(' ', array_map('strip_tags', $extraSnippets));
+                }
+
+                $title = strip_tags($item['title'] ?? '');
+                $link = $item['url'] ?? '';
+
+                return [
+                    'title'     => $title,
+                    'link'      => $link,
+                    'snippet'   => trim($snippet),
+                    'source'    => parse_url($link, PHP_URL_HOST) ?: '',
+                    'thumbnail' => $item['thumbnail']['src'] ?? null,
+                    'price'     => $this->extractPriceFromText($title . ' ' . $snippet),
+                ];
+            }, $webResults);
+
+        } catch (\Throwable $e) {
+            Log::error('BraveSearchService: fetchSearch exception', [
+                'query' => $query,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Ekstrak harga rupiah dari teks (snippet / judul halaman web).
+     * Mendukung: Rp 1.234.567 | IDR 1,234,567 | Rp 1,5 miliar | Rp 500 juta | standalone besar
+     */
+    private function extractPriceFromText(string $text): float
+    {
+        // 1. Cek format kata miliaran / jutaan (contoh: "Rp 1,5 miliar", "Rp 500 juta")
+        if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)\s*(miliar|milyar|jt|juta|mio|b)/i', $text, $m)) {
+            $num = (float) str_replace(',', '.', preg_replace('/[.,](?=\d{3})/', '', $m[1]));
+            $unit = strtolower($m[2]);
+            if (str_starts_with($unit, 'm')) {
+                return $num * 1_000_000_000;
+            }
+            if (str_starts_with($unit, 'j') || str_starts_with($unit, 'mio')) {
+                return $num * 1_000_000;
+            }
+        }
+
+        // 2. Format standar: Rp 1.234.567 atau IDR 1,234,567
+        if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)/i', $text, $m)) {
+            $num = preg_replace('/[.,](?=\d{3})/', '', $m[1]);
+            $num = str_replace(',', '.', $num);
+            $val = (float) $num;
+            if ($val >= 1000 && $val <= 50_000_000_000) {
+                return $val;
+            }
+        }
+
+        // 3. Format angka besar standalone (misal: 15.000.000)
+        if (preg_match('/\b([\d]{1,3}(?:[.,]\d{3}){2,})\b/', $text, $m)) {
+            $num = preg_replace('/[.,](?=\d{3})/', '', $m[1]);
+            $val = (float) $num;
+            if ($val >= 100_000 && $val <= 50_000_000_000) {
+                return $val;
+            }
+        }
+
+        return 0;
+    }
+}
