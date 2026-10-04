@@ -334,8 +334,9 @@ PROMPT;
     /**
      * Re-rank & nilai kesesuaian produk katalog terhadap kebutuhan procurement.
      * @param string|null $companyId Untuk tracking usage log per perusahaan
+     * @param array $intent Context intent lengkap (kategori eksplisit, target_items, keywords) untuk akurasi filter
      */
-    public function rankSearchProducts(string $userQuery, array $products, ?string $companyId = null): array
+    public function rankSearchProducts(string $userQuery, array $products, ?string $companyId = null, array $intent = []): array
     {
         if (empty($products)) {
             return [];
@@ -353,22 +354,64 @@ PROMPT;
 
         $candidatesJson = json_encode($candidates, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
+        $intentJson = !empty($intent)
+            ? "\n\nContext Intent (struktur intent user, GUNAKAN untuk evaluasi kategori yang presisi):\n"
+              . json_encode([
+                  'category'        => $intent['category'] ?? null,
+                  'brand'           => $intent['brand'] ?? null,
+                  'target_items'    => $intent['target_items'] ?? null,
+                  'keywords'        => $intent['keywords'] ?? null,
+                  'department'      => $intent['department'] ?? null,
+              ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
+            : '';
+
         $prompt = <<<PROMPT
 Kebutuhan User: "{$userQuery}"
+{$intentJson}
 
 Daftar Produk Katalog yang Ditemukan:
 {$candidatesJson}
 
-Evaluasi kesesuaian setiap produk dengan kebutuhan pengadaan user.
-TUGAS KAMU HANYA menilai kesesuaian teknis produk — JANGAN isi harga, harga ditentukan oleh sistem terpisah.
-Balas dengan format JSON:
+═══════════════════════════════════════════════════════════
+🔥 PERATURAN EVALUASI (WAJIB DIPATUHI, TANPA KECUALIAN):
+═══════════════════════════════════════════════════════════
+1.  [is_match = FALSE] JIKA kategori produk JELAS TIDAK SESUAI.
+    Contoh pelanggaran yang HARUS di-reject (is_match=false):
+    • User minta "Mini PC Intel i5 Gen 12" tapi produk = SSD NVMe / Laptop Acer Swift / Komputer Fullset 19" (monitor 19")
+    • User minta "Laptop" tapi produk = Mini PC / Printer / RAM / SSD SATA
+    • User minta "Smartphone" tapi produk = Laptop / Charger / Case HP
+    • User minta "Printer Laser" tapi produk = Toner / Kertas HVS
+
+2.  [is_match = FALSE] JIKA nama utama produk tidak mengandung kategori produk utama dari intent.
+    Contoh: user minta "mini pc" tapi nama produk cuma "Lexar NM620 512" (GAK ADA mini pc) = REJECT.
+
+3.  [relevance_score ≤ 40] DAN [is_match=false] untuk semua produk yang JELAS beda kategori — JANGAN kasih skor 80-90 ke barang yang salah kategori!
+    Hanya beri skor 85+ jika:
+      a) KATEGORI COCOK (nama mengandung kategori utama intent)
+      b) MINIMAL 70% SPEK utama intent ada (misal: minta i5 gen12 → i5 gen12 harus ada di spek)
+      c) Brand sesuai jika intent menyebutkan brand eksplisit
+
+4.  [relevance_score] rentang 0-100, gunakan granular:
+    - 0-39  = SANGAT TIDAK COCOK (beda kategori total = is_match=false)
+    - 40-59 = Kurang Cocok (kategori mendekati tapi spek banyak kurang)
+    - 60-74 = Cukup Cocok (kategori cocok, spek 50-69% terpenuhi)
+    - 75-89 = Cocok (kategori cocok, spek 70-90% terpenuhi)
+    - 90-100 = Sangat Cocok (kategori + brand + spek 90%+ terpenuhi)
+
+5.  [fit_reason] WAJIB diisi JELAS mengapa cocok / DITOLAK. Khusus ditolak: sebutkan kategori mana yang salah.
+    Contoh alasan PENOLAKAN: "Beda kategori: user minta Mini PC, produk ini adalah SSD NVMe (storage bukan komputer)"
+    Contoh alasan DITERIMA: "Kategori cocok (Mini PC), spek i5 gen 12+ lengkap dengan SSD NVMe 512GB"
+
+6.  TUGAS KAMU HANYA menilai kesesuaian teknis produk — JANGAN isi estimated_unit_price_idr, selalu 0.
+
+Balas DENGAN FORMAT JSON HANYA:
 {
   "results": [
     {
       "product_id": "id produk",
       "is_match": true,
       "relevance_score": 92,
-      "fit_reason": "Alasan singkat mengapa produk ini cocok atau kurang cocok",
+      "fit_reason": "Alasan singkat mengapa produk ini cocok / DITOLAK",
       "suggested_qty": 1,
       "estimated_unit_price_idr": 0
     }
@@ -377,7 +420,7 @@ Balas dengan format JSON:
 PROMPT;
 
         try {
-            $response = $this->askJson($prompt, 'Kamu adalah AI Technical Procurement Evaluator.', $companyId, 'rankSearchProducts');
+            $response = $this->askJson($prompt, 'Kamu adalah AI Technical Procurement Evaluator senior yang sangat ketat dan objektif. Tidak segan-segan menolak (is_match=false) produk yang beda kategori meski spesifikasi overlap keywordnya.', $companyId, 'rankSearchProducts');
             if (!empty($response['results'])) {
                 return $response['results'];
             }
@@ -385,15 +428,38 @@ PROMPT;
             Log::warning('OpenAiService: rankSearchProducts fallback', ['error' => $e->getMessage()]);
         }
 
-        // Fallback rankings — beri score berbeda per posisi agar sorting tetap deterministik
-        return array_map(function ($p, $idx) {
+        // Fallback rankings — LEBIH KETAT: cek via kata kunci sederhana (jika AI gagal/tidak tersedia)
+        $intentKeywords = array_filter(array_map('strtolower', $intent['keywords'] ?? []));
+        $intentSummary  = strtolower($intent['ai_summary'] ?? $userQuery);
+        return array_map(function ($p, $idx) use ($intentKeywords, $intentSummary) {
+            $name = strtolower($p['name'] ?? '');
+            $spec = strtolower($p['specifications'] ?? '');
+            $haystack = $name . ' ' . $spec;
+            $matchCount = 0;
+            foreach ($intentKeywords as $kw) {
+                if (strlen($kw) >= 3 && str_contains($haystack, $kw)) $matchCount++;
+            }
+            $primaryCategoryWord = '';
+            foreach (['mini pc', 'laptop', 'notebook', 'ssd nvme', 'printer', 'smartphone',
+                       'monitor', 'pc desktop', 'server'] as $catWord) {
+                if (str_contains($intentSummary, $catWord)) { $primaryCategoryWord = $catWord; break; }
+            }
+            $hasCategoryMatch = ($primaryCategoryWord === '') || str_contains($name, $primaryCategoryWord);
+
+            // Fallback tanpa AI: JANGAN kasih skor tinggi kalo category ga cocok
+            $baseScore = $hasCategoryMatch ? 78 : 42;
+            $score = $baseScore + ($matchCount * 2);
+            $score = max(25, min(92, $score - ($idx * 3)));
+
             return [
                 'product_id'               => $p['id'],
-                'is_match'                 => true,
-                'relevance_score'          => max(50, 90 - ($idx * 5)), // 90, 85, 80, 75...
-                'fit_reason'               => 'Katalog sesuai dengan kriteria kategori.',
+                'is_match'                 => $score >= 55, // Fallback rule: skor <55 = otomatis ditolak
+                'relevance_score'          => $score,
+                'fit_reason'               => $hasCategoryMatch
+                    ? "Kategori cocok. {$matchCount} keyword spesifikasi intent terpenuhi."
+                    : "Kemungkinan beda kategori: nama produk tidak mengandung '{$primaryCategoryWord}'. (Evaluasi heuristik AI fallback)",
                 'suggested_qty'            => 1,
-                'estimated_unit_price_idr' => 0, // Harga SELALU 0 — ditentukan oleh enrichPrItems
+                'estimated_unit_price_idr' => 0,
             ];
         }, $candidates, array_keys($candidates));
     }

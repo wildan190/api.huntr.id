@@ -188,9 +188,37 @@ class AgenticProcurementService
         // Jika DB katalog tidak cukup (<2), bangun synthetic candidates dari Brave brand data
         $comparison = null;
 
-        if (count($foundCatalogues) >= 2) {
-            // Skenario A: Ada >= 2 item di katalog DB — komparasi normal
-            $candidatesToCompare = array_slice($foundCatalogues, 0, 5);
+        // ══════════════════════════════════════════════════════════
+        // 🔥 FIX 5: RELEVANCY GATE — Cek kualitas foundCatalogues
+        //    Jika > 50% ditandai ai_match=false (relevansi rendah)
+        //    → KATALOG TIDAK BERGUNA (isinya LAPTOP/SSD salah semua!).
+        //    → FORCE pindah ke Skenario B (Brave synthetic brand comparison)
+        //    karena AI ranking menyatakan DB tidak punya barang cocok.
+        // ══════════════════════════════════════════════════════════
+        $totalCatalogue = count($foundCatalogues);
+        $matchedCount   = count(array_filter($foundCatalogues, fn($c) => ($c['ai_match'] ?? true) === true));
+        $relevancyRatio = $totalCatalogue > 0 ? ($matchedCount / $totalCatalogue) : 0;
+
+        // Log untuk debugging
+        if ($totalCatalogue > 0) {
+            Log::info('AgenticProcurement: catalogue relevancy check', [
+                'total'      => $totalCatalogue,
+                'matched'    => $matchedCount,
+                'ratio_pct'  => round($relevancyRatio * 100, 1),
+                'force_brave'=> $relevancyRatio < 0.5,
+            ]);
+        }
+
+        // Syarat masuk Skenario A: >= 2 katalog DAN setidaknya 50% AI menyatakan cocok
+        $useSkenarioA = ($totalCatalogue >= 2) && ($matchedCount >= 2) && ($relevancyRatio >= 0.5);
+
+        if ($useSkenarioA) {
+            // Skenario A: HANYA pakai yang ai_match = true, buang yang AI nyatakan salah kategori
+            $filteredCandidates = array_values(array_filter(
+                $foundCatalogues,
+                fn($c) => ($c['ai_match'] ?? true) === true
+            ));
+            $candidatesToCompare = array_slice($filteredCandidates, 0, 5);
             $comparison = $this->openAi->compareProducts($candidatesToCompare, $query, $webSearchResults);
 
 
@@ -221,6 +249,15 @@ class AgenticProcurementService
                         $dataBrand = strtolower(trim($data['brand'] ?? ''));
 
                         $score = 0;
+
+                        // 🔥 NEGATIVE GUARD: Produk & data web JELAS beda kategori?
+                        //    (contoh: "Lexar NM620 SSD" vs "Mini PC i5")
+                        //    → SKIP LANGSUNG (score = -999)
+                        $productFullText = trim($productName . ' ' . $vendorName . ' ' . $catalogueBrand);
+                        $dataFullText    = trim($dataName . ' ' . $dataBrand . ' ' . $key);
+                        if ($this->isClearlyDifferentCategory($productFullText, $dataFullText)) {
+                            continue; // TIDAK BOLEH MATCH SAMA SEKALI
+                        }
 
                         // ⭐ Prioritas 1: Brand dari katalog JELAS cocok dengan brand data web
                         if ($catalogueBrand !== '' && $dataBrand !== '' && $catalogueBrand === $dataBrand) {
@@ -363,6 +400,13 @@ class AgenticProcurementService
                         $bcItemName  = strtolower(trim($bc['item_name'] ?? ''));
 
                         if (empty($bcBrand)) continue;
+
+                        // 🔥 NEGATIVE GUARD: produk vs brand comparison JELAS beda kategori?
+                        $productFullText = trim($productName . ' ' . $vendorName . ' ' . $brandFromSynth);
+                        $bcFullText      = trim($bcItemName . ' ' . $bcBrand);
+                        if ($this->isClearlyDifferentCategory($productFullText, $bcFullText)) {
+                            continue; // TIDAK BOLEH MATCH
+                        }
 
                         // ⭐ Skor TERTINGGI: productName JELAS mengandung NAMA BRAND
                         if ($productName !== '' && stripos($productName, $bcBrand) !== false) {
@@ -735,6 +779,12 @@ INSTRUCTION;
             $keywords = $intent['keywords'] ?? [];
             $category = $intent['category'] ?? null;
             $brand = $intent['brand'] ?? null;
+            $intentSummary = strtolower($intent['ai_summary'] ?? '');
+            $targetItemsText = strtolower(implode(' ', array_map(
+                fn($t) => ($t['name'] ?? '') . ' ' . ($t['spec_requirements'] ?? ''),
+                $intent['target_items'] ?? []
+            )));
+            $intentFullText = $intentSummary . ' ' . $targetItemsText;
 
             $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
@@ -756,10 +806,83 @@ INSTRUCTION;
 
             $results = $dbQuery->limit(20)->get();
 
+            // ═══════════════════════════════════════════════════════════
+            // 🔥 FIX 1: LAYER HEURISTIK FILTER KATEGORI SEBELUM AI
+            //    (Tolak produk yang JELAS beda kategori: misal minta
+            //     Mini PC tapi dapat SSD/Laptop/PC Monitor Fullset)
+            // ═══════════════════════════════════════════════════════════
+            if ($results->isNotEmpty() && !empty($intentFullText)) {
+                $results = $results->filter(function (Catalogue $c) use ($intentFullText) {
+                    $name = strtolower($c->name ?? '');
+                    $spec = strtolower($c->specifications ?? '');
+                    $cat  = strtolower($c->category ?? '');
+                    $haystack = $name . ' ' . $spec . ' ' . $cat;
+
+                    // Kamus kategori: jika intent JELAS minta KATEGORI_A,
+                    // HINDARI produk JELAS bertanda KATEGORI_B (kata ekslusif).
+                    // Struktur: [intent_marker => [negative markers yang harus ditolak]]
+                    $exclusionRules = [
+                        // User minta MINI PC / PC DESKTOP (bukan laptop, bukan ssd satuan)
+                        'mini pc' => ['laptop', 'notebook', 'ultrathin', 'ultrabook',
+                                      'ssd nvme', 'ssd sata', 'memory ram', 'ddr4', 'ddr5',
+                                      'monitor ', 'keyboard', 'mouse '],
+                        'mini pc intel' => ['laptop', 'notebook', 'ultrathin',
+                                            'ssd nvme', 'ssd sata', 'memory dimm',
+                                            'monitor ', 'keyboard', 'mouse'],
+                        'pc desktop' => ['laptop', 'notebook', 'ultrathin',
+                                         'ssd nvme', 'ssd sata', 'memory ram',
+                                         'monitor ', 'keyboard', 'mouse '],
+                        // User minta LAPTOP — tolak mini pc / ssd satuan
+                        'laptop' => ['mini pc', 'mini-pc', 'minipc', 'deskmeet', 'deskmini',
+                                     'ssd nvme', 'ssd sata', 'memory ram', 'ddr4 sodimm'],
+                        'notebook' => ['mini pc', 'ssd nvme', 'ssd sata'],
+                        // User minta SSD — tolak laptop/PC lengkap
+                        'ssd nvme' => ['laptop', 'notebook', 'mini pc', 'pc core',
+                                       'full set', 'core i'],
+                        // User minta Printer — tolak toner/kertas saja
+                        'printer' => ['toner cartridge', 'tinta botol', 'kertas hvs'],
+                    ];
+
+                    // Iterasi semua rule exclusion
+                    foreach ($exclusionRules as $intentMarker => $negativeList) {
+                        if (str_contains($intentFullText, $intentMarker)) {
+                            foreach ($negativeList as $neg) {
+                                if (str_contains($haystack, $neg)) {
+                                    // HANYA tolak jika nama kategori produk JELAS menunjukkan
+                                    // bahwa produk itu BUKAN yang diminta (kata utama tidak cocok).
+                                    // Contoh: nama = "Lexar NM620 512GB SSD" -> ada "ssd" di intent minta mini pc? tapi ada neg marker "ssd nvme"
+                                    // -> TOLAK karena user tidak minta SSD, user minta PC (SSD adl SPEK BUKAN PRODUK UTAMA).
+                                    $primaryIntentWord = explode(' ', $intentMarker)[0];
+                                    // Cek apakah produk JELAS tidak punya kata utama dari intent
+                                    if (str_contains($intentMarker, 'mini pc') &&
+                                        !str_contains($name, 'mini pc') &&
+                                        !str_contains($name, 'mini-pc') &&
+                                        !str_contains($name, 'minipc')) {
+                                        // user nyari mini pc, tapi nama produknya ga ada mini pc → HAPUS
+                                        return false;
+                                    }
+                                    if (str_contains($intentMarker, 'laptop') &&
+                                        !str_contains($name, 'laptop') &&
+                                        !str_contains($name, 'notebook')) {
+                                        return false;
+                                    }
+                                    if (str_contains($intentMarker, 'ssd nvme') &&
+                                        !str_contains($name, 'ssd')) {
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    return true;
+                })->values();
+            }
+
             // Re-ranking dengan AI jika ada kandidat
             if ($results->isNotEmpty()) {
                 $companyId = $options['company_id'] ?? null;
-                $ranked = $this->openAi->rankSearchProducts($intent['ai_summary'] ?? '', $results->toArray(), $companyId);
+                $ranked = $this->openAi->rankSearchProducts($intent['ai_summary'] ?? '', $results->toArray(), $companyId, $intent);
                 $rankedById = collect($ranked)->keyBy('product_id');
 
                 $mapped = $results->map(function (Catalogue $p) use ($rankedById) {
@@ -770,12 +893,10 @@ INSTRUCTION;
                         $item['ai_match'] = $aiMatch;
                         $item['ai_score'] = (int) ($rankInfo['relevance_score'] ?? 75);
                         $item['fit_reason'] = $rankInfo['fit_reason'] ?? null;
-                        // AI selalu return 0 untuk harga — harga dikelola enrichPrItems
                     }
                     return $item;
                 });
 
-                // Filter: prioritaskan ai_match=true, tapi jika semua false tetap tampilkan semua
                 $matched = $mapped->filter(fn($i) => ($i['ai_match'] ?? true) === true);
                 $finalList = $matched->isNotEmpty() ? $matched : $mapped;
 
@@ -875,6 +996,66 @@ INSTRUCTION;
         ];
     }
 
+    /**
+     * ═══════════════════════════════════════════════════════════
+     * 🔥 NEGATIVE GUARD DETECTOR — Cek apakah dua string teks
+     *    (nama produk / data web) JELAS berbicara tentang KATEGORI
+     *    PRODUK YANG SAMA SEKALI BERBEDA.
+     *
+     * Contoh yang DINGGAP BEDA KATEGORI:
+     *   A = "Lexar NM620 512GB SSD NVMe"    ← SSD (storage)
+     *   B = "Mini PC Intel i5 gen 12"       ← Komputer (PC)
+     *   → RETURN TRUE (jelas beda kategori, match TIDAK BOLEH!)
+     *
+     * Contoh yang DIIZINKAN (satu kategori atau tumpang tindih wajar):
+     *   A = "Minisforum Mini PC N100 SSD 512GB"
+     *   B = "Mini PC Intel i5 harga"
+     *   → RETURN FALSE (keduanya PC, SSD cuma spek bawahan).
+     * ═══════════════════════════════════════════════════════════
+     */
+    private function isClearlyDifferentCategory(string $textA, string $textB): bool
+    {
+        $a = strtolower(trim($textA));
+        $b = strtolower(trim($textB));
+        if ($a === '' || $b === '') return false;
+
+        // Kamus KELUARGA BESAR PRODUK yang TIDAK BOLEH cross-match.
+        // Setiap family = [kata kunci]. Jika A termasuk family X DAN B termasuk family Y
+        // DIMANA X != Y, maka MENGANDUNG BEDA KATEGORI PARAH -> return true.
+        $families = [
+            'FULL_PC'       => ['mini pc', 'mini-pc', 'minipc', 'pc desktop', 'pc core', 'komputer full set',
+                                 'workstation', 'server tower', 'all in one pc'],
+            'LAPTOP'        => ['laptop', 'notebook', 'ultrabook', 'ultrathin', 'thinkpad', 'macbook', 'chromebook'],
+            'STORAGE_SSD'   => ['ssd nvme', 'ssd sata', 'ssd 2.5', 'nvme gen', 'm.2 ssd', 'solid state drive'],
+            'STORAGE_HDD'   => ['harddisk', 'hard disk', 'hdd sata', 'internal hdd'],
+            'MEMORY_RAM'    => ['memory ram', 'ram ddr', 'ddr4 sodimm', 'ddr5 sodimm', 'memory module'],
+            'MONITOR'       => ['monitor led', 'monitor lcd', 'monitor gaming', 'monitor inch'],
+            'PRINTER'       => ['printer laser', 'printer inkjet', 'multifungsi printer', 'dot matrix printer'],
+            'SMARTPHONE'    => ['smartphone', 'handphone', 'hp android', 'iphone ', 'ponsel'],
+            'TABLET'        => ['ipad ', 'tablet android', 'tablet windows', 'surface pro'],
+            'NETWORK'       => ['wireless router', 'switch gigabit', 'access point', 'wifi 6 router'],
+            'UPS'           => ['ups 1500va', 'ups 1000va', 'uninterruptible power supply'],
+            'PROJECTOR'     => ['projector', 'proyektor', 'projector lcos'],
+            'ACCESSORY'     => ['keyboard ', 'mouse ', 'mousepad', 'headset gaming', 'earphone'],
+        ];
+
+        $familyA = null;
+        $familyB = null;
+        foreach ($families as $name => $keywords) {
+            foreach ($keywords as $kw) {
+                if ($familyA === null && str_contains($a, $kw)) $familyA = $name;
+                if ($familyB === null && str_contains($b, $kw)) $familyB = $name;
+                if ($familyA !== null && $familyB !== null) break 2;
+            }
+        }
+
+        // Keduanya memiliki keluarga jelas DAN BERBEDA family → BEDA KATEGORI PARAH
+        if ($familyA !== null && $familyB !== null && $familyA !== $familyB) {
+            return true;
+        }
+        return false;
+    }
+
     private function parsePrice($val): float
     {
         if (is_numeric($val)) {
@@ -964,6 +1145,14 @@ INSTRUCTION;
 
                 foreach ($webPriceIndex as $webKey => $wp) {
                     $score = 0;
+
+                    // 🔥 NEGATIVE GUARD: item vs webPrice entry JELAS beda kategori?
+                    //    (contoh: item = "Lexar NM620 SSD" vs webKey = "mini pc i5 harga")
+                    $itemFullText = trim($itemNameKey . ' ' . $itemBrand . ' '
+                        . strtolower(trim($item['detailed_specs'] ?? '')));
+                    if ($this->isClearlyDifferentCategory($itemFullText, $webKey)) {
+                        continue; // SKIP — BEDA KATEGORI PARAH, TIDAK BOLEH MATCH
+                    }
 
                     // ⭐ Prioritas 1: Item punya explicit BRAND yang muncul di webKey
                     if ($itemBrand !== '' && str_contains($webKey, $itemBrand)) {

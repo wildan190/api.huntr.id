@@ -87,10 +87,27 @@ class BraveSearchService
      */
     public function searchMarketPrice(string $itemName, string $brand = '', string $specs = '', ?array $targetDomains = null): array
     {
-        $queryParts = array_filter([$brand, $itemName, $specs, 'harga', 'Indonesia', 'distributor resmi']);
-        $query      = implode(' ', $queryParts);
+        // ══════════════════════════════════════════════════════════
+        // 🔥 FIX 6 — Query LEBIH SPESIFIK:
+        //    - Hilangkan "distributor resmi" jika sudah ada merk biar tdk over-broad.
+        //    - Tambahkan kata "harga unit satuan" dan "harga produk utama" agar
+        //      hasil pencarian TIDAK ambil harga aksesoris (SSD, RAM, keyboard)
+        //      yang muncul bersama listing produk utama.
+        //    - Hindari query terlalu umum (misal: "harga keyboard harga ssd harga pc" → BAD)
+        // ══════════════════════════════════════════════════════════
+        $queryBase = array_filter([$brand, $itemName, $specs]);
+        $base = implode(' ', $queryBase);
+        $specificity = '';
+        if (!empty($base) && strlen($base) > 12) {
+            // Jika query cukup spesifik (tidak cuma "PC" atau "Laptop"), tambahkan
+            // kata "harga unit produk lengkap" agar tidak ambil listing aksesoris satuan.
+            $specificity = 'harga unit produk utama satuan';
+        } else {
+            $specificity = 'harga Indonesia';
+        }
+        $query = trim("{$base} {$specificity} site:tokopedia.com OR site:blibli.com OR site:shopee.co.id OR site:bhinneka.com OR site:indotrading.com");
 
-        $results = $this->searchProducts($query, 10, $targetDomains);
+        $results = $this->searchProducts($query, 12, $targetDomains);
 
         if (empty($results)) {
             return [
@@ -125,6 +142,43 @@ class BraveSearchService
                 'sources'     => [],
                 'raw_results' => $results,
             ];
+        }
+
+        // ══════════════════════════════════════════════════════════
+        // 🔥 OUTLIER FILTERING (IQR Method):
+        //    Setelah daftar harga terkumpul, BUANG harga outlier
+        //    (terlalu murah / terlalu mahal) karena biasanya itu:
+        //    → listing Aksesoris (Rp 50rb keyboard di halaman Mini PC)
+        //    → listing Paket Bundling Upgrade (Rp 50jt CPU + monitor)
+        //    → iklan / listing typo.
+        //    HANYA jika jumlah sample >= 3.
+        // ══════════════════════════════════════════════════════════
+        sort($prices, SORT_NUMERIC);
+        if (count($prices) >= 3) {
+            $values = array_values($prices);
+            $q1Idx = (int) floor((count($values) - 1) * 0.25);
+            $q3Idx = (int) floor((count($values) - 1) * 0.75);
+            $q1    = $values[$q1Idx];
+            $q3    = $values[$q3Idx];
+            $iqr   = $q3 - $q1;
+            $lower = $q1 - 1.5 * $iqr;
+            $upper = $q3 + 1.5 * $iqr;
+            $filteredPrices = [];
+            $filteredSources = [];
+            foreach ($prices as $idx => $p) {
+                if ($p >= $lower && $p <= $upper) {
+                    $filteredPrices[] = $p;
+                    if (isset($sources[$idx])) {
+                        $filteredSources[] = $sources[$idx];
+                    }
+                }
+            }
+            // Jika setelah dibuang outlier tersisa >= 2 sample, pakai.
+            // Jika terlalu terbuang, fallback ke seluruh harga (aman).
+            if (count($filteredPrices) >= 2) {
+                $prices  = $filteredPrices;
+                $sources = $filteredSources;
+            }
         }
 
         return [
@@ -232,16 +286,55 @@ class BraveSearchService
         // Step 2: Cari harga & spesifikasi per brand
         $brandComparisons = [];
         foreach ($knownBrands as $brand) {
-            $query     = trim("{$brand} {$itemName} {$specs} harga Indonesia");
-            $results   = $this->searchProducts($query, 5);
+            // ══════════════════════════════════════════════════════════
+            // 🔥 FIX 6b — Query PER BRAND LEBIH SPESIFIK:
+            //    Jangan "harga Indonesia" saja; tapi sertakan "harga unit
+            //    produk utama lengkap (bukan aksesoris/part)" agar Brave
+            //    tidak mengembalikan listing keyboard/ssd satuannya ketika
+            //    kita sebenarnya sedang cari satu unit laptop/mini pc merk X.
+            // ══════════════════════════════════════════════════════════
+            $query   = trim("{$brand} {$itemName} {$specs} harga unit produk utama lengkap"
+                          . " (site:tokopedia.com OR site:blibli.com OR site:shopee.co.id OR site:bhinneka.com)");
+            $results = $this->searchProducts($query, 6);
 
             if (empty($results)) continue;
 
-            // Ekstrak harga dari hasil per brand
+            // Ekstrak harga dari hasil per brand + IQR outlier filter
             $prices = [];
+            $priceSources = [];
             foreach ($results as $r) {
                 $p = $this->extractPriceFromText(($r['title'] ?? '') . ' ' . ($r['snippet'] ?? ''));
-                if ($p > 0) $prices[] = $p;
+                if ($p > 0) {
+                    $prices[] = $p;
+                    $priceSources[] = [
+                        'title' => $r['title'],
+                        'link'  => $r['link'],
+                        'price' => $p,
+                    ];
+                }
+            }
+
+            // Outlier filter per brand (jika >= 3 sampel)
+            if (count($prices) >= 3) {
+                sort($prices, SORT_NUMERIC);
+                $vals   = array_values($prices);
+                $q1     = $vals[(int) floor((count($vals) - 1) * 0.25)];
+                $q3     = $vals[(int) floor((count($vals) - 1) * 0.75)];
+                $iqr    = $q3 - $q1;
+                $lower  = $q1 - 1.5 * $iqr;
+                $upper  = $q3 + 1.5 * $iqr;
+                $filtPrices = [];
+                $filtSrc    = [];
+                foreach ($prices as $i => $p) {
+                    if ($p >= $lower && $p <= $upper) {
+                        $filtPrices[] = $p;
+                        if (isset($priceSources[$i])) $filtSrc[] = $priceSources[$i];
+                    }
+                }
+                if (count($filtPrices) >= 2) {
+                    $prices       = $filtPrices;
+                    $priceSources = $filtSrc;
+                }
             }
 
             $avgPrice = !empty($prices) ? round(array_sum($prices) / count($prices)) : null;
@@ -258,7 +351,7 @@ class BraveSearchService
                     'avg_price' => $avgPrice,
                     'min_price' => !empty($prices) ? min($prices) : null,
                     'max_price' => !empty($prices) ? max($prices) : null,
-                    'sources'   => [],
+                    'sources'   => $priceSources,
                 ],
                 'thumbnail'  => $thumbnail,
             ];
