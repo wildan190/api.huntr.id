@@ -72,6 +72,7 @@ class AgenticProcurementService
 
         // Step 3: Brave Search — cari produk, harga & spesifikasi dari internet
         $webSearchResults  = [];
+        $brandComparisons  = [];   // Hasil per-brand dari Brave (untuk komparasi)
         $webSearchSummary  = 'Brave Search tidak dikonfigurasi.';
         if ($this->webSearch->isEnabled()) {
             $targetItems = $intent['target_items'] ?? [];
@@ -84,14 +85,10 @@ class AgenticProcurementService
                 $specReq  = $targetItem['spec_requirements'] ?? ($targetItem['specs_hint'] ?? '');
                 if (empty($itemName)) continue;
 
-                // Bangun search query yang spesifik agar tidak hanya mencari nama umum (misal: "Excavator Komatsu PC200")
                 $fullSearchName = trim("{$brand} {$itemName} {$specReq}");
 
-                $priceData = $this->webSearch->searchMarketPrice(
-                    $fullSearchName,
-                    $brand,
-                    $specReq
-                );
+                // ── Cari harga umum ──
+                $priceData = $this->webSearch->searchMarketPrice($fullSearchName, $brand, $specReq);
 
                 if (!empty($priceData['raw_results'])) {
                     $webSearchResults[strtolower(trim($itemName))] = [
@@ -100,6 +97,27 @@ class AgenticProcurementService
                         'web_prices' => $priceData,
                         'results'    => array_slice($priceData['raw_results'], 0, 8),
                     ];
+                }
+
+                // ── Jika brand tidak disebutkan: discovery per-brand ──
+                // Cari top brand yang tersedia dan bandingkan harga per brand
+                if (empty($brand) && empty($brandComparisons)) {
+                    $brandComparisons = $this->webSearch->searchBrandComparison(
+                        $itemName,
+                        $specReq,
+                        4
+                    );
+
+                    // Simpan juga setiap brand ke webSearchResults agar enrichPrItems bisa pakai
+                    foreach ($brandComparisons as $bc) {
+                        $bcKey = strtolower(trim($bc['brand'] . ' ' . $itemName));
+                        $webSearchResults[$bcKey] = [
+                            'item_name'  => $bc['item_name'],
+                            'brand'      => $bc['brand'],
+                            'web_prices' => $bc['web_prices'],
+                            'results'    => $bc['results'],
+                        ];
+                    }
                 }
             }
 
@@ -116,14 +134,22 @@ class AgenticProcurementService
                         'results'   => $altResults,
                     ];
                 }
+
+                // Brand discovery untuk fallback juga
+                if (empty($brandComparisons)) {
+                    $brandComparisons = $this->webSearch->searchBrandComparison($altQuery, '', 4);
+                }
             }
 
             $totalWebFound = count(array_filter(
                 $webSearchResults,
                 fn($v) => !empty($v['results'])
             ));
+            $brandCount = count($brandComparisons);
             $webSearchSummary = $totalWebFound > 0
-                ? "Brave Search menemukan {$totalWebFound} kategori produk dengan harga & spesifikasi terkini dari internet."
+                ? "Brave Search menemukan {$totalWebFound} kategori produk"
+                  . ($brandCount > 0 ? " dan {$brandCount} rekomendasi merek" : '')
+                  . " dengan harga & spesifikasi terkini dari internet."
                 : 'Brave Search aktif namun tidak menemukan hasil yang relevan untuk query ini.';
         }
 
@@ -132,6 +158,11 @@ class AgenticProcurementService
             'title'       => 'Brave Search — Harga & Spek Real-time',
             'status'      => 'completed',
             'total_found' => count($webSearchResults),
+            'brand_recommendations' => array_values(array_map(fn($bc) => [
+                'brand'     => $bc['brand'],
+                'avg_price' => $bc['web_prices']['avg_price'] ?? null,
+                'thumbnail' => $bc['thumbnail'] ?? null,
+            ], $brandComparisons)),
             'summary'     => $webSearchSummary,
             'sources'     => collect($webSearchResults)
                 ->flatMap(fn($d) => array_slice($d['results'] ?? [], 0, 2))
@@ -154,12 +185,15 @@ class AgenticProcurementService
         ];
 
         // Step 5: Evaluasi & Komparasi Produk
+        // Jika DB katalog tidak cukup (<2), bangun synthetic candidates dari Brave brand data
         $comparison = null;
+
         if (count($foundCatalogues) >= 2) {
+            // Skenario A: Ada >= 2 item di katalog DB — komparasi normal
             $candidatesToCompare = array_slice($foundCatalogues, 0, 5);
             $comparison = $this->openAi->compareProducts($candidatesToCompare, $query, $webSearchResults);
 
-            // Enrich setiap item di comparison_matrix dengan data Brave Search:
+
             // gambar thumbnail, harga pasar web, link sumber nyata
             if (!empty($comparison['comparison_matrix'])) {
                 $catalogueById = collect($foundCatalogues)->keyBy('id');
@@ -233,6 +267,96 @@ class AgenticProcurementService
                 'summary'  => $comparison['executive_summary'] ?? 'Evaluasi komparasi produk selesai.',
                 'winner_id' => $comparison['winner_id'] ?? null,
             ];
+        } elseif (count($brandComparisons) >= 2) {
+            // Skenario B: DB katalog tidak cukup, tapi Brave punya data per-brand
+            // Bangun synthetic catalogue candidates dari brand comparison results
+            $syntheticCandidates = [];
+            foreach ($brandComparisons as $bc) {
+                $avgPr = (float) ($bc['web_prices']['avg_price'] ?? 0);
+
+                $syntheticCandidates[] = [
+                    'id'             => 'brave_' . strtolower(str_replace(' ', '_', $bc['brand'])),
+                    'name'           => $bc['item_name'],
+                    'brand'          => $bc['brand'],
+                    'category'       => $intent['category'] ?? 'Produk',
+                    'specifications' => collect($bc['results'])->pluck('snippet')->filter()->take(2)->implode(' '),
+                    'uom'            => 'unit',
+                    'image_url'      => $bc['thumbnail'] ?? null,
+                    'vendor'         => null,
+                    'estimated_price' => $avgPr,
+                    'ai_score'       => 80,
+                    'ai_match'       => true,
+                    '_brave_source'  => true,
+                    '_web_results'   => $bc['results'],
+                    '_web_prices'    => $bc['web_prices'],
+                ];
+
+                // Tambahkan ke webSearchResults agar enrichPrItems bisa pakai
+                $bcKey = strtolower(trim($bc['item_name']));
+                if (!isset($webSearchResults[$bcKey])) {
+                    $webSearchResults[$bcKey] = [
+                        'item_name'  => $bc['item_name'],
+                        'brand'      => $bc['brand'],
+                        'web_prices' => $bc['web_prices'],
+                        'results'    => $bc['results'],
+                    ];
+                }
+            }
+
+            $comparison = $this->openAi->compareProducts($syntheticCandidates, $query, $webSearchResults);
+
+            // Enrich comparison_matrix dengan data Brave per brand
+            if (!empty($comparison['comparison_matrix'])) {
+                $syntheticById = collect($syntheticCandidates)->keyBy('id');
+
+                $comparison['comparison_matrix'] = array_map(function ($matrixItem) use ($syntheticById, $brandComparisons) {
+                    $catId  = $matrixItem['catalogue_id'] ?? null;
+                    $synth  = $catId ? $syntheticById->get($catId) : null;
+
+                    // Cari data brand yang cocok
+                    $productName = strtolower(trim($matrixItem['product_name'] ?? ''));
+                    $matchedBc   = null;
+                    foreach ($brandComparisons as $bc) {
+                        if (stripos($productName, $bc['brand']) !== false || stripos($bc['item_name'], $productName) !== false) {
+                            $matchedBc = $bc;
+                            break;
+                        }
+                    }
+
+                    $webSources = [];
+                    foreach (($matchedBc['results'] ?? []) as $r) {
+                        $webSources[] = [
+                            'title'     => $r['title']     ?? '',
+                            'link'      => $r['link']      ?? '',
+                            'snippet'   => mb_substr($r['snippet'] ?? '', 0, 140),
+                            'price'     => $r['price']     ?? 0,
+                            'source'    => $r['source']    ?? '',
+                            'thumbnail' => $r['thumbnail'] ?? null,
+                        ];
+                    }
+
+                    $wp = $matchedBc['web_prices'] ?? [];
+                    return array_merge($matrixItem, [
+                        'thumbnail'     => $matchedBc['thumbnail'] ?? ($synth['image_url'] ?? null),
+                        'web_price_avg' => (float) ($wp['avg_price'] ?? 0),
+                        'web_price_min' => (float) ($wp['min_price'] ?? 0),
+                        'web_price_max' => (float) ($wp['max_price'] ?? 0),
+                        'web_sources'   => $webSources,
+                        'vendor_name'   => $matchedBc['brand'] ?? null,
+                    ]);
+                }, $comparison['comparison_matrix']);
+            }
+
+            $steps[] = [
+                'step'     => 'product_comparison',
+                'title'    => 'Komparasi Brand (Brave Search)',
+                'status'   => 'completed',
+                'summary'  => $comparison['executive_summary']
+                    ?? 'Evaluasi komparasi merek dari Brave Search selesai. '
+                    . count($brandComparisons) . ' brand dibandingkan.',
+                'winner_id' => $comparison['winner_id'] ?? null,
+                'source'   => 'brave_brand_comparison',
+            ];
         } else {
             $steps[] = [
                 'step'    => 'product_comparison',
@@ -241,6 +365,7 @@ class AgenticProcurementService
                 'summary' => 'Kandidat produk telah dievaluasi dan siap diproses ke dokumen PR.',
             ];
         }
+
 
         // Step 6: Susun Dokumen PR & Deskripsi Lengkap
         $company = !empty($options['company_id']) ? Company::find($options['company_id']) : null;

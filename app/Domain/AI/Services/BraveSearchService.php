@@ -178,6 +178,96 @@ class BraveSearchService
         return $this->searchProducts($query, 8, $targetDomains);
     }
 
+    /**
+     * Temukan brand/merek terbaik untuk kategori produk, lalu cari harga per brand.
+     *
+     * Digunakan ketika user tidak menyebutkan brand spesifik dan sistem perlu
+     * merekomendasikan pilihan merek beserta data harga dari web.
+     *
+     * @param  string $itemName   Nama/kategori produk (misal: "smart bulb RGB")
+     * @param  string $specs      Spesifikasi (misal: "9-12 watt")
+     * @param  int    $maxBrands  Jumlah brand maksimal yang dicari (default 4)
+     * @return array              Array per brand: [brand, item_name, results, web_prices]
+     */
+    public function searchBrandComparison(string $itemName, string $specs = '', int $maxBrands = 4): array
+    {
+        // Step 1: Temukan brand terbaik dari web
+        $brandQuery = "rekomendasi merk brand {$itemName} {$specs} terbaik Indonesia 2025 harga";
+        $brandResults = $this->searchProducts($brandQuery, 10);
+
+        // Ekstrak nama brand dari title hasil pencarian menggunakan pattern umum
+        $knownBrands   = [];
+        $brandPatterns = [
+            'Philips', 'Xiaomi', 'Mi', 'Yeelight', 'TP-Link', 'KASA', 'Sengled',
+            'Govee', 'Wyze', 'Tuya', 'Sonoff', 'IKEA', 'Panasonic', 'Osram',
+            'Samsung', 'LG', 'Bardi', 'Smartlife', 'Ecolink', 'Lifx', 'Nanoleaf',
+            'Hue', 'Wiz', 'Meross', 'Lepro', 'Innr', 'Bosch', 'ACPower',
+            // Heavy equipment & generic brands
+            'Komatsu', 'Caterpillar', 'CAT', 'Hitachi', 'Volvo', 'Sany', 'XCMG',
+            'HP', 'Dell', 'Lenovo', 'Asus', 'Acer', 'Apple', 'Microsoft',
+        ];
+
+        foreach ($brandResults as $r) {
+            $text = ($r['title'] ?? '') . ' ' . ($r['snippet'] ?? '');
+            foreach ($brandPatterns as $brand) {
+                if (stripos($text, $brand) !== false && !in_array($brand, $knownBrands)) {
+                    $knownBrands[] = $brand;
+                }
+            }
+            if (count($knownBrands) >= $maxBrands * 2) break;
+        }
+
+        // Jika tidak ada brand terdeteksi dari pattern, pakai top domain sebagai fallback
+        if (empty($knownBrands)) {
+            $knownBrands = array_slice(array_map(fn($r) => $r['source'] ?? '', $brandResults), 0, $maxBrands);
+            $knownBrands = array_filter($knownBrands);
+        }
+
+        $knownBrands = array_unique(array_slice($knownBrands, 0, $maxBrands));
+
+        if (empty($knownBrands)) {
+            return [];
+        }
+
+        // Step 2: Cari harga & spesifikasi per brand
+        $brandComparisons = [];
+        foreach ($knownBrands as $brand) {
+            $query     = trim("{$brand} {$itemName} {$specs} harga Indonesia");
+            $results   = $this->searchProducts($query, 5);
+
+            if (empty($results)) continue;
+
+            // Ekstrak harga dari hasil per brand
+            $prices = [];
+            foreach ($results as $r) {
+                $p = $this->extractPriceFromText(($r['title'] ?? '') . ' ' . ($r['snippet'] ?? ''));
+                if ($p > 0) $prices[] = $p;
+            }
+
+            $avgPrice = !empty($prices) ? round(array_sum($prices) / count($prices)) : null;
+            $thumbnail = null;
+            foreach ($results as $r) {
+                if (!empty($r['thumbnail'])) { $thumbnail = $r['thumbnail']; break; }
+            }
+
+            $brandComparisons[] = [
+                'brand'      => $brand,
+                'item_name'  => "{$brand} {$itemName}",
+                'results'    => array_slice($results, 0, 3),
+                'web_prices' => [
+                    'avg_price' => $avgPrice,
+                    'min_price' => !empty($prices) ? min($prices) : null,
+                    'max_price' => !empty($prices) ? max($prices) : null,
+                    'sources'   => [],
+                ],
+                'thumbnail'  => $thumbnail,
+            ];
+        }
+
+        return $brandComparisons;
+    }
+
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -269,37 +359,46 @@ class BraveSearchService
 
     /**
      * Ekstrak harga rupiah dari teks (snippet / judul halaman web).
-     * Mendukung: Rp 1.234.567 | IDR 1,234,567 | Rp 1,5 miliar | Rp 500 juta | standalone besar
+     * Mendukung: Rp 1.234.567 | IDR 1,234,567 | Rp 1,5 miliar | Rp 500 juta
+     *            Rp 139rb | Rp 139K | 139,000 | 139.000
      */
     private function extractPriceFromText(string $text): float
     {
-        // 1. Cek format kata miliaran / jutaan (contoh: "Rp 1,5 miliar", "Rp 500 juta")
+        // 1. Format kata: "Rp 1,5 miliar / juta / jt"
         if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)\s*(miliar|milyar|jt|juta|mio|b)/i', $text, $m)) {
-            $num = (float) str_replace(',', '.', preg_replace('/[.,](?=\d{3})/', '', $m[1]));
+            $num  = (float) str_replace(',', '.', preg_replace('/[.,](?=\d{3})/', '', $m[1]));
             $unit = strtolower($m[2]);
-            if (str_starts_with($unit, 'm')) {
+            if (str_starts_with($unit, 'm') && !str_starts_with($unit, 'mi')) {
                 return $num * 1_000_000_000;
             }
-            if (str_starts_with($unit, 'j') || str_starts_with($unit, 'mio')) {
-                return $num * 1_000_000;
-            }
+            return $num * 1_000_000;
         }
 
-        // 2. Format standar: Rp 1.234.567 atau IDR 1,234,567
+        // 2. Format "Rp 139rb" / "Rp 139K" / "Rp 139k"
+        if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)\s*(?:rb|ribu|k\b)/i', $text, $m)) {
+            $num = (float) str_replace(['.', ','], ['', '.'], $m[1]);
+            $val = $num * 1000;
+            if ($val >= 5_000 && $val <= 50_000_000_000) return $val;
+        }
+
+        // 3. Format standar: "Rp 139.000" atau "IDR 139,000"
         if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)/i', $text, $m)) {
-            $num = preg_replace('/[.,](?=\d{3})/', '', $m[1]);
-            $num = str_replace(',', '.', $num);
-            $val = (float) $num;
-            if ($val >= 1000 && $val <= 50_000_000_000) {
+            $raw = $m[1];
+            // Deteksi pemisah ribuan: titik (ID) atau koma (EN)
+            // Contoh: 139.000 → 139000 | 1,234,567 → 1234567
+            $cleaned = preg_replace('/[.,](?=\d{3}(?:[.,]|$))/', '', $raw);
+            $cleaned = str_replace(',', '.', $cleaned);
+            $val     = (float) $cleaned;
+            if ($val >= 5_000 && $val <= 50_000_000_000) {
                 return $val;
             }
         }
 
-        // 3. Format angka besar standalone (misal: 15.000.000)
-        if (preg_match('/\b([\d]{1,3}(?:[.,]\d{3}){2,})\b/', $text, $m)) {
+        // 4. Angka besar standalone: "15.000.000" atau "1,234,567"
+        if (preg_match('/\b([\d]{1,3}(?:[.,]\d{3}){1,})(?:[.,]\d{1,2})?\b/', $text, $m)) {
             $num = preg_replace('/[.,](?=\d{3})/', '', $m[1]);
-            $val = (float) $num;
-            if ($val >= 100_000 && $val <= 50_000_000_000) {
+            $val = (float) str_replace(',', '.', $num);
+            if ($val >= 10_000 && $val <= 50_000_000_000) {
                 return $val;
             }
         }
@@ -307,3 +406,4 @@ class BraveSearchService
         return 0;
     }
 }
+
