@@ -360,6 +360,7 @@ Daftar Produk Katalog yang Ditemukan:
 {$candidatesJson}
 
 Evaluasi kesesuaian setiap produk dengan kebutuhan pengadaan user.
+TUGAS KAMU HANYA menilai kesesuaian teknis produk — JANGAN isi harga, harga ditentukan oleh sistem terpisah.
 Balas dengan format JSON:
 {
   "results": [
@@ -369,7 +370,7 @@ Balas dengan format JSON:
       "relevance_score": 92,
       "fit_reason": "Alasan singkat mengapa produk ini cocok atau kurang cocok",
       "suggested_qty": 1,
-      "estimated_unit_price_idr": 15000000
+      "estimated_unit_price_idr": 0
     }
   ]
 }
@@ -392,7 +393,7 @@ PROMPT;
                 'relevance_score'          => max(50, 90 - ($idx * 5)), // 90, 85, 80, 75...
                 'fit_reason'               => 'Katalog sesuai dengan kriteria kategori.',
                 'suggested_qty'            => 1,
-                'estimated_unit_price_idr' => 0, // Biarkan 0, enrichPrItems akan handle
+                'estimated_unit_price_idr' => 0, // Harga SELALU 0 — ditentukan oleh enrichPrItems
             ];
         }, $candidates, array_keys($candidates));
     }
@@ -443,7 +444,8 @@ Daftar Produk untuk Dibandingkan:
 {$cataloguesJson}
 
 Lakukan perbandingan komprehensif dari sudut pandang procurement B2B.
-Jika ada data harga dari Google Search di atas, gunakan sebagai acuan harga pasar terkini.
+FOKUS pada perbandingan teknis, spesifikasi, keunggulan, dan kekurangan masing-masing produk.
+JANGAN isi estimasi harga — harga dikelola oleh sistem terpisah dan bukan tanggung jawabmu.
 Balas dengan format JSON:
 {
   "comparison_matrix": [
@@ -455,7 +457,6 @@ Balas dengan format JSON:
       "key_specs": "ringkasan spesifikasi utama",
       "pros": ["kelebihan 1", "kelebihan 2"],
       "cons": ["kekurangan 1"],
-      "estimated_price_idr": 18500000,
       "best_for": "cocok untuk use-case apa",
       "value_rating": "Sangat Baik / Baik / Cukup"
     }
@@ -578,9 +579,9 @@ PROMPT;
             }
         }
 
-        $budgetInstruction = $intentBudget
-            ? "PAGU ANGGARAN DARI BUYER: User menetapkan total anggaran maksimal sekitar Rp " . number_format((float)$intentBudget, 0, ',', '.') . ". Set 'estimated_total_budget' sebesar " . (int)$intentBudget . ", dan alokasikan 'estimated_price' satuan untuk setiap item secara proporsional. Set 'price_status' tiap item menjadi 'buyer_budget'."
-            : "ESTIMASI HARGA PASAR WAJAR INDONESIA (HPS): User tidak menyebutkan nominal budget. JIKA item ada di katalog internal (>0), gunakan harga katalog dan set 'price_status': 'verified_catalogue'. JIKA ada referensi Brave Search / Web, gunakan harga tersebut dan set 'price_status': 'web_market_reference'. JIKA item TIDAK ADA di katalog internal DAN tidak ada referensi web/historis, berikan estimasi harga satuan wajar pasar B2B/distributor resmi di Indonesia (dalam Rupiah integer realistis, contoh: excavator PC200 baru/bekas kisaran Rp 400.000.000 - Rp 1.800.000.000, laptop core i7/ryzen 7 RAM 32GB SSD 1TB kisaran 20000000-25000000). Set 'price_status': 'market_estimate' dan 'reason': 'Estimasi harga pasar wajar (HPS B2B Indonesia)'. 'estimated_total_budget' adalah total akumulasi (qty * estimated_price).";
+        // HARGA TIDAK BOLEH DIISI OLEH AI — sepenuhnya dihandle enrichPrItems dari:
+        //   1. Historis PO Huntr  2. Brave Search/web  3. Buyer budget  4. rfq_required
+        $budgetInstruction = "ATURAN HARGA (WAJIB DIPATUHI): JANGAN PERNAH mengisi atau menebak nilai 'estimated_price'. Selalu set 'estimated_price': 0 dan 'price_status': 'rfq_required' untuk SEMUA item. Sistem akan mengisi harga secara otomatis dari data historis transaksi dan riset web. Harga BUKAN tanggung jawabmu.";
 
         $prompt = <<<PROMPT
 Permintaan Kebutuhan Pengadaan User:
@@ -594,21 +595,10 @@ Konteks Tambahan:
 Produk Terpilih / Katalog Tersedia di Database:
 {$itemsJson}
 
-PEDOMAN AKURASI HARGA DAN SPESIFIKASI:
-1. PRIORITAS HARGA (WAJIB DIIKUTI — urutan dari tertinggi ke terendah):
-   a. Jika ada "REFERENSI HARGA NYATA DARI DATABASE TRANSAKSI HUNTR" → GUNAKAN harga itu (avg atau last_price), set price_status = 'historical_reference'. INI PRIORITAS TERTINGGI.
-   b. Jika ada "REFERENSI HARGA & PRODUK DARI BRAVE SEARCH / WEB" yang cocok → gunakan sebagai acuan harga pasar terkini, set price_status = 'web_market_reference'. Prioritas kedua setelah historis Huntr.
-   c. Jika item ada di katalog internal (>0) → gunakan harga katalog, price_status = 'verified_catalogue'.
-   d. Jika tidak ada referensi sama sekali → estimasi harga pasar wajar B2B Indonesia, price_status = 'market_estimate'.
-2. JANGAN PERNAH MENGGUNAKAN HARGA TEMPLATE / HARDCODE yang tidak masuk akal! Perhatikan jenis & kelas produk:
-   - Alat Berat (Excavator, Bulldozer, Wheel Loader): Excavator 20 Ton (Komatsu PC200, CAT 320, Hitachi ZX200) harga pasaran berkisar Rp 400.000.000 (kondisi second/bekas) hingga Rp 1.500.000.000 - Rp 2.200.000.000 (unit baru). JANGAN PERNAH mengisi puluhan juta (Rp 80jt itu hanya harga sparepart/sewa, BUKAN UNIT ALAT BERAT)!
-   - Laptop lawas/generasi lama (contoh: ThinkPad X280, Core i5 Gen 8 / 8250U, era 2018): harga pasaran sekitar Rp 3.500.000 - Rp 5.500.000.
-   - Laptop enterprise entry (Core i3 / Core i5 standar): Rp 7.000.000 - Rp 12.000.000.
-   - Laptop high-end / engineering baru (Core i7 / Ryzen 7, RAM 32GB, 1TB SSD): Rp 18.000.000 - Rp 25.000.000.
-   - Monitor 24-27 inch FHD: Rp 1.500.000 - Rp 2.500.000; Monitor 4K 27 inch: Rp 5.000.000 - Rp 7.500.000.
-   - Barang non-IT (kursi, safety, mebel, alat berat): gunakan standar harga komersial logis di Indonesia.
-3. 'estimated_total_budget' WAJIB dihitung dari SUM(qty * estimated_price) semua line item.
-4. Buat draft Purchase Requisition (PR) resmi perusahaan yang sangat lengkap, terstruktur, dan profesional dalam Bahasa Indonesia formal.
+PEDOMAN PENYUSUNAN PR:
+1. HARGA DILARANG DIISI OLEH AI: Set 'estimated_price': 0 dan 'price_status': 'rfq_required' untuk SEMUA item tanpa kecuali. Sistem backend akan mengisi harga dari data historis PO dan riset web secara otomatis.
+2. 'estimated_total_budget': set ke 0 — akan dihitung ulang oleh sistem.
+3. Fokus tugasmu: susun teks PR yang sangat lengkap, profesional, dan terstruktur dalam Bahasa Indonesia formal — deskripsi, justifikasi bisnis, spesifikasi teknis, alasan pemilihan item.
 
 Balas HANYA dengan JSON valid format:
 {
@@ -628,9 +618,9 @@ Balas HANYA dengan JSON valid format:
       "detailed_specs": "Rincian spesifikasi teknis lengkap item sesuai standar resmi",
       "qty": 10,
       "uom": "unit / set / pcs / box",
-      "estimated_price": 4500000,
-      "price_status": "historical_reference / verified_catalogue / buyer_budget / market_estimate",
-      "price_note": "Sumber harga: mis. 'Berdasarkan 3 transaksi PO historis (avg Rp 4.500.000)' atau 'Estimasi pasar wajar HPS B2B Indonesia'",
+      "estimated_price": 0,
+      "price_status": "rfq_required",
+      "price_note": "Harga akan diisi otomatis oleh sistem dari data historis dan riset web",
       "expected_date": "2026-09-01",
       "reason": "Alasan pemilihan item / justifikasi kebutuhan"
     }

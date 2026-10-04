@@ -187,7 +187,7 @@ class AgenticProcurementService
         $prDraft = $this->openAi->generatePrDraft($query, $foundCatalogues, $context, $historicalPrices, $webSearchResults);
 
         // Enrich suggested items jika ada mapping katalog
-        $enrichedItems = $this->enrichPrItems($prDraft['suggested_items'] ?? [], $foundCatalogues, $intent);
+        $enrichedItems = $this->enrichPrItems($prDraft['suggested_items'] ?? [], $foundCatalogues, $intent, $webSearchResults);
         $prDraft['suggested_items'] = $enrichedItems;
 
         // Recalculate total budget (Zero Hallucination)
@@ -617,28 +617,68 @@ INSTRUCTION;
         return 0;
     }
 
-    private function enrichPrItems(array $suggestedItems, array $catalogues, array $intent = []): array
+    private function enrichPrItems(array $suggestedItems, array $catalogues, array $intent = [], array $webSearchResults = []): array
     {
         $catalogueMap = collect($catalogues)->keyBy('id');
-        $targetItems = collect($intent['target_items'] ?? []);
-        $totalBudget = $this->parsePrice($intent['estimated_total_budget_idr'] ?? 0);
-        $itemCount = count($suggestedItems) ?: 1;
+        $targetItems  = collect($intent['target_items'] ?? []);
+        $totalBudget  = $this->parsePrice($intent['estimated_total_budget_idr'] ?? 0);
+        $itemCount    = count($suggestedItems) ?: 1;
 
-        return array_map(function ($item) use ($catalogueMap, $targetItems, $totalBudget, $itemCount) {
+        // Bangun indeks harga Brave: item_name (lowercase) => avg_price
+        $webPriceIndex = [];
+        foreach ($webSearchResults as $key => $data) {
+            if ($key === '__general__') continue;
+            $wp = $data['web_prices'] ?? [];
+            if (!empty($wp['avg_price']) && (float) $wp['avg_price'] > 0) {
+                $webPriceIndex[strtolower(trim($data['item_name'] ?? $key))] = [
+                    'avg'    => (float) $wp['avg_price'],
+                    'min'    => (float) ($wp['min_price'] ?? $wp['avg_price']),
+                    'max'    => (float) ($wp['max_price'] ?? $wp['avg_price']),
+                    'count'  => count($wp['sources'] ?? []),
+                ];
+            }
+        }
+
+        return array_map(function ($item) use ($catalogueMap, $targetItems, $totalBudget, $itemCount, $webPriceIndex) {
             $catId = $item['catalogue_id'] ?? null;
-            $cat = $catId ? $catalogueMap->get($catId) : null;
+            $cat   = $catId ? $catalogueMap->get($catId) : null;
 
-            // Layer 1: harga dari AI (suggested_items[].estimated_price)
-            $price = $this->parsePrice($item['estimated_price'] ?? 0);
-            $priceStatus = $item['price_status'] ?? 'rfq_required';
+            // AI selalu mengembalikan 0 — mulai dari sini
+            $price       = 0;
+            $priceStatus = 'rfq_required';
+            $priceNote   = null;
 
-            // Layer 2: harga dari katalog yang di-ranking AI (estimated_price dari rankSearchProducts)
+            // Layer 1: Harga historis PO Huntr — disuntikkan via price_status 'historical_reference' dari generatePrDraft
+            $aiPrice = $this->parsePrice($item['estimated_price'] ?? 0);
+            if ($aiPrice > 0 && ($item['price_status'] ?? '') === 'historical_reference') {
+                $price       = $aiPrice;
+                $priceStatus = 'historical_reference';
+                $priceNote   = $item['price_note'] ?? null;
+            }
+
+            // Layer 2: Brave Search / web market price
+            if ($price <= 0 && !empty($webPriceIndex)) {
+                $itemNameKey = strtolower(trim($item['name'] ?? ''));
+                foreach ($webPriceIndex as $webKey => $wp) {
+                    if (str_contains($itemNameKey, $webKey) || str_contains($webKey, $itemNameKey)) {
+                        $price       = $wp['avg'];
+                        $priceStatus = 'web_market_reference';
+                        $srcCount    = $wp['count'];
+                        $minFmt      = number_format($wp['min'], 0, ',', '.');
+                        $maxFmt      = number_format($wp['max'], 0, ',', '.');
+                        $priceNote   = "Referensi Brave Search: Rp {$minFmt} – Rp {$maxFmt} dari {$srcCount} sumber web";
+                        break;
+                    }
+                }
+            }
+
+            // Layer 3: Harga dari katalog (verified_catalogue)
             if ($price <= 0 && $cat && ($cat['estimated_price'] ?? 0) > 0) {
-                $price = (float) $cat['estimated_price'];
+                $price       = (float) $cat['estimated_price'];
                 $priceStatus = 'verified_catalogue';
             }
 
-            // Layer 3: cek target_items budget_hint_idr berdasarkan nama item jika user specify
+            // Layer 4: budget_hint_idr dari intent (buyer menyebutkan harga per item)
             if ($price <= 0) {
                 $matchedTarget = $targetItems->first(
                     fn($t) =>
@@ -646,42 +686,41 @@ INSTRUCTION;
                         str_contains(strtolower($item['name'] ?? ''), strtolower($t['name'] ?? ''))
                 );
                 if ($matchedTarget && !empty($matchedTarget['budget_hint_idr'])) {
-                    $qty = max(1, (int) ($item['qty'] ?? 1));
-                    $hints = $this->parsePrice($matchedTarget['budget_hint_idr']);
-                    $price = $qty > 0 ? round($hints / $qty) : $hints;
+                    $qty         = max(1, (int) ($item['qty'] ?? 1));
+                    $hints       = $this->parsePrice($matchedTarget['budget_hint_idr']);
+                    $price       = $qty > 0 ? round($hints / $qty) : $hints;
                     $priceStatus = 'buyer_budget';
                 }
             }
 
-            // Layer 4: bagi rata total budget HANYA jika buyer menyebutkan total anggaran
+            // Layer 5: total budget buyer dibagi rata
             if ($price <= 0 && $totalBudget > 0) {
-                $price = round($totalBudget / $itemCount);
+                $price       = round($totalBudget / $itemCount);
                 $priceStatus = 'buyer_budget';
             }
 
-            // Jika masih 0, status harus rfq_required (Zero Hallucination)
+            // Jika masih 0 — rfq_required (harga tidak diketahui, perlu RFQ)
             if ($price <= 0) {
-                $price = 0;
+                $price       = 0;
                 $priceStatus = 'rfq_required';
-            } elseif (empty($priceStatus)) {
-                $priceStatus = $catId ? 'verified_catalogue' : 'buyer_budget';
             }
 
             return [
-                'catalogue_id' => $catId ?: ($cat['id'] ?? null),
-                'name' => $item['name'] ?? ($cat['name'] ?? 'Item Pengadaan'),
-                'item_code' => $item['item_code'] ?? ($cat['item_code'] ?? ('REQ-' . strtoupper(substr(md5(uniqid()), 0, 6)))),
-                'category' => $item['category'] ?? ($cat['category'] ?? 'General'),
-                'brand' => $item['brand'] ?? ($cat['brand'] ?? null),
+                'catalogue_id'   => $catId ?: ($cat['id'] ?? null),
+                'name'           => $item['name'] ?? ($cat['name'] ?? 'Item Pengadaan'),
+                'item_code'      => $item['item_code'] ?? ($cat['item_code'] ?? ('REQ-' . strtoupper(substr(md5(uniqid()), 0, 6)))),
+                'category'       => $item['category'] ?? ($cat['category'] ?? 'General'),
+                'brand'          => $item['brand'] ?? ($cat['brand'] ?? null),
                 'detailed_specs' => $item['detailed_specs'] ?? ($cat['specifications'] ?? ''),
-                'qty' => max(1, (int) ($item['qty'] ?? 1)),
-                'uom' => $item['uom'] ?? ($cat['uom'] ?? 'unit'),
+                'qty'            => max(1, (int) ($item['qty'] ?? 1)),
+                'uom'            => $item['uom'] ?? ($cat['uom'] ?? 'unit'),
                 'estimated_price' => $price,
-                'price_status' => $priceStatus,
-                'expected_date' => $item['expected_date'] ?? now()->addDays(14)->toDateString(),
-                'reason' => $item['reason'] ?? 'Sesuai spesifikasi kebutuhan',
-                'image_url' => $cat['image_url'] ?? null,
-                'vendor' => $cat['vendor'] ?? null,
+                'price_status'   => $priceStatus,
+                'price_note'     => $priceNote ?? $item['price_note'] ?? null,
+                'expected_date'  => $item['expected_date'] ?? now()->addDays(14)->toDateString(),
+                'reason'         => $item['reason'] ?? 'Sesuai spesifikasi kebutuhan',
+                'image_url'      => $cat['image_url'] ?? null,
+                'vendor'         => $cat['vendor'] ?? null,
             ];
         }, $suggestedItems);
     }
