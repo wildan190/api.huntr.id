@@ -202,28 +202,64 @@ class AgenticProcurementService
                     $catId = $matrixItem['catalogue_id'] ?? null;
                     $cat   = $catId ? $catalogueById->get($catId) : null;
 
-                    // ── Ambil thumbnail dari katalog internal jika ada ──
                     $thumbnail = $cat['image_url'] ?? null;
 
-                    // ── Cari data Brave yang cocok dengan nama produk ──
-                    $productName = strtolower(trim($matrixItem['product_name'] ?? ''));
+                    $productName   = strtolower(trim($matrixItem['product_name'] ?? ''));
+                    $vendorName    = strtolower(trim($matrixItem['vendor_name'] ?? ($cat['vendor'] ?? '')));
+                    $catalogueBrand = strtolower(trim($cat['brand'] ?? ''));
+
+                    // ── Strategi matching: SCORE SEMUA kandidat web, pilih TERTINGGI ──
                     $webSources  = [];
                     $webPriceMin = null;
                     $webPriceMax = null;
                     $webPriceAvg = null;
+                    $bestWsScore = -1;
 
                     foreach ($webSearchResults as $key => $data) {
                         if ($key === '__general__') continue;
-                        $dataName = strtolower(trim($data['item_name'] ?? $key));
+                        $dataName  = strtolower(trim($data['item_name'] ?? $key));
+                        $dataBrand = strtolower(trim($data['brand'] ?? ''));
 
-                        $isMatch = str_contains($productName, $dataName)
-                            || str_contains($dataName, $productName)
-                            || (strlen($productName) >= 5 && str_contains($dataName, substr($productName, 0, 6)))
-                            || (strlen($dataName)    >= 5 && str_contains($productName, substr($dataName, 0, 6)));
+                        $score = 0;
 
-                        if (!$isMatch) continue;
+                        // ⭐ Prioritas 1: Brand dari katalog JELAS cocok dengan brand data web
+                        if ($catalogueBrand !== '' && $dataBrand !== '' && $catalogueBrand === $dataBrand) {
+                            $score += 100;
+                        }
+                        // ⭐ Prioritas 2: productName mengandung dataBrand (web punya field brand)
+                        if ($dataBrand !== '' && $productName !== '' && stripos($productName, $dataBrand) !== false) {
+                            $score += 90;
+                        }
+                        // ⭐ Prioritas 3: vendor_name dari AI mengandung brand data web
+                        if ($dataBrand !== '' && $vendorName !== '' && stripos($vendorName, $dataBrand) !== false) {
+                            $score += 85;
+                        }
+                        // ⭐ Prioritas 4: exact / two-way match nama produk (panjang > 8 char untuk hindari generik)
+                        if (strlen($productName) >= 8 && strlen($dataName) >= 8 &&
+                            ($productName === $dataName ||
+                             str_contains($productName, $dataName) ||
+                             str_contains($dataName, $productName))) {
+                            $score += 70;
+                        }
+                        // ⭐ Prioritas 5: catalogueBrand ada di dataName
+                        if ($catalogueBrand !== '' && str_contains($dataName, $catalogueBrand)) {
+                            $score += 80;
+                        }
+                        // ⭐ Fallback fuzzy prefix (hanya jika score masih 0 DAN nama panjang)
+                        if ($score === 0 && strlen($productName) >= 10 && strlen($dataName) >= 10) {
+                            $prefixProduct = substr($productName, 0, 8);
+                            $prefixData    = substr($dataName, 0, 8);
+                            if (str_contains($dataName, $prefixProduct) || str_contains($productName, $prefixData)) {
+                                // Hanya kasih skor kecil; jangan match jika product BENAR-BENAR generik
+                                $score += 15;
+                            }
+                        }
 
-                        // Ambil top 3 hasil web sebagai sumber referensi
+                        if ($score <= 0 || $score <= $bestWsScore) continue;
+
+                        $bestWsScore = $score;
+
+                        $webSources = [];
                         foreach (array_slice($data['results'] ?? [], 0, 3) as $r) {
                             $webSources[] = [
                                 'title'     => $r['title']     ?? '',
@@ -233,20 +269,20 @@ class AgenticProcurementService
                                 'source'    => $r['source']    ?? '',
                                 'thumbnail' => $r['thumbnail'] ?? null,
                             ];
-                            // Pakai thumbnail dari Brave jika katalog tidak punya gambar
                             if (!$thumbnail && !empty($r['thumbnail'])) {
                                 $thumbnail = $r['thumbnail'];
                             }
                         }
-
-                        // Harga range dari Brave
                         $wp = $data['web_prices'] ?? [];
                         if (!empty($wp['avg_price'])) {
                             $webPriceMin = $wp['min_price'] ?? null;
                             $webPriceMax = $wp['max_price'] ?? null;
                             $webPriceAvg = $wp['avg_price'] ?? null;
+                        } else {
+                            $webPriceMin = null;
+                            $webPriceMax = null;
+                            $webPriceAvg = null;
                         }
-                        break; // satu match sudah cukup
                     }
 
                     return array_merge($matrixItem, [
@@ -313,13 +349,57 @@ class AgenticProcurementService
                     $catId  = $matrixItem['catalogue_id'] ?? null;
                     $synth  = $catId ? $syntheticById->get($catId) : null;
 
-                    // Cari data brand yang cocok
                     $productName = strtolower(trim($matrixItem['product_name'] ?? ''));
-                    $matchedBc   = null;
+                    $vendorName  = strtolower(trim($matrixItem['vendor_name'] ?? ($synth['vendor'] ?? '')));
+                    $brandFromSynth = strtolower(trim($synth['brand'] ?? ''));
+
+                    // ── Strategi matching: BERI SKOR ke SEMUA kandidat, pilih SKOR TERTINGGI ──
+                    $matchedBc = null;
+                    $bestScore = -1;
+
                     foreach ($brandComparisons as $bc) {
-                        if (stripos($productName, $bc['brand']) !== false || stripos($bc['item_name'], $productName) !== false) {
+                        $score       = 0;
+                        $bcBrand     = strtolower(trim($bc['brand'] ?? ''));
+                        $bcItemName  = strtolower(trim($bc['item_name'] ?? ''));
+
+                        if (empty($bcBrand)) continue;
+
+                        // ⭐ Skor TERTINGGI: productName JELAS mengandung NAMA BRAND
+                        if ($productName !== '' && stripos($productName, $bcBrand) !== false) {
+                            $score += 100;
+                        }
+                        // ⭐ Skor TINGGI: vendor_name dari AI mengandung brand (AI sering taruh brand di sini!)
+                        if ($vendorName !== '' && stripos($vendorName, $bcBrand) !== false) {
+                            $score += 90;
+                        }
+                        // ⭐ Skor TINGGI: synthetic candidate punya explicit brand yang cocok
+                        if ($brandFromSynth !== '' && $brandFromSynth === $bcBrand) {
+                            $score += 95;
+                        }
+                        // ⭐ Skor SEDANG: nama produk dari synthetic (yang dibuat dari bc item_name) cocok
+                        $synthName = strtolower(trim($synth['name'] ?? ''));
+                        if ($synthName !== '' && ($synthName === $bcItemName ||
+                            str_contains($synthName, $bcBrand))) {
+                            $score += 80;
+                        }
+                        // ⭐ Fallback: bcItemName mengandung productName GENERIK — tapi hanya jika
+                        //   productName juga mengandung minimal salah satu kata unik dari brand
+                        if ($score === 0 && $productName !== '' && str_contains($bcItemName, $productName)) {
+                            $brandWords = array_values(array_filter(explode(' ', preg_replace('/[^a-zA-Z0-9\s]/', ' ', $bcBrand)), fn($w) => strlen($w) >= 2));
+                            $hasBrandWordInProduct = false;
+                            foreach ($brandWords as $bw) {
+                                if (stripos($productName, $bw) !== false) { $hasBrandWordInProduct = true; break; }
+                            }
+                            if ($hasBrandWordInProduct) {
+                                $score += 40;
+                            }
+                            // Jika productName BENAR-BENAR generik, JANGAN match — biarkan
+                            // skor 0 agar tidak salah match ke entry pertama
+                        }
+
+                        if ($score > $bestScore) {
+                            $bestScore = $score;
                             $matchedBc = $bc;
-                            break;
                         }
                     }
 
@@ -877,23 +957,66 @@ INSTRUCTION;
 
             // Layer 2: Brave Search index dari Step 3 web search
             if ($price <= 0 && !empty($webPriceIndex)) {
-                $itemNameKey = strtolower(trim($item['name'] ?? ''));
-                foreach ($webPriceIndex as $webKey => $wp) {
-                    // Match fleksibel: substring atau overlap kata kunci
-                    $isMatch = str_contains($itemNameKey, $webKey)
-                        || str_contains($webKey, $itemNameKey)
-                        || (strlen($itemNameKey) >= 4 && str_contains($webKey, substr($itemNameKey, 0, min(8, strlen($itemNameKey)))))
-                        || (strlen($webKey) >= 4 && str_contains($itemNameKey, substr($webKey, 0, min(8, strlen($webKey)))));
+                $itemNameKey   = strtolower(trim($item['name'] ?? ''));
+                $itemBrand     = strtolower(trim($item['brand'] ?? ($cat['brand'] ?? '')));
+                $bestWpScore   = -1;
+                $bestWp        = null;
 
-                    if ($isMatch) {
-                        $price       = $wp['avg'];
-                        $priceStatus = 'web_market_reference';
-                        $srcCount    = $wp['count'];
-                        $minFmt      = number_format($wp['min'], 0, ',', '.');
-                        $maxFmt      = number_format($wp['max'], 0, ',', '.');
-                        $priceNote   = "Referensi Brave Search: Rp {$minFmt} – Rp {$maxFmt} dari {$srcCount} sumber web";
-                        break;
+                foreach ($webPriceIndex as $webKey => $wp) {
+                    $score = 0;
+
+                    // ⭐ Prioritas 1: Item punya explicit BRAND yang muncul di webKey
+                    if ($itemBrand !== '' && str_contains($webKey, $itemBrand)) {
+                        $score += 100;
+                        // PLUS bonus jika nama produk juga cocok dua arah
+                        if (strlen($itemNameKey) >= 6 && strlen($webKey) >= 6 &&
+                            (str_contains($webKey, $itemNameKey) || str_contains($itemNameKey, $webKey))) {
+                            $score += 40;
+                        }
                     }
+
+                    // ⭐ Prioritas 2: two-way exact match nama produk (panjang minimal hindari generik)
+                    if ($score === 0 && strlen($itemNameKey) >= 10 && strlen($webKey) >= 10 &&
+                        $itemNameKey === $webKey) {
+                        $score += 85;
+                    }
+
+                    // ⭐ Prioritas 3: two-way substring nama produk (HANYA jika item punya brand juga cocok)
+                    if ($score === 0 && strlen($itemNameKey) >= 8 && strlen($webKey) >= 8 &&
+                        (str_contains($itemNameKey, $webKey) || str_contains($webKey, $itemNameKey))) {
+                        // Hanya beri skor jika webKey juga mengandung brand — atau jika item tidak punya brand
+                        if ($itemBrand === '' || str_contains($webKey, $itemBrand)) {
+                            $score += 60;
+                        } else {
+                            $score += 20; // nama cocok tapi brand beda — skor rendah, tetap ada chance lebih baik dari 0
+                        }
+                    }
+
+                    // ⭐ Fallback: prefix match panjang + keyword overlap unik
+                    if ($score === 0 && strlen($itemNameKey) >= 10 && strlen($webKey) >= 10) {
+                        $prefixItem = substr($itemNameKey, 0, 9);
+                        $prefixWeb  = substr($webKey, 0, 9);
+                        if (str_contains($webKey, $prefixItem) || str_contains($itemNameKey, $prefixWeb)) {
+                            // Hanya untuk keamanan; hindari match produk beda brand yang nama generiknya mirip
+                            if ($itemBrand === '' || str_contains($webKey, $itemBrand)) {
+                                $score += 25;
+                            }
+                        }
+                    }
+
+                    if ($score > 0 && $score > $bestWpScore) {
+                        $bestWpScore = $score;
+                        $bestWp      = $wp;
+                    }
+                }
+
+                if ($bestWp !== null) {
+                    $price       = $bestWp['avg'];
+                    $priceStatus = 'web_market_reference';
+                    $srcCount    = $bestWp['count'];
+                    $minFmt      = number_format($bestWp['min'], 0, ',', '.');
+                    $maxFmt      = number_format($bestWp['max'], 0, ',', '.');
+                    $priceNote   = "Referensi Brave Search: Rp {$minFmt} – Rp {$maxFmt} dari {$srcCount} sumber web";
                 }
             }
 
