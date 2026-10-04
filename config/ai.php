@@ -35,4 +35,16 @@ return [
     */
     'openai_api_key' => env('OPENAI_API_KEY'),
     'openai_model'   => env('OPENAI_MODEL', 'gpt-4o-mini'),
+
+    /*
+    /*
+    |--------------------------------------------------------------------------
+    | Brave Search API
+    |--------------------------------------------------------------------------
+    |
+    | Digunakan oleh AgenticProcurementService untuk mencari produk, harga
+    | pasar, dan spesifikasi teknis secara real-time dari internet.
+    |
+    */
+    'brave_search_api_key' => env('BRAVE_SEARCH_API_KEY', ''),
 ];

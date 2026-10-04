@@ -399,19 +399,51 @@ PROMPT;
 
     /**
      * Bandingkan beberapa produk katalog secara objektif dan mendalam.
+     *
+     * @param array $webSearchResults Data harga & produk dari Google Search (optional)
      */
-    public function compareProducts(array $catalogues, ?string $userNeed = null): array
+    public function compareProducts(array $catalogues, ?string $userNeed = null, array $webSearchResults = []): array
     {
         $cataloguesJson = json_encode($catalogues, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         $userNeedPrompt = $userNeed ? "Kebutuhan Khusus Buyer: \"{$userNeed}\"" : "Bandingkan untuk kebutuhan pengadaan standar enterprise.";
 
+        // Bangun blok data harga dari Google Search jika tersedia
+        $webPriceBlock = '';
+        if (!empty($webSearchResults)) {
+            $lines = [];
+            foreach ($webSearchResults as $key => $data) {
+                if ($key === '__general__') continue;
+                $wp = $data['web_prices'] ?? [];
+                if (!empty($wp['avg_price'])) {
+                    $avg = number_format((float) $wp['avg_price'], 0, ',', '.');
+                    $min = number_format((float) ($wp['min_price'] ?? $wp['avg_price']), 0, ',', '.');
+                    $max = number_format((float) ($wp['max_price'] ?? $wp['avg_price']), 0, ',', '.');
+                    $srcCount = count($wp['sources'] ?? []);
+                    $lines[] = "- {$data['item_name']}: Harga web Rp {$min} - Rp {$max} (rata-rata Rp {$avg}) dari {$srcCount} sumber online";
+                }
+                // Tambahkan snippet hasil pencarian web untuk konteks spesifikasi
+                foreach (array_slice($data['results'] ?? [], 0, 2) as $r) {
+                    if (!empty($r['snippet'])) {
+                        $lines[] = "  → [{$r['source']}] {$r['snippet']}";
+                    }
+                }
+            }
+            if (!empty($lines)) {
+                $webPriceBlock = "\n\n==== DATA HARGA & SPESIFIKASI DARI GOOGLE SEARCH (REAL-TIME) ====\n"
+                    . "Gunakan data ini sebagai referensi harga pasar terkini untuk mengevaluasi nilai setiap produk.\n"
+                    . implode("\n", $lines)
+                    . "\n=================================================================";
+            }
+        }
+
         $prompt = <<<PROMPT
-{$userNeedPrompt}
+{$userNeedPrompt}{$webPriceBlock}
 
 Daftar Produk untuk Dibandingkan:
 {$cataloguesJson}
 
 Lakukan perbandingan komprehensif dari sudut pandang procurement B2B.
+Jika ada data harga dari Google Search di atas, gunakan sebagai acuan harga pasar terkini.
 Balas dengan format JSON:
 {
   "comparison_matrix": [
@@ -482,10 +514,10 @@ PROMPT;
     /**
      * Generate PR Draft komprehensif dengan deskripsi profesional, justifikasi bisnis, & line items.
      *
-     * @param array $historicalPrices Data harga historis nyata dari PO/Proposal database
-     *                                (output dari AgenticProcurementService::queryHistoricalPrices)
+     * @param array $historicalPrices  Data harga historis nyata dari PO/Proposal database
+     * @param array $webSearchResults  Data harga & spesifikasi terkini dari Google Search
      */
-    public function generatePrDraft(string $userPrompt, array $matchedItems, array $context = [], array $historicalPrices = []): array
+    public function generatePrDraft(string $userPrompt, array $matchedItems, array $context = [], array $historicalPrices = [], array $webSearchResults = []): array
     {
         $itemsJson = json_encode($matchedItems, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         $contextJson = json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
@@ -514,9 +546,41 @@ PROMPT;
                 . "\n==============================================================";
         }
 
+        // --- Bangun blok referensi harga web dari Google Search ---
+        $webSearchBlock = '';
+        if (!empty($webSearchResults)) {
+            $webLines = [];
+            foreach ($webSearchResults as $key => $data) {
+                $itemName = $data['item_name'] ?? $key;
+                $wp       = $data['web_prices'] ?? [];
+                if (!empty($wp['avg_price'])) {
+                    $avg  = number_format((float) $wp['avg_price'], 0, ',', '.');
+                    $min  = number_format((float) ($wp['min_price'] ?? $wp['avg_price']), 0, ',', '.');
+                    $max  = number_format((float) ($wp['max_price'] ?? $wp['avg_price']), 0, ',', '.');
+                    $srcs = count($wp['sources'] ?? []);
+                    $webLines[] = "- \"{$itemName}\": Range harga web Rp {$min} - Rp {$max} (rata-rata Rp {$avg}) dari {$srcs} toko/distributor online";
+                }
+                // Tambahkan top-3 snippet untuk konteks spesifikasi & produk alternatif
+                foreach (array_slice($data['results'] ?? [], 0, 3) as $r) {
+                    if (!empty($r['snippet'])) {
+                        $price = $r['price'] > 0 ? ' [Rp ' . number_format($r['price'], 0, ',', '.') . ']' : '';
+                        $webLines[] = "  → [{$r['source']}]{$price} {$r['snippet']}";
+                    }
+                }
+            }
+            if (!empty($webLines)) {
+                $webSearchBlock = "\n\n==== REFERENSI HARGA & PRODUK DARI BRAVE SEARCH / WEB (REAL-TIME) ====\n"
+                    . "Data harga pasar dan spesifikasi terkini yang ditemukan langsung dari internet/web (distributor resmi, marketplace B2B, portal industri).\n"
+                    . "WAJIB gunakan referensi web ini sebagai acuan harga pasar terkini jika tidak ada data historis Huntr!\n"
+                    . "Untuk item yang cocok: set 'price_status' = 'web_market_reference', dan gunakan kisaran harga web tersebut untuk 'estimated_price'. DILARANG mengarang harga murah yang tidak realistis (misal alat berat ratusan juta / miliaran rupiah jangan diisi puluhan juta)!\n"
+                    . implode("\n", $webLines)
+                    . "\n=================================================================";
+            }
+        }
+
         $budgetInstruction = $intentBudget
             ? "PAGU ANGGARAN DARI BUYER: User menetapkan total anggaran maksimal sekitar Rp " . number_format((float)$intentBudget, 0, ',', '.') . ". Set 'estimated_total_budget' sebesar " . (int)$intentBudget . ", dan alokasikan 'estimated_price' satuan untuk setiap item secara proporsional. Set 'price_status' tiap item menjadi 'buyer_budget'."
-            : "ESTIMASI HARGA PASAR WAJAR INDONESIA (HPS): User tidak menyebutkan nominal budget. JIKA item ada di katalog internal (>0), gunakan harga katalog dan set 'price_status': 'verified_catalogue'. JIKA item TIDAK ADA di katalog internal DAN tidak ada referensi historis, berikan estimasi harga satuan wajar pasar B2B/distributor resmi di Indonesia (dalam Rupiah integer realistis, contoh: laptop core i7/ryzen 7 RAM 32GB SSD 1TB kisaran 20000000-25000000, monitor 4K 27 inch kisaran 5000000-7500000). Set 'price_status': 'market_estimate' dan 'reason': 'Estimasi harga pasar wajar (HPS B2B Indonesia)'. 'estimated_total_budget' adalah total akumulasi (qty * estimated_price).";
+            : "ESTIMASI HARGA PASAR WAJAR INDONESIA (HPS): User tidak menyebutkan nominal budget. JIKA item ada di katalog internal (>0), gunakan harga katalog dan set 'price_status': 'verified_catalogue'. JIKA ada referensi Brave Search / Web, gunakan harga tersebut dan set 'price_status': 'web_market_reference'. JIKA item TIDAK ADA di katalog internal DAN tidak ada referensi web/historis, berikan estimasi harga satuan wajar pasar B2B/distributor resmi di Indonesia (dalam Rupiah integer realistis, contoh: excavator PC200 baru/bekas kisaran Rp 400.000.000 - Rp 1.800.000.000, laptop core i7/ryzen 7 RAM 32GB SSD 1TB kisaran 20000000-25000000). Set 'price_status': 'market_estimate' dan 'reason': 'Estimasi harga pasar wajar (HPS B2B Indonesia)'. 'estimated_total_budget' adalah total akumulasi (qty * estimated_price).";
 
         $prompt = <<<PROMPT
 Permintaan Kebutuhan Pengadaan User:
@@ -525,18 +589,20 @@ Permintaan Kebutuhan Pengadaan User:
 Konteks Tambahan:
 {$contextJson}
 
-{$budgetInstruction}{$historicalPriceBlock}
+{$budgetInstruction}{$historicalPriceBlock}{$webSearchBlock}
 
 Produk Terpilih / Katalog Tersedia di Database:
 {$itemsJson}
 
 PEDOMAN AKURASI HARGA DAN SPESIFIKASI:
-1. PRIORITAS HARGA (WAJIB DIIKUTI):
-   a. Jika ada "REFERENSI HARGA NYATA" di atas untuk item yang cocok → GUNAKAN harga itu (avg atau last_price), set price_status = 'historical_reference'.
-   b. Jika item ada di katalog internal (>0) → gunakan harga katalog, price_status = 'verified_catalogue'.
-   c. Jika tidak ada referensi sama sekali → estimasi harga pasar wajar B2B Indonesia, price_status = 'market_estimate'.
-2. JANGAN PERNAH MENGGUNAKAN HARGA TEMPLATE / HARDCODE yang tidak masuk akal! Perhatikan generasi & tahun produk:
-   - Laptop lawas/generasi lama (contoh: ThinkPad X280, Core i5 Gen 8 / 8250U, era 2018): harga pasaran sekitar Rp 3.500.000 - Rp 5.500.000 (JANGAN DIISI 20jt-an!).
+1. PRIORITAS HARGA (WAJIB DIIKUTI — urutan dari tertinggi ke terendah):
+   a. Jika ada "REFERENSI HARGA NYATA DARI DATABASE TRANSAKSI HUNTR" → GUNAKAN harga itu (avg atau last_price), set price_status = 'historical_reference'. INI PRIORITAS TERTINGGI.
+   b. Jika ada "REFERENSI HARGA & PRODUK DARI BRAVE SEARCH / WEB" yang cocok → gunakan sebagai acuan harga pasar terkini, set price_status = 'web_market_reference'. Prioritas kedua setelah historis Huntr.
+   c. Jika item ada di katalog internal (>0) → gunakan harga katalog, price_status = 'verified_catalogue'.
+   d. Jika tidak ada referensi sama sekali → estimasi harga pasar wajar B2B Indonesia, price_status = 'market_estimate'.
+2. JANGAN PERNAH MENGGUNAKAN HARGA TEMPLATE / HARDCODE yang tidak masuk akal! Perhatikan jenis & kelas produk:
+   - Alat Berat (Excavator, Bulldozer, Wheel Loader): Excavator 20 Ton (Komatsu PC200, CAT 320, Hitachi ZX200) harga pasaran berkisar Rp 400.000.000 (kondisi second/bekas) hingga Rp 1.500.000.000 - Rp 2.200.000.000 (unit baru). JANGAN PERNAH mengisi puluhan juta (Rp 80jt itu hanya harga sparepart/sewa, BUKAN UNIT ALAT BERAT)!
+   - Laptop lawas/generasi lama (contoh: ThinkPad X280, Core i5 Gen 8 / 8250U, era 2018): harga pasaran sekitar Rp 3.500.000 - Rp 5.500.000.
    - Laptop enterprise entry (Core i3 / Core i5 standar): Rp 7.000.000 - Rp 12.000.000.
    - Laptop high-end / engineering baru (Core i7 / Ryzen 7, RAM 32GB, 1TB SSD): Rp 18.000.000 - Rp 25.000.000.
    - Monitor 24-27 inch FHD: Rp 1.500.000 - Rp 2.500.000; Monitor 4K 27 inch: Rp 5.000.000 - Rp 7.500.000.
@@ -627,6 +693,9 @@ PROMPT;
                             $samples = $historicalMatch['sample_count'];
                             $item['price_note'] = "Berdasarkan {$samples} transaksi " . ($historicalMatch['source'] === 'historical_po' ? 'PO historis' : 'penawaran tender') . " (rata-rata Rp {$avgFmt})";
                         }
+                    } elseif ($item['price_status'] === 'web_market_reference' && $curPrice > 0) {
+                        // AI menggunakan data referensi Brave Search / Web — pertahankan
+                        $item['price_status'] = 'web_market_reference';
                     } elseif (!empty($item['catalogue_id']) && $curPrice > 0) {
                         $item['price_status'] = 'verified_catalogue';
                     } elseif ($intentBudget && $curPrice > 0) {
