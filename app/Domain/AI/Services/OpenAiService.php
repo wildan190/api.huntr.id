@@ -9,12 +9,80 @@ use Illuminate\Support\Facades\Log;
 /**
  * OpenAiService
  *
- * Wrapper untuk OpenAI ChatGPT API (gpt-4o-mini / gpt-4o).
- * Bertanggung jawab untuk semua komunikasi AI & Agentic Procurement di platform Huntr.
- * Setiap call ke API dicatat di ai_usage_logs untuk tracking quota & billing.
+ * Wrapper OpenAI Chat Completions untuk Agentic Procurement Huntr.
+ *
+ * Prinsip anti-halusinasi di file ini:
+ *  - AI TIDAK PERNAH menentukan harga, vendor, kode item, atau katalog_id.
+ *  - Semua output AI divalidasi di server (id harus ada di kandidat, merek harus ada di teks user, dst).
+ *  - Fallback tidak mengarang: bila AI gagal, hasil kosong/null yang jujur dikembalikan.
+ *  - Temperature rendah per fungsi, dan JSON mode bawaan OpenAI (response_format).
+ *  - Tidak ada pembagian budget rata, tidak ada skor/rating karangan.
  */
 class OpenAiService
 {
+    private const ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+
+    private const INTENT_CATEGORIES = [
+        'Electronics',
+        'IT Hardware',
+        'Office Supplies',
+        'Industrial',
+        'Safety',
+        'Machinery',
+        'Furniture',
+        'Stationery',
+        'Construction',
+        'Spareparts',
+        'Chemicals',
+        'Software',
+        'General',
+    ];
+
+    private const DEPARTMENTS = [
+        'IT & Engineering',
+        'General Affairs',
+        'Operations',
+        'HR',
+        'Procurement',
+        'Finance',
+        'Production',
+        'Maintenance',
+        'Warehouse',
+    ];
+
+    private const CATALOGUE_CATEGORIES = [
+        'Electronics',
+        'Spareparts',
+        'Construction',
+        'Software',
+        'Furniture',
+        'Stationery',
+        'Mechanical',
+        'Chemicals',
+        'General',
+    ];
+
+    private const CATALOGUE_UOMS = [
+        'Unit',
+        'Pc',
+        'Set',
+        'Box',
+        'Pack',
+        'Roll',
+        'Litre',
+        'Kg',
+        'Meter',
+        'License',
+    ];
+
+    private const GROUNDING_RULES = <<<'TXT'
+ATURAN KEJUJURAN DATA (WAJIB):
+- Hanya gunakan informasi yang tertulis pada data yang diberikan di prompt ini.
+- JANGAN menyebut atau menebak harga, vendor, kode item, ketersediaan stok, garansi, atau lead time yang tidak ada di data.
+- Jika informasi tidak tersedia, isi null (atau array kosong) dan jangan mengarang.
+- Jangan menyalin nilai contoh dari skema JSON; contoh hanyalah bentuk format.
+TXT;
+
     private string $apiKey;
     private string $model;
     private int $timeout;
@@ -24,59 +92,40 @@ class OpenAiService
         $rawKey = config('ai.openai_api_key') ?: env('OPENAI_API_KEY');
         $this->apiKey = is_string($rawKey) ? $rawKey : '';
         $rawModel = config('ai.openai_model') ?: env('OPENAI_MODEL');
-        $this->model  = is_string($rawModel) ? $rawModel : 'gpt-4o';
+        $this->model = is_string($rawModel) ? $rawModel : 'gpt-4o';
         $this->timeout = (int) config('ai.timeout', 45);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Heuristik non-AI (deterministik)
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Ekstrak estimasi budget dari teks Bahasa Indonesia / format mata uang.
+     * Ekstrak TOTAL budget dari teks. Angka hanya diterima bila didahului kata konteks
+     * (budget/anggaran/pagu/Rp/...) dan tidak diikuti penanda "per unit".
      */
     public function extractBudgetFromText(string $text): ?float
     {
-        $text = strtolower($text);
+        $lower = mb_strtolower($text);
 
-        // "400 juta", "400jt", "400 jt", "400.5 juta"
-        if (preg_match('/(?:budget|anggaran|dana|biaya|rp\.?|idr)?\s*([\d\.\,]+)\s*(?:juta|jt)\b/i', $text, $matches)) {
-            $raw = str_replace(',', '.', $matches[1]);
-            $val = ((float) $raw) * 1000000;
-            if ($val >= 100000) return $val;
+        $pattern = '/(?<![\p{L}])(?:budget|anggaran|pagu|plafon|dana|total\s+biaya|biaya|senilai|sebesar|maksimal|maks|hingga|sampai|rp\.?|idr)'
+            . '[\s:=]*(?:(?:sekitar|sebesar|maksimal|maks|hingga|sampai|kurang\s+lebih)\s+)?(?:rp\.?|idr)?\s*'
+            . '(\d+(?:[.,]\d+)*)(?:\s*(miliar|milyar|juta|jt|ribu|rb|k)(?![\p{L}]))?/iu';
+
+        if (!preg_match_all($pattern, $lower, $all, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            return null;
         }
 
-        // "1.5 miliar", "2 milyar", "1.5 M", "1.5m" (jangan cocokkan jika cuma meter / huruf m biasa)
-        if (preg_match('/(?:budget|anggaran|dana|biaya|rp\.?|idr)\s*([\d\.\,]+)\s*(?:miliar|milyar|m)\b/i', $text, $matches) ||
-            preg_match('/([\d\.\,]+)\s*(?:miliar|milyar)\b/i', $text, $matches)) {
-            $raw = str_replace(',', '.', $matches[1]);
-            $val = ((float) $raw) * 1000000000;
-            if ($val >= 100000) return $val;
-        }
-
-        // "500 ribu", "500rb"
-        if (preg_match('/([\d\.\,]+)\s*(?:ribu|rb)\b/i', $text, $matches)) {
-            $raw = str_replace(',', '.', $matches[1]);
-            $val = ((float) $raw) * 1000;
-            if ($val >= 50000) return $val;
-        }
-
-        // "500k" - HANYA jika didahului kata budget/rp/harga (agar TIDAK bentrok dengan resolusi monitor 4K / 2K)
-        if (preg_match('/(?:budget|anggaran|dana|biaya|rp\.?|idr|harga)\s*[:=]?\s*([\d\.\,]+)\s*k\b/i', $text, $matches)) {
-            $raw = str_replace(',', '.', $matches[1]);
-            $val = ((float) $raw) * 1000;
-            if ($val >= 50000) return $val;
-        }
-
-        // "Rp 400.000.000"
-        if (preg_match('/(?:rp\.?|idr)\s*([\d\.\,]+)/i', $text, $matches)) {
-            $cleaned = preg_replace('/[^0-9]/', '', $matches[1]);
-            if (!empty($cleaned) && (float)$cleaned >= 50000) {
-                return (float) $cleaned;
+        foreach ($all as $m) {
+            $end = $m[0][1] + strlen($m[0][0]);
+            $after = substr($lower, $end, 25);
+            if (preg_match('/per\s*(unit|pcs|buah|set|item)|\/\s*(unit|pcs|buah)|satuan|@|each/i', $after)) {
+                continue; // harga per unit, bukan total budget
             }
-        }
 
-        // Plain budget number e.g. "budget 400000000"
-        if (preg_match('/(?:budget|anggaran|dana|biaya)\s*(?:sekitar|sebesar|maksimal|maks|min)?\s*[:=]?\s*([\d\.\,]+)/i', $text, $matches)) {
-            $cleaned = preg_replace('/[^0-9]/', '', $matches[1]);
-            if (!empty($cleaned) && (float)$cleaned >= 50000) {
-                return (float) $cleaned;
+            $value = $this->parseIdrAmount($m[1][0], $m[2][0] ?? '', 100_000);
+            if ($value !== null) {
+                return $value;
             }
         }
 
@@ -84,257 +133,387 @@ class OpenAiService
     }
 
     /**
-     * Ekstrak items & kuantitas dari teks natural language.
+     * Ekstrak item & kuantitas dari teks (fallback tanpa AI).
+     * TIDAK memberi harga dan TIDAK membagi budget. $totalBudget dipertahankan hanya untuk kompatibilitas.
      */
     public function extractItemsFromText(string $text, ?float $totalBudget = null): array
     {
-        $cleanText = preg_replace('/(saya|kami)?\s*(butuh|perlu|ingin|pengadaan|mencari)\s+/i', '', $text);
-        $cleanText = preg_replace('/(dengan|target|sekitar)?\s*budget.*/i', '', $cleanText);
-        $parts = preg_split('/\s+(?:dan|\&|\+|,)\s+/i', $cleanText);
+        $clean = preg_replace('/\b(?:saya|kami)?\s*(?:butuh|perlu|ingin|pengadaan|mencari|cari)\s+/iu', '', $text, 1);
+        $clean = preg_replace('/\b(?:dengan|target|sekitar)?\s*(?:budget|anggaran|pagu|plafon)\b.*$/isu', '', (string) $clean);
+        $parts = preg_split('/\s+(?:dan|&|\+)\s+|,\s+(?=\d+\s)/iu', (string) $clean) ?: [];
+
         $items = [];
-        
         foreach ($parts as $part) {
             $part = trim($part);
-            if (empty($part) || strlen($part) < 3) continue;
+            if ($part === '' || mb_strlen($part) < 3) {
+                continue;
+            }
+
             $qty = 1;
-            if (preg_match('/(\d+)\s*(?:unit|pcs|set|buah|kotak|box|paket|pasang)?\s+(.*)/i', $part, $m)) {
+            $name = $part;
+            if (preg_match('/^(\d+)\s*(?:unit|pcs|set|buah|kotak|box|paket|pasang)?\s+(.+)$/iu', $part, $m)) {
                 $qty = (int) $m[1];
                 $name = trim($m[2]);
-            } else {
-                $name = $part;
             }
-            $items[] = [
-                'name'           => ucfirst($name),
-                'qty'            => max(1, $qty),
-                'uom'            => 'unit',
-                'detailed_specs' => ucfirst($name) . ' (Standar Enterprise)',
-            ];
-        }
 
-        $count = count($items);
-        if ($count > 0 && $totalBudget && $totalBudget > 0) {
-            $allocatedPerItemTotal = $totalBudget / $count;
-            foreach ($items as &$it) {
-                $it['estimated_price'] = round($allocatedPerItemTotal / $it['qty']);
-                $it['price_status'] = 'buyer_budget';
-            }
-        } else {
-            foreach ($items as &$it) {
-                $it['estimated_price'] = 0;
-                $it['price_status'] = 'rfq_required';
-            }
+            $items[] = [
+                'name' => mb_strtoupper(mb_substr($name, 0, 1)) . mb_substr($name, 1),
+                'qty' => max(1, $qty),
+                'uom' => 'unit',
+                'detailed_specs' => null,
+                'estimated_price' => 0,
+                'price_status' => 'rfq_required',
+            ];
         }
 
         return $items;
     }
 
-    /**
-     * Kirim prompt ke OpenAI dan dapatkan teks response.
-     * @param string|null $companyId Untuk tracking usage log per perusahaan
-     * @param string|null $endpoint  Nama endpoint/fitur yang memanggil (untuk audit)
-     */
-    public function ask(string $prompt, string $systemInstruction = '', ?string $companyId = null, string $endpoint = 'ask'): string
-    {
-        if (empty($this->apiKey)) {
-            Log::warning('OpenAiService: OpenAI API key is missing.');
-            throw new \RuntimeException('OpenAI API Key belum terkonfigurasi.');
-        }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Transport
+    // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Kirim prompt tunggal. Default temperature rendah.
+     */
+    public function ask(
+        string $prompt,
+        string $systemInstruction = '',
+        ?string $companyId = null,
+        string $endpoint = 'ask',
+        float $temperature = 0.2,
+        bool $jsonMode = false
+    ): string {
         $messages = [];
-        if (!empty($systemInstruction)) {
+        if ($systemInstruction !== '') {
             $messages[] = ['role' => 'system', 'content' => $systemInstruction];
         }
         $messages[] = ['role' => 'user', 'content' => $prompt];
 
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type'  => 'application/json',
-            ])
-            ->timeout($this->timeout)
-            ->post('https://api.openai.com/v1/chat/completions', [
-                'model'       => $this->model,
-                'messages'    => $messages,
-                'temperature' => 0.4,
-            ]);
-
-            if ($response->failed()) {
-                Log::error('OpenAiService API error', [
-                    'status' => $response->status(),
-                    'body'   => $response->body(),
-                ]);
-                throw new \RuntimeException('OpenAI API Error: ' . $response->status() . ' - ' . $response->body());
-            }
-
-            $data = $response->json();
-
-            // Track usage setiap call berhasil
-            $this->trackUsage($data['usage'] ?? [], $endpoint, $companyId);
-
-            return $data['choices'][0]['message']['content'] ?? '';
-
-        } catch (\Exception $e) {
-            Log::error('OpenAiService Exception', ['error' => $e->getMessage()]);
-            throw $e;
-        }
+        return $this->request($messages, $temperature, $jsonMode, $companyId, $endpoint);
     }
 
     /**
-     * Kirim percakapan multi-turn ke OpenAI.
-     * @param string|null $companyId Untuk tracking usage log per perusahaan
-     * @param string|null $endpoint  Nama endpoint/fitur yang memanggil
+     * Percakapan multi-turn. Aturan kejujuran data selalu ditambahkan ke system prompt.
      */
-    public function chat(array $messages, string $systemInstruction = '', ?string $companyId = null, string $endpoint = 'chat'): string
+    public function chat(
+        array $messages,
+        string $systemInstruction = '',
+        ?string $companyId = null,
+        string $endpoint = 'chat',
+        float $temperature = 0.3
+    ): string {
+        $all = [
+            [
+                'role' => 'system',
+                'content' => trim($systemInstruction . "\n\n" . self::GROUNDING_RULES),
+            ]
+        ];
+
+        foreach ($messages as $msg) {
+            $role = $msg['role'] ?? 'user';
+            if (!in_array($role, ['user', 'assistant'], true)) {
+                $role = 'user'; // jangan izinkan klien menyuntik role system
+            }
+            $all[] = ['role' => $role, 'content' => (string) ($msg['content'] ?? '')];
+        }
+
+        return $this->request($all, $temperature, false, $companyId, $endpoint);
+    }
+
+    /**
+     * Minta objek JSON (JSON mode OpenAI). Mengembalikan [] jika gagal diparse.
+     */
+    public function askJson(
+        string $prompt,
+        string $systemInstruction = '',
+        ?string $companyId = null,
+        string $endpoint = 'askJson',
+        float $temperature = 0.0
+    ): array {
+        $raw = $this->ask(
+            $prompt . "\n\nBalas HANYA dengan satu objek JSON valid.",
+            $systemInstruction,
+            $companyId,
+            $endpoint,
+            $temperature,
+            true
+        );
+
+        $decoded = json_decode(trim($raw), true);
+
+        if (!is_array($decoded)) {
+            // Cadangan: buang pagar markdown jika ada. Tidak ada "perbaikan" regex yang memotong JSON.
+            $stripped = trim(preg_replace('/^```(?:json)?\s*|\s*```$/m', '', $raw));
+            $decoded = json_decode($stripped, true);
+        }
+
+        if (!is_array($decoded)) {
+            Log::warning('OpenAiService: askJson gagal parse JSON', ['endpoint' => $endpoint]);
+            return [];
+        }
+
+        return $decoded;
+    }
+
+    private function request(array $messages, float $temperature, bool $jsonMode, ?string $companyId, string $endpoint): string
     {
-        if (empty($this->apiKey)) {
+        if ($this->apiKey === '') {
             Log::warning('OpenAiService: OpenAI API key is missing.');
             throw new \RuntimeException('OpenAI API Key belum terkonfigurasi.');
         }
 
-        $allMessages = [];
-        if (!empty($systemInstruction)) {
-            $allMessages[] = ['role' => 'system', 'content' => $systemInstruction];
-        }
-        foreach ($messages as $msg) {
-            $allMessages[] = [
-                'role'    => $msg['role'] ?? 'user',
-                'content' => $msg['content'] ?? '',
-            ];
+        $payload = [
+            'model' => $this->model,
+            'messages' => $messages,
+            'temperature' => $temperature,
+        ];
+        if ($jsonMode) {
+            $payload['response_format'] = ['type' => 'json_object'];
         }
 
         try {
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiKey,
-                'Content-Type'  => 'application/json',
+                'Content-Type' => 'application/json',
             ])
-            ->timeout($this->timeout)
-            ->post('https://api.openai.com/v1/chat/completions', [
-                'model'       => $this->model,
-                'messages'    => $allMessages,
-                'temperature' => 0.4,
-            ]);
+                ->timeout($this->timeout)
+                ->post(self::ENDPOINT, $payload);
 
             if ($response->failed()) {
-                Log::error('OpenAiService chat API error', [
+                Log::error('OpenAiService API error', [
+                    'endpoint' => $endpoint,
                     'status' => $response->status(),
-                    'body'   => $response->body(),
+                    'body' => $response->body(),
                 ]);
                 throw new \RuntimeException('OpenAI API Error: ' . $response->status());
             }
 
             $data = $response->json();
-
-            // Track usage setiap call berhasil
             $this->trackUsage($data['usage'] ?? [], $endpoint, $companyId);
 
-            return $data['choices'][0]['message']['content'] ?? '';
-
+            return (string) ($data['choices'][0]['message']['content'] ?? '');
         } catch (\Exception $e) {
-            Log::error('OpenAiService Chat Exception', ['error' => $e->getMessage()]);
+            Log::error('OpenAiService Exception', ['endpoint' => $endpoint, 'error' => $e->getMessage()]);
             throw $e;
         }
     }
 
-    /**
-     * Kirim prompt dan minta JSON response dari OpenAI.
-     * @param string|null $companyId Untuk tracking usage log per perusahaan
-     * @param string|null $endpoint  Nama endpoint/fitur yang memanggil
-     */
-    public function askJson(string $prompt, string $systemInstruction = '', ?string $companyId = null, string $endpoint = 'askJson'): array
-    {
-        $jsonPrompt = $prompt . "\n\nPenting: Balas HANYA dengan JSON valid, tanpa markdown format ```json, tanpa teks pengantar atau penutup.";
-        $rawResponse = $this->ask($jsonPrompt, $systemInstruction, $companyId, $endpoint);
-
-        $cleaned = preg_replace('/^```(?:json)?\s*/m', '', $rawResponse);
-        $cleaned = preg_replace('/\s*```$/m', '', $cleaned);
-        $cleaned = trim($cleaned);
-
-        $decoded = json_decode($cleaned, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            preg_match('/[\{\[].*[\}\]]/s', $cleaned, $matches);
-            if (!empty($matches[0])) {
-                $decoded = json_decode($matches[0], true);
-            }
-        }
-
-        return is_array($decoded) ? $decoded : [];
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Intent
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Ekstrak kebutuhan pengadaan & intent pencarian dari natural language prompt.
+     * Ekstrak kebutuhan pengadaan. Hasil AI dinormalisasi & diverifikasi terhadap teks user.
      */
     public function extractSearchIntent(string $userQuery): array
     {
+        $categories = implode(' | ', self::INTENT_CATEGORIES);
+        $departments = implode(' | ', self::DEPARTMENTS);
+
         $prompt = <<<PROMPT
-Analisis permintaan kebutuhan procurement B2B berikut dan ekstrak parameter pencarian dan kriteria spesifikasi.
+Ekstrak kebutuhan pengadaan dari permintaan berikut. HANYA ambil informasi yang tertulis eksplisit.
 
 Permintaan user: "{$userQuery}"
 
-Balas dalam format JSON:
+Aturan:
+- "brand" (level atas maupun per item) hanya boleh diisi jika merek itu tertulis pada permintaan; selain itu null.
+- "quantity": angka yang tertulis pada permintaan; jika tidak ada, 1.
+- "spec_requirements": hanya spesifikasi yang disebut user; jika tidak ada, null.
+- "budget_hint_idr": hanya jika user menyebut harga/anggaran untuk item tersebut; selain itu null.
+- "category" harus salah satu dari: {$categories}; jika tidak yakin, null.
+- "department" harus salah satu dari: {$departments}; jika tidak yakin, null.
+- "keywords": kata kunci yang diambil dari permintaan user (jangan menambah kata baru).
+- Jangan menambah item yang tidak disebut user.
+
+Skema JSON:
 {
-  "keywords": ["kata kunci produk/merk 1", "kata kunci 2"],
-  "category": "kategori produk (misal: Electronics, IT Hardware, Office Supplies, Industrial, Safety, Machinery)",
-  "brand": "merk spesifik yang diminta atau null",
+  "keywords": ["..."],
+  "category": null,
+  "brand": null,
   "target_items": [
-    {
-      "name": "nama umum item (misal: Laptop Engineering)",
-      "spec_requirements": "ringkasan spesifikasi yang diminta (misal: Core i7/Ryzen 7, 32GB RAM, 1TB SSD)",
-      "quantity": 10,
-      "uom": "unit",
-      "budget_hint_idr": null
-    }
+    {"name": "nama item", "brand": null, "spec_requirements": null, "quantity": 1, "uom": "unit", "budget_hint_idr": null}
   ],
-  "estimated_total_budget_idr": null (atau angka integer jika user eksplisit menyebutkan batas/pagu anggaran),
-  "department": "Departemen yang cocok (misal: IT & Engineering, General Affairs, Operations, HR)",
-  "urgency": "Normal / Urgent / Critical",
-  "ai_summary": "Rangkuman 1 kalimat jelas tentang kebutuhan procurement ini",
-  "is_comparison": true/false
+  "department": null,
+  "urgency": "Normal | Urgent | Critical",
+  "is_comparison": false
 }
 PROMPT;
 
         try {
-            $result = $this->askJson($prompt, 'Kamu adalah AI Procurement Specialist yang ahli menganalisis kebutuhan pengadaan barang/jasa perusahaan. PENTING: Jangan mengarang angka budget jika user tidak menyebutkannya; isi estimated_total_budget_idr dengan null.', null, 'extractSearchIntent');
-            if (!empty($result) && is_array($result)) {
-                $explicitBudget = $this->extractBudgetFromText($userQuery);
-                if ($explicitBudget !== null) {
-                    $result['estimated_total_budget_idr'] = $explicitBudget;
-                } else {
-                    $result['estimated_total_budget_idr'] = null;
+            $raw = $this->askJson(
+                $prompt,
+                'Kamu adalah ekstraktor kebutuhan pengadaan. Tugasmu hanya menyalin dan merapikan informasi dari teks user.' . "\n\n" . self::GROUNDING_RULES,
+                null,
+                'extractSearchIntent',
+                0.0
+            );
+
+            if (!empty($raw)) {
+                $intent = $this->normalizeIntent($raw, $userQuery);
+                if (!empty($intent['target_items']) || !empty($intent['keywords'])) {
+                    return $intent;
                 }
-                return $result;
             }
         } catch (\Exception $e) {
             Log::warning('OpenAiService: extractSearchIntent fallback', ['error' => $e->getMessage()]);
         }
 
-        // Resilient Fallback Heuristic
-        $detectedBudget = $this->extractBudgetFromText($userQuery);
-        $detectedItems = $this->extractItemsFromText($userQuery, $detectedBudget);
+        return $this->fallbackIntent($userQuery);
+    }
+
+    private function normalizeIntent(array $raw, string $query): array
+    {
+        $queryLower = mb_strtolower($query);
+
+        // keywords: hanya yang benar-benar berasal dari teks user
+        $keywords = [];
+        foreach ((array) ($raw['keywords'] ?? []) as $kw) {
+            $kw = trim((string) $kw);
+            if ($kw === '' || !$this->containsOnlySourceWords($kw, $query)) {
+                continue;
+            }
+            $keywords[] = $kw;
+        }
+        $keywords = array_values(array_unique($keywords));
+
+        // target_items
+        $targets = [];
+        foreach ((array) ($raw['target_items'] ?? []) as $t) {
+            $name = $this->cleanString($t['name'] ?? null);
+            if ($name === null || !$this->containsOnlySourceWords($name, $query)) {
+                continue;
+            }
+
+            $specifications = $this->cleanString($t['spec_requirements'] ?? null);
+            if ($specifications !== null && !$this->containsOnlySourceWords($specifications, $query)) {
+                $specifications = null;
+            }
+
+            $quantity = $this->explicitQuantity($query, $name) ?? 1;
+
+            $hint = null;
+            if (isset($t['budget_hint_idr']) && is_numeric($t['budget_hint_idr']) && (float) $t['budget_hint_idr'] > 0) {
+                $hint = $this->moneyAppearsInText((float) $t['budget_hint_idr'], $query)
+                    ? (float) $t['budget_hint_idr']
+                    : null;
+            }
+
+            $targets[] = [
+                'name' => $name,
+                'brand' => $this->verifyBrand($t['brand'] ?? null, $query),
+                'spec_requirements' => $specifications,
+                'quantity' => $quantity,
+                'uom' => $this->cleanString($t['uom'] ?? null) ?? 'unit',
+                'budget_hint_idr' => $hint,
+            ];
+        }
+
+        $category = $raw['category'] ?? null;
+        $category = in_array($category, self::INTENT_CATEGORIES, true) ? $category : null;
+
+        $department = $raw['department'] ?? null;
+        $department = in_array($department, self::DEPARTMENTS, true) ? $department : null;
+
+        $urgency = $raw['urgency'] ?? 'Normal';
+        $urgency = in_array($urgency, ['Normal', 'Urgent', 'Critical'], true) ? $urgency : 'Normal';
+
+        $names = array_column($targets, 'name');
 
         return [
-            'keywords'                   => array_filter(explode(' ', preg_replace('/[^a-zA-Z0-9\s]/', ' ', $userQuery)), fn($w) => strlen($w) > 2),
-            'category'                   => 'IT & Office Equipment',
-            'brand'                      => null,
-            'target_items'               => array_map(fn($it) => [
-                'name'              => $it['name'],
-                'spec_requirements'=> $it['detailed_specs'],
-                'quantity'          => $it['qty'],
-                'uom'               => $it['uom'],
-                'budget_hint_idr'   => $it['estimated_price'] ?? null,
-            ], $detectedItems),
-            'estimated_total_budget_idr' => $detectedBudget,
-            'department'                 => 'Information Technology & Procurement',
-            'urgency'                    => 'Normal',
-            'ai_summary'                 => 'Pengadaan ' . implode(', ', array_column($detectedItems, 'name')),
-            'is_comparison'              => count($detectedItems) >= 2 || str_contains(strtolower($userQuery), 'bandingkan') || str_contains(strtolower($userQuery), 'compare'),
+            'keywords' => $keywords,
+            'category' => $category,
+            'brand' => $this->verifyBrand($raw['brand'] ?? null, $query),
+            'target_items' => $targets,
+            // Budget total HANYA dari regex deterministik, tidak pernah dari AI.
+            'estimated_total_budget_idr' => $this->extractBudgetFromText($query),
+            'department' => $department,
+            'urgency' => $urgency,
+            // Ringkasan disusun dari item hasil ekstraksi, bukan teks bebas AI.
+            'ai_summary' => !empty($names) ? 'Pengadaan ' . implode(', ', $names) : 'Pengadaan: ' . $query,
+            'is_comparison' => (bool) ($raw['is_comparison'] ?? false)
+                || count($targets) >= 2
+                || str_contains($queryLower, 'bandingkan')
+                || str_contains($queryLower, 'compare'),
         ];
     }
 
+    private function fallbackIntent(string $userQuery): array
+    {
+        $budget = $this->extractBudgetFromText($userQuery);
+        $items = $this->extractItemsFromText($userQuery);
+        $lower = mb_strtolower($userQuery);
+
+        $keywords = array_values(array_unique(array_filter(
+            preg_split('/\s+/u', trim(preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $userQuery))) ?: [],
+            fn($w) => mb_strlen($w) > 2
+        )));
+
+        return [
+            'keywords' => $keywords,
+            'category' => null,
+            'brand' => null,
+            'target_items' => array_map(fn($it) => [
+                'name' => $it['name'],
+                'brand' => null,
+                'spec_requirements' => null,
+                'quantity' => $it['qty'],
+                'uom' => $it['uom'],
+                'budget_hint_idr' => null,
+            ], $items),
+            'estimated_total_budget_idr' => $budget,
+            'department' => null,
+            'urgency' => 'Normal',
+            'ai_summary' => 'Pengadaan: ' . $userQuery,
+            'is_comparison' => count($items) >= 2 || str_contains($lower, 'bandingkan') || str_contains($lower, 'compare'),
+        ];
+    }
+
+    private function containsOnlySourceWords(string $candidate, string $source): bool
+    {
+        $candidateWords = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($candidate), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $sourceWords = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($source), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return !empty($candidateWords) && empty(array_diff($candidateWords, $sourceWords));
+    }
+
+    private function explicitQuantity(string $query, string $name): ?int
+    {
+        $normalizedQuery = trim(preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower($query)));
+        $normalizedName = trim(preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower($name)));
+        if ($normalizedName === '') {
+            return null;
+        }
+
+        $namePattern = preg_quote($normalizedName, '/');
+        if (preg_match(
+            '/(?<![\p{L}\p{N}])(\d+)\s+(?:(?:unit|units|pcs|pc|set|buah|kotak|box|paket|pasang)\s+)?'
+            . $namePattern . '(?![\p{L}\p{N}])/u',
+            $normalizedQuery,
+            $matches
+        )) {
+            return max(1, (int) $matches[1]);
+        }
+
+        if (preg_match(
+            '/' . $namePattern . '\s+(?:sebanyak|qty|quantity|jumlah)\s+(\d+)(?![\p{L}\p{N}])/u',
+            $normalizedQuery,
+            $matches
+        )) {
+            return max(1, (int) $matches[1]);
+        }
+
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ranking katalog
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Re-rank & nilai kesesuaian produk katalog terhadap kebutuhan procurement.
-     * @param string|null $companyId Untuk tracking usage log per perusahaan
-     * @param array $intent Context intent lengkap (kategori eksplisit, target_items, keywords) untuk akurasi filter
+     * Nilai kesesuaian produk katalog. Setiap kandidat SELALU mendapat satu baris hasil.
+     * Skor dihitung di server dari is_match & missing_specs (bukan skor karangan AI).
+     * Jika AI gagal: semua is_match = false.
      */
     public function rankSearchProducts(string $userQuery, array $products, ?string $companyId = null, array $intent = []): array
     {
@@ -342,597 +521,380 @@ PROMPT;
             return [];
         }
 
-        $candidates = collect($products)->map(fn($p) => [
-            'id'             => $p['id'],
-            'name'           => $p['name'],
-            'category'       => $p['category'] ?? null,
-            'brand'          => $p['brand'] ?? null,
-            'specifications' => $p['specifications'] ?? null,
-            'uom'            => $p['uom'] ?? 'unit',
-            'vendor'         => $p['company']['name'] ?? ($p['vendor'] ?? null),
-        ])->toArray();
+        $candidates = [];
+        foreach ($products as $p) {
+            $candidates[] = [
+                'id' => $p['id'],
+                'name' => $p['name'] ?? null,
+                'category' => $p['category'] ?? null,
+                'brand' => $p['brand'] ?? null,
+                'specifications' => $p['specifications'] ?? null,
+                'uom' => $p['uom'] ?? 'unit',
+                'vendor' => $p['company']['name'] ?? ($p['vendor'] ?? null),
+            ];
+        }
+
+        $validIds = [];
+        foreach ($candidates as $c) {
+            $validIds[(string) $c['id']] = $c['id'];
+        }
 
         $candidatesJson = json_encode($candidates, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-        $intentJson = !empty($intent)
-            ? "\n\nContext Intent (struktur intent user, GUNAKAN untuk evaluasi kategori yang presisi):\n"
-              . json_encode([
-                  'category'        => $intent['category'] ?? null,
-                  'brand'           => $intent['brand'] ?? null,
-                  'target_items'    => $intent['target_items'] ?? null,
-                  'keywords'        => $intent['keywords'] ?? null,
-                  'department'      => $intent['department'] ?? null,
-              ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n"
-            : '';
+        $intentJson = json_encode([
+            'target_items' => $intent['target_items'] ?? null,
+            'category' => $intent['category'] ?? null,
+            'brand' => $intent['brand'] ?? null,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
         $prompt = <<<PROMPT
-Kebutuhan User: "{$userQuery}"
+Kebutuhan user: "{$userQuery}"
+
+Struktur kebutuhan:
 {$intentJson}
 
-Daftar Produk Katalog yang Ditemukan:
+Kandidat produk katalog:
 {$candidatesJson}
 
-═══════════════════════════════════════════════════════════
-🔥 PERATURAN EVALUASI (WAJIB DIPATUHI, TANPA KECUALIAN):
-═══════════════════════════════════════════════════════════
-1.  [is_match = FALSE] JIKA kategori produk JELAS TIDAK SESUAI.
-    Contoh pelanggaran yang HARUS di-reject (is_match=false):
-    • User minta "Mini PC Intel i5 Gen 12" tapi produk = SSD NVMe / Laptop Acer Swift / Komputer Fullset 19" (monitor 19")
-    • User minta "Laptop" tapi produk = Mini PC / Printer / RAM / SSD SATA
-    • User minta "Smartphone" tapi produk = Laptop / Charger / Case HP
-    • User minta "Printer Laser" tapi produk = Toner / Kertas HVS
+Untuk SETIAP kandidat tentukan apakah produk tersebut adalah jenis barang yang dibutuhkan.
 
-2.  [is_match = FALSE] JIKA nama utama produk tidak mengandung kategori produk utama dari intent.
-    Contoh: user minta "mini pc" tapi nama produk cuma "Lexar NM620 512" (GAK ADA mini pc) = REJECT.
+Aturan:
+1. is_match = false jika KATEGORI barang berbeda dari yang diminta
+   (contoh: diminta Mini PC tapi kandidat SSD, laptop, RAM, monitor, atau aksesoris; diminta Printer tapi kandidat toner/kertas).
+2. is_match = false jika merek diminta eksplisit tetapi kandidat bermerek lain.
+3. is_match = true hanya jika kategori cocok dan tidak ada konflik spesifikasi yang tertulis.
+4. missing_specs: daftar spesifikasi yang diminta user tetapi TIDAK tertulis/terpenuhi pada data kandidat (array kosong jika semua ada).
+5. fit_reason: satu kalimat berdasarkan data kandidat. Untuk penolakan sebutkan kategori yang salah.
+6. Jangan menilai harga. Jangan menambah informasi yang tidak ada di data kandidat.
 
-3.  [relevance_score ≤ 40] DAN [is_match=false] untuk semua produk yang JELAS beda kategori — JANGAN kasih skor 80-90 ke barang yang salah kategori!
-    Hanya beri skor 85+ jika:
-      a) KATEGORI COCOK (nama mengandung kategori utama intent)
-      b) MINIMAL 70% SPEK utama intent ada (misal: minta i5 gen12 → i5 gen12 harus ada di spek)
-      c) Brand sesuai jika intent menyebutkan brand eksplisit
-
-4.  [relevance_score] rentang 0-100, gunakan granular:
-    - 0-39  = SANGAT TIDAK COCOK (beda kategori total = is_match=false)
-    - 40-59 = Kurang Cocok (kategori mendekati tapi spek banyak kurang)
-    - 60-74 = Cukup Cocok (kategori cocok, spek 50-69% terpenuhi)
-    - 75-89 = Cocok (kategori cocok, spek 70-90% terpenuhi)
-    - 90-100 = Sangat Cocok (kategori + brand + spek 90%+ terpenuhi)
-
-5.  [fit_reason] WAJIB diisi JELAS mengapa cocok / DITOLAK. Khusus ditolak: sebutkan kategori mana yang salah.
-    Contoh alasan PENOLAKAN: "Beda kategori: user minta Mini PC, produk ini adalah SSD NVMe (storage bukan komputer)"
-    Contoh alasan DITERIMA: "Kategori cocok (Mini PC), spek i5 gen 12+ lengkap dengan SSD NVMe 512GB"
-
-6.  TUGAS KAMU HANYA menilai kesesuaian teknis produk — JANGAN isi estimated_unit_price_idr, selalu 0.
-
-Balas DENGAN FORMAT JSON HANYA:
+Skema JSON:
 {
   "results": [
-    {
-      "product_id": "id produk",
-      "is_match": true,
-      "relevance_score": 92,
-      "fit_reason": "Alasan singkat mengapa produk ini cocok / DITOLAK",
-      "suggested_qty": 1,
-      "estimated_unit_price_idr": 0
-    }
+    {"product_id": "id kandidat", "is_match": true, "missing_specs": [], "fit_reason": "..."}
   ]
 }
 PROMPT;
 
+        $byId = [];
         try {
-            $response = $this->askJson($prompt, 'Kamu adalah AI Technical Procurement Evaluator senior yang sangat ketat dan objektif. Tidak segan-segan menolak (is_match=false) produk yang beda kategori meski spesifikasi overlap keywordnya.', $companyId, 'rankSearchProducts');
-            if (!empty($response['results'])) {
-                return $response['results'];
+            $response = $this->askJson(
+                $prompt,
+                'Kamu adalah evaluator teknis pengadaan yang ketat dan objektif. Kamu menolak produk yang berbeda kategori.' . "\n\n" . self::GROUNDING_RULES,
+                $companyId,
+                'rankSearchProducts',
+                0.0
+            );
+
+            foreach ((array) ($response['results'] ?? []) as $row) {
+                $key = (string) ($row['product_id'] ?? '');
+                if (!isset($validIds[$key])) {
+                    continue; // id karangan AI diabaikan
+                }
+                $byId[$key] = $row;
             }
         } catch (\Exception $e) {
-            Log::warning('OpenAiService: rankSearchProducts fallback', ['error' => $e->getMessage()]);
+            Log::warning('OpenAiService: rankSearchProducts gagal', ['error' => $e->getMessage()]);
         }
 
-        // Fallback rankings — LEBIH KETAT: cek via kata kunci sederhana (jika AI gagal/tidak tersedia)
-        $intentKeywords = array_filter(array_map('strtolower', $intent['keywords'] ?? []));
-        $intentSummary  = strtolower($intent['ai_summary'] ?? $userQuery);
-        return array_map(function ($p, $idx) use ($intentKeywords, $intentSummary) {
-            $name = strtolower($p['name'] ?? '');
-            $spec = strtolower($p['specifications'] ?? '');
-            $haystack = $name . ' ' . $spec;
-            $matchCount = 0;
-            foreach ($intentKeywords as $kw) {
-                if (strlen($kw) >= 3 && str_contains($haystack, $kw)) $matchCount++;
-            }
-            $primaryCategoryWord = '';
-            foreach (['mini pc', 'laptop', 'notebook', 'ssd nvme', 'printer', 'smartphone',
-                       'monitor', 'pc desktop', 'server'] as $catWord) {
-                if (str_contains($intentSummary, $catWord)) { $primaryCategoryWord = $catWord; break; }
-            }
-            $hasCategoryMatch = ($primaryCategoryWord === '') || str_contains($name, $primaryCategoryWord);
+        $out = [];
+        foreach ($validIds as $key => $origId) {
+            $row = $byId[$key] ?? null;
 
-            // Fallback tanpa AI: JANGAN kasih skor tinggi kalo category ga cocok
-            $baseScore = $hasCategoryMatch ? 78 : 42;
-            $score = $baseScore + ($matchCount * 2);
-            $score = max(25, min(92, $score - ($idx * 3)));
+            if ($row === null) {
+                $out[] = [
+                    'product_id' => $origId,
+                    'is_match' => false,
+                    'relevance_score' => 0,
+                    'fit_reason' => 'Tidak dievaluasi oleh AI.',
+                    'missing_specs' => [],
+                ];
+                continue;
+            }
 
-            return [
-                'product_id'               => $p['id'],
-                'is_match'                 => $score >= 55, // Fallback rule: skor <55 = otomatis ditolak
-                'relevance_score'          => $score,
-                'fit_reason'               => $hasCategoryMatch
-                    ? "Kategori cocok. {$matchCount} keyword spesifikasi intent terpenuhi."
-                    : "Kemungkinan beda kategori: nama produk tidak mengandung '{$primaryCategoryWord}'. (Evaluasi heuristik AI fallback)",
-                'suggested_qty'            => 1,
-                'estimated_unit_price_idr' => 0,
+            $isMatch = ($row['is_match'] ?? false) === true;
+            $missing = array_values(array_filter(array_map(
+                fn($s) => $this->cleanString($s),
+                (array) ($row['missing_specs'] ?? [])
+            )));
+
+            $out[] = [
+                'product_id' => $origId,
+                'is_match' => $isMatch,
+                'relevance_score' => $isMatch ? max(50, 95 - 10 * count($missing)) : 0,
+                'fit_reason' => $this->cleanString($row['fit_reason'] ?? null),
+                'missing_specs' => $missing,
             ];
-        }, $candidates, array_keys($candidates));
+        }
+
+        return $out;
     }
 
-    /**
-     * Bandingkan beberapa produk katalog secara objektif dan mendalam.
-     *
-     * @param array $webSearchResults Data harga & produk dari Google Search (optional)
-     */
-    public function compareProducts(array $catalogues, ?string $userNeed = null, array $webSearchResults = []): array
-    {
-        $cataloguesJson = json_encode($catalogues, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-        $userNeedPrompt = $userNeed ? "Kebutuhan Khusus Buyer: \"{$userNeed}\"" : "Bandingkan untuk kebutuhan pengadaan standar enterprise.";
+    // ─────────────────────────────────────────────────────────────────────────
+    // Komparasi
+    // ─────────────────────────────────────────────────────────────────────────
 
-        // Bangun blok data harga dari Google Search jika tersedia
-        $webPriceBlock = '';
-        if (!empty($webSearchResults)) {
-            $lines = [];
-            foreach ($webSearchResults as $key => $data) {
-                if ($key === '__general__') continue;
-                $wp = $data['web_prices'] ?? [];
-                if (!empty($wp['avg_price'])) {
-                    $avg = number_format((float) $wp['avg_price'], 0, ',', '.');
-                    $min = number_format((float) ($wp['min_price'] ?? $wp['avg_price']), 0, ',', '.');
-                    $max = number_format((float) ($wp['max_price'] ?? $wp['avg_price']), 0, ',', '.');
-                    $srcCount = count($wp['sources'] ?? []);
-                    $lines[] = "- {$data['item_name']}: Harga web Rp {$min} - Rp {$max} (rata-rata Rp {$avg}) dari {$srcCount} sumber online";
-                }
-                // Tambahkan snippet hasil pencarian web untuk konteks spesifikasi
-                foreach (array_slice($data['results'] ?? [], 0, 2) as $r) {
-                    if (!empty($r['snippet'])) {
-                        $lines[] = "  → [{$r['source']}] {$r['snippet']}";
-                    }
+    /**
+     * Bandingkan kandidat secara teknis, HANYA berdasarkan data kandidat.
+     * Tidak ada harga, skor, atau rating. id dan nama produk dipulihkan dari server.
+     */
+    public function compareProducts(array $catalogues, ?string $userNeed = null): array
+    {
+        $candidates = [];
+        foreach ($catalogues as $c) {
+            if (!isset($c['id'])) {
+                continue;
+            }
+            $snippets = [];
+            foreach (array_slice((array) ($c['_web_results'] ?? []), 0, 3) as $r) {
+                $line = trim(($r['title'] ?? '') . ' - ' . ($r['snippet'] ?? ''), ' -');
+                if ($line !== '') {
+                    $snippets[] = $line;
                 }
             }
-            if (!empty($lines)) {
-                $webPriceBlock = "\n\n==== DATA HARGA & SPESIFIKASI DARI GOOGLE SEARCH (REAL-TIME) ====\n"
-                    . "Gunakan data ini sebagai referensi harga pasar terkini untuk mengevaluasi nilai setiap produk.\n"
-                    . implode("\n", $lines)
-                    . "\n=================================================================";
-            }
+
+            $candidates[(string) $c['id']] = [
+                'id' => $c['id'],
+                'name' => $c['name'] ?? null,
+                'brand' => $c['brand'] ?? null,
+                'category' => $c['category'] ?? null,
+                'specifications' => $c['specifications'] ?? null,
+                'uom' => $c['uom'] ?? null,
+                'vendor' => $c['vendor'] ?? null,
+                'web_snippets' => $snippets,
+            ];
         }
 
+        if (count($candidates) < 2) {
+            return $this->emptyComparison('Kandidat kurang dari 2, perbandingan tidak dilakukan.', false);
+        }
+
+        $needText = $userNeed ? "Kebutuhan buyer: \"{$userNeed}\"" : 'Kebutuhan buyer: tidak dirinci.';
+        $json = json_encode(array_values($candidates), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
         $prompt = <<<PROMPT
-{$userNeedPrompt}{$webPriceBlock}
+{$needText}
 
-Daftar Produk untuk Dibandingkan:
-{$cataloguesJson}
+Data kandidat (satu-satunya sumber informasi yang boleh dipakai):
+{$json}
 
-Lakukan perbandingan komprehensif dari sudut pandang procurement B2B.
-FOKUS pada perbandingan teknis, spesifikasi, keunggulan, dan kekurangan masing-masing produk.
-JANGAN isi estimasi harga — harga dikelola oleh sistem terpisah dan bukan tanggung jawabmu.
-Balas dengan format JSON:
+Bandingkan kandidat dari sisi teknis untuk kebutuhan pengadaan B2B.
+
+Aturan:
+- key_specs, pros, cons, best_for hanya boleh berasal dari field specifications, category, brand, dan web_snippets pada data di atas.
+- Jika data spesifikasi tidak tertulis, tulis "tidak tersedia" pada key_specs dan biarkan pros/cons kosong. Jangan memakai pengetahuan umum tentang produk.
+- Jangan menyebut harga, vendor, garansi, atau ketersediaan.
+- catalogue_id harus persis salah satu id kandidat.
+- winner_id harus salah satu id kandidat, atau null jika data tidak cukup untuk memilih.
+- spec_table: key pada "values" adalah id kandidat.
+
+Skema JSON:
 {
   "comparison_matrix": [
-    {
-      "catalogue_id": "id",
-      "product_name": "nama produk",
-      "vendor_name": "nama vendor",
-      "score": 88,
-      "key_specs": "ringkasan spesifikasi utama",
-      "pros": ["kelebihan 1", "kelebihan 2"],
-      "cons": ["kekurangan 1"],
-      "best_for": "cocok untuk use-case apa",
-      "value_rating": "Sangat Baik / Baik / Cukup"
-    }
+    {"catalogue_id": "id", "key_specs": "...", "pros": [], "cons": [], "best_for": null}
   ],
-  "winner_id": "catalogue_id produk terbaik yang direkomendasikan",
-  "winner_reason": "Penjelasan mengapa produk ini menjadi pilihan utama",
-  "executive_summary": "Ringkasan perbandingan dan rekomendasi keputusan pengadaan",
+  "winner_id": null,
+  "winner_reason": null,
+  "executive_summary": "ringkasan singkat berbasis data di atas",
   "spec_table": [
-    {
-      "feature": "Fitur / Parameter",
-      "values": {
-        "nama_produk_1": "nilai spek 1",
-        "nama_produk_2": "nilai spek 2"
-      }
-    }
+    {"feature": "nama parameter", "values": {"id kandidat": "nilai"}}
   ]
 }
 PROMPT;
 
         try {
-            $res = $this->askJson($prompt, 'Kamu adalah Procurement Consultant & Hardware/Product Specialist senior.', null, 'compareProducts');
-            if (!empty($res['comparison_matrix'])) {
-                return $res;
-            }
-        } catch (\Exception $e) {
-            Log::error('OpenAiService: compareProducts fallback', ['error' => $e->getMessage()]);
-        }
-
-        // Fallback comparison
-        $matrix = [];
-        foreach ($catalogues as $idx => $c) {
-            $catPrice = !empty($c['estimated_price']) ? (float)$c['estimated_price'] : 0;
-            $matrix[] = [
-                'catalogue_id'        => $c['id'] ?? ("cat-{$idx}"),
-                'product_name'        => $c['name'] ?? 'Produk Katalog',
-                'vendor_name'         => $c['vendor'] ?? 'Vendor Resmi',
-                'score'               => 85 + (5 - $idx),
-                'key_specs'           => $c['specifications'] ?? ($c['name'] ?? ''),
-                'pros'                => ['Spesifikasi terstandarisasi', 'Dukungan garansi resmi'],
-                'cons'                => ['Waktu tunggu pengiriman standar'],
-                'estimated_price_idr' => $catPrice,
-                'best_for'            => 'Kebutuhan tim profesional & operasional',
-                'value_rating'        => 'Sangat Baik',
-            ];
-        }
-
-        return [
-            'comparison_matrix' => $matrix,
-            'winner_id'         => $catalogues[0]['id'] ?? null,
-            'winner_reason'     => ($catalogues[0]['name'] ?? 'Opsi pertama') . ' memiliki spesifikasi paling seimbang dan keandalan vendor tinggi.',
-            'executive_summary' => 'Evaluasi komparasi produk telah dilakukan berdasarkan spesifikasi teknis dan efisiensi biaya.',
-            'spec_table'        => [],
-        ];
-    }
-
-    /**
-     * Generate PR Draft komprehensif dengan deskripsi profesional, justifikasi bisnis, & line items.
-     *
-     * @param array $historicalPrices  Data harga historis nyata dari PO/Proposal database
-     * @param array $webSearchResults  Data harga & spesifikasi terkini dari Google Search
-     */
-    public function generatePrDraft(string $userPrompt, array $matchedItems, array $context = [], array $historicalPrices = [], array $webSearchResults = []): array
-    {
-        $itemsJson = json_encode($matchedItems, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-        $contextJson = json_encode($context, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-
-        $intentBudget = $context['estimated_total_budget_idr'] ?? $this->extractBudgetFromText($userPrompt);
-
-        // --- Bangun blok referensi harga historis (ground truth dari DB) ---
-        $historicalPriceBlock = '';
-        if (!empty($historicalPrices)) {
-            $historicalLines = [];
-            foreach ($historicalPrices as $data) {
-                $source     = $data['source'] === 'historical_po' ? 'PO Historis Import' : 'Penawaran Tender Menang';
-                $avgFmt     = number_format((float)$data['avg_price'], 0, ',', '.');
-                $minFmt     = number_format((float)$data['min_price'], 0, ',', '.');
-                $maxFmt     = number_format((float)$data['max_price'], 0, ',', '.');
-                $lastFmt    = number_format((float)$data['last_price'], 0, ',', '.');
-                $samples    = $data['sample_count'];
-                $lastDate   = $data['last_date'] ?? 'N/A';
-                $historicalLines[] = "- \"{$data['item_name']}\": Rata-rata Rp {$avgFmt}/unit | Range Rp {$minFmt} - Rp {$maxFmt} | Harga Terakhir Rp {$lastFmt} | {$samples} transaksi | Sumber: {$source} | Tanggal terakhir: {$lastDate}";
-            }
-            $historicalPriceBlock = "\n\n==== REFERENSI HARGA NYATA DARI DATABASE TRANSAKSI HUNTR ====\n"
-                . "Data berikut adalah harga NYATA dari transaksi PO / penawaran vendor yang BENAR-BENAR TERJADI di sistem Huntr.\n"
-                . "WAJIB gunakan harga historis ini sebagai acuan utama untuk item yang cocok. DILARANG mengarang harga jika referensi sudah tersedia.\n"
-                . "Untuk item yang ada referensinya: set 'price_status' = 'historical_reference' dan 'estimated_price' sesuai rata-rata atau harga terakhir.\n"
-                . implode("\n", $historicalLines)
-                . "\n==============================================================";
-        }
-
-        // --- Bangun blok referensi harga web dari Google Search ---
-        $webSearchBlock = '';
-        if (!empty($webSearchResults)) {
-            $webLines = [];
-            foreach ($webSearchResults as $key => $data) {
-                $itemName = $data['item_name'] ?? $key;
-                $wp       = $data['web_prices'] ?? [];
-                if (!empty($wp['avg_price'])) {
-                    $avg  = number_format((float) $wp['avg_price'], 0, ',', '.');
-                    $min  = number_format((float) ($wp['min_price'] ?? $wp['avg_price']), 0, ',', '.');
-                    $max  = number_format((float) ($wp['max_price'] ?? $wp['avg_price']), 0, ',', '.');
-                    $srcs = count($wp['sources'] ?? []);
-                    $webLines[] = "- \"{$itemName}\": Range harga web Rp {$min} - Rp {$max} (rata-rata Rp {$avg}) dari {$srcs} toko/distributor online";
-                }
-                // Tambahkan top-3 snippet untuk konteks spesifikasi & produk alternatif
-                foreach (array_slice($data['results'] ?? [], 0, 3) as $r) {
-                    if (!empty($r['snippet'])) {
-                        $price = $r['price'] > 0 ? ' [Rp ' . number_format($r['price'], 0, ',', '.') . ']' : '';
-                        $webLines[] = "  → [{$r['source']}]{$price} {$r['snippet']}";
-                    }
-                }
-            }
-            if (!empty($webLines)) {
-                $webSearchBlock = "\n\n==== REFERENSI HARGA & PRODUK DARI BRAVE SEARCH / WEB (REAL-TIME) ====\n"
-                    . "Data harga pasar dan spesifikasi terkini yang ditemukan langsung dari internet/web (distributor resmi, marketplace B2B, portal industri).\n"
-                    . "WAJIB gunakan referensi web ini sebagai acuan harga pasar terkini jika tidak ada data historis Huntr!\n"
-                    . "Untuk item yang cocok: set 'price_status' = 'web_market_reference', dan gunakan kisaran harga web tersebut untuk 'estimated_price'. DILARANG mengarang harga murah yang tidak realistis (misal alat berat ratusan juta / miliaran rupiah jangan diisi puluhan juta)!\n"
-                    . implode("\n", $webLines)
-                    . "\n=================================================================";
-            }
-        }
-
-        // HARGA TIDAK BOLEH DIISI OLEH AI — sepenuhnya dihandle enrichPrItems dari:
-        //   1. Historis PO Huntr  2. Brave Search/web  3. Buyer budget  4. rfq_required
-        $budgetInstruction = "ATURAN HARGA (WAJIB DIPATUHI): JANGAN PERNAH mengisi atau menebak nilai 'estimated_price'. Selalu set 'estimated_price': 0 dan 'price_status': 'rfq_required' untuk SEMUA item. Sistem akan mengisi harga secara otomatis dari data historis transaksi dan riset web. Harga BUKAN tanggung jawabmu.";
-
-        $prompt = <<<PROMPT
-Permintaan Kebutuhan Pengadaan User:
-"{$userPrompt}"
-
-Konteks Tambahan:
-{$contextJson}
-
-{$budgetInstruction}{$historicalPriceBlock}{$webSearchBlock}
-
-Produk Terpilih / Katalog Tersedia di Database:
-{$itemsJson}
-
-PEDOMAN PENYUSUNAN PR:
-1. HARGA DILARANG DIISI OLEH AI: Set 'estimated_price': 0 dan 'price_status': 'rfq_required' untuk SEMUA item tanpa kecuali. Sistem backend akan mengisi harga dari data historis PO dan riset web secara otomatis.
-2. 'estimated_total_budget': set ke 0 — akan dihitung ulang oleh sistem.
-3. Fokus tugasmu: susun teks PR yang sangat lengkap, profesional, dan terstruktur dalam Bahasa Indonesia formal — deskripsi, justifikasi bisnis, spesifikasi teknis, alasan pemilihan item.
-
-Balas HANYA dengan JSON valid format:
-{
-  "title": "Judul PR Resmi (misal: PR-2026-IT: Pengadaan Laptop High Performance & Monitor)",
-  "department": "Nama Departemen Pengaju (misal: Information Technology / Operations / General Affairs)",
-  "description": "Deskripsi lengkap PR: latar belakang kebutuhan, justifikasi pengadaan, spesifikasi minimum, ruang lingkup, dan SLA garansi (minimal 3-5 kalimat berbobot)",
-  "business_justification": "Alasan urgensi bisnis mengapa pengadaan ini perlu disetujui oleh Manager/Finance",
-  "duration_days": 7,
-  "priority": "Normal / Urgent / Critical",
-  "suggested_items": [
-    {
-      "catalogue_id": "id katalog dari daftar jika cocok, atau null jika item baru",
-      "name": "Nama lengkap produk & tipe",
-      "item_code": "Kode item dari katalog atau 'REQ-NAMA' jika baru",
-      "category": "Kategori barang",
-      "brand": "Merk barang",
-      "detailed_specs": "Rincian spesifikasi teknis lengkap item sesuai standar resmi",
-      "qty": 10,
-      "uom": "unit / set / pcs / box",
-      "estimated_price": 0,
-      "price_status": "rfq_required",
-      "price_note": "Harga akan diisi otomatis oleh sistem dari data historis dan riset web",
-      "expected_date": "2026-09-01",
-      "reason": "Alasan pemilihan item / justifikasi kebutuhan"
-    }
-  ],
-  "estimated_total_budget": 45000000,
-  "delivery_point_recommendation": "Rekomendasi alamat/titik pengiriman barang",
-  "vendor_evaluation_criteria": [
-    "Kesesuaian spesifikasi teknis 100%",
-    "Garansi resmi pabrikan/distributor terverifikasi",
-    "Lead time pengiriman maksimal 14 hari kerja"
-  ],
-  "manager_notes": "Catatan ringkas untuk approval manager"
-}
-PROMPT;
-
-        try {
-            $res = $this->askJson($prompt, 'Kamu adalah Chief Procurement Officer (CPO) dan Senior Procurement Estimator B2B Indonesia. Kamu sangat teliti terhadap generasi hardware, tipe barang, dan estimasi harga pasar wajar (HPS). Jika ada data historis transaksi, WAJIB gunakan sebagai referensi utama harga.', null, 'generatePrDraft');
-            if (!empty($res['suggested_items'])) {
-                // Pastikan setiap suggested_item punya mapping katalog yang valid
-                $catalogueById    = collect($matchedItems)->keyBy('id');
-                $historicalByName = collect($historicalPrices)->keyBy(fn($v) => strtolower(trim($v['item_name'])));
-
-                $res['suggested_items'] = array_map(function ($item) use ($catalogueById, $intentBudget, $historicalByName) {
-                    if (empty($item['catalogue_id']) || !$catalogueById->has($item['catalogue_id'])) {
-                        // Coba match by name
-                        $matched = $catalogueById->first(fn($c) =>
-                            isset($c['name']) && strtolower(trim($c['name'])) === strtolower(trim($item['name'] ?? ''))
-                        );
-                        if ($matched) {
-                            $item['catalogue_id'] = $matched['id'];
-                            if (empty($item['estimated_price']) || $item['estimated_price'] <= 0) {
-                                $item['estimated_price'] = $matched['estimated_price'] ?? 0;
-                            }
-                        }
-                    } else {
-                        // catalogue_id valid — carry over harga dari katalog jika AI tidak isi
-                        $cat = $catalogueById->get($item['catalogue_id']);
-                        if (($item['estimated_price'] ?? 0) <= 0 && isset($cat['estimated_price']) && $cat['estimated_price'] > 0) {
-                            $item['estimated_price'] = $cat['estimated_price'];
-                        }
-                    }
-
-                    // Tentukan price_status yang transparan & akurat
-                    $curPrice    = (float)($item['estimated_price'] ?? 0);
-                    $itemNameKey = strtolower(trim($item['name'] ?? ''));
-
-                    // Cek apakah nama item cocok dengan data historis (fuzzy match sederhana)
-                    $historicalMatch = $historicalByName->first(fn($h, $key) =>
-                        str_contains($itemNameKey, $key) || str_contains($key, $itemNameKey)
-                    );
-
-                    if ($item['price_status'] === 'historical_reference' && $curPrice > 0) {
-                        // AI sudah set historical_reference — pertahankan
-                        $item['price_status'] = 'historical_reference';
-                    } elseif ($historicalMatch && $curPrice > 0) {
-                        // Item cocok data historis — override ke historical_reference
-                        $item['price_status'] = 'historical_reference';
-                        if (empty($item['price_note'])) {
-                            $avgFmt = number_format((float)$historicalMatch['avg_price'], 0, ',', '.');
-                            $samples = $historicalMatch['sample_count'];
-                            $item['price_note'] = "Berdasarkan {$samples} transaksi " . ($historicalMatch['source'] === 'historical_po' ? 'PO historis' : 'penawaran tender') . " (rata-rata Rp {$avgFmt})";
-                        }
-                    } elseif ($item['price_status'] === 'web_market_reference' && $curPrice > 0) {
-                        // AI menggunakan data referensi Brave Search / Web — pertahankan
-                        $item['price_status'] = 'web_market_reference';
-                    } elseif (!empty($item['catalogue_id']) && $curPrice > 0) {
-                        $item['price_status'] = 'verified_catalogue';
-                    } elseif ($intentBudget && $curPrice > 0) {
-                        $item['price_status'] = 'buyer_budget';
-                    } elseif ($curPrice > 0) {
-                        $item['price_status'] = 'market_estimate';
-                    } else {
-                        $item['price_status'] = 'rfq_required';
-                        $item['estimated_price'] = 0;
-                    }
-
-                    return $item;
-                }, $res['suggested_items']);
-                return $res;
-            }
-        } catch (\Exception $e) {
-            Log::error('OpenAiService: generatePrDraft fallback', ['error' => $e->getMessage()]);
-        }
-
-        // Resilient Fallback Heuristic PR Generation
-        $detectedBudget   = $intentBudget ?: $this->extractBudgetFromText($userPrompt);
-        $detectedItems    = $this->extractItemsFromText($userPrompt, $detectedBudget);
-        $historicalByName = collect($historicalPrices)->keyBy(fn($v) => strtolower(trim($v['item_name'])));
-
-        /**
-         * Helper: resolusi harga dari historis (ground truth) atau budget atau 0
-         */
-        $resolvePrice = function (string $name, float $fallbackPrice, string &$priceStatus) use ($historicalByName, $detectedBudget): float {
-            $nameKey = strtolower(trim($name));
-            $hist    = $historicalByName->first(fn($h, $key) =>
-                str_contains($nameKey, $key) || str_contains($key, $nameKey)
+            $res = $this->askJson(
+                $prompt,
+                'Kamu adalah analis produk pengadaan. Kamu hanya merangkum data yang diberikan dan tidak menambah fakta.' . "\n\n" . self::GROUNDING_RULES,
+                null,
+                'compareProducts',
+                0.1
             );
-            if ($hist && (float)$hist['avg_price'] > 0) {
-                $priceStatus = 'historical_reference';
-                return (float)$hist['avg_price'];
-            }
-            if ($fallbackPrice > 0) {
-                $priceStatus = $detectedBudget ? 'buyer_budget' : 'market_estimate';
-                return $fallbackPrice;
-            }
-            $priceStatus = 'rfq_required';
-            return 0;
-        };
 
-        $suggestedItems = [];
-        if (!empty($matchedItems)) {
-            $suggestedItems = array_map(function ($m) use ($resolvePrice, $detectedBudget, $matchedItems) {
-                $fallback    = !empty($m['estimated_price']) ? (float)$m['estimated_price'] : ($detectedBudget ? round($detectedBudget / count($matchedItems)) : 0);
-                $priceStatus = 'rfq_required';
-                $price       = $resolvePrice($m['name'] ?? '', $fallback, $priceStatus);
-                return [
-                    'catalogue_id'    => $m['id'] ?? null,
-                    'name'            => $m['name'] ?? 'Item Pengadaan',
-                    'item_code'       => $m['item_code'] ?? null,
-                    'category'        => $m['category'] ?? 'General',
-                    'brand'           => $m['brand'] ?? null,
-                    'detailed_specs'  => $m['specifications'] ?? ($m['name'] ?? ''),
-                    'qty'             => 1,
-                    'uom'             => $m['uom'] ?? 'unit',
-                    'estimated_price' => $price,
-                    'price_status'    => $priceStatus,
-                    'expected_date'   => now()->addDays(14)->toDateString(),
-                    'reason'          => 'Sesuai spesifikasi kebutuhan katalog terdaftar',
+            $matrix = [];
+            foreach ((array) ($res['comparison_matrix'] ?? []) as $row) {
+                $id = (string) ($row['catalogue_id'] ?? '');
+                if (!isset($candidates[$id])) {
+                    continue;
+                }
+                $cand = $candidates[$id];
+                $matrix[] = [
+                    'catalogue_id' => $cand['id'],
+                    'product_name' => $cand['name'],   // dari server, bukan dari AI
+                    'vendor_name' => $cand['vendor'], // dari server
+                    'key_specs' => $this->cleanString($row['key_specs'] ?? null),
+                    'pros' => $this->stringList($row['pros'] ?? []),
+                    'cons' => $this->stringList($row['cons'] ?? []),
+                    'best_for' => $this->cleanString($row['best_for'] ?? null),
+                    'score' => null,
+                    'value_rating' => null,
                 ];
-            }, $matchedItems);
-        } else {
-            $suggestedItems = array_map(function ($it) use ($resolvePrice) {
-                $priceStatus = 'rfq_required';
-                $price       = $resolvePrice($it['name'] ?? '', (float)($it['estimated_price'] ?? 0), $priceStatus);
-                return [
-                    'catalogue_id'    => null,
-                    'name'            => $it['name'],
-                    'item_code'       => 'REQ-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $it['name']), 0, 6)),
-                    'category'        => 'General Procurement',
-                    'brand'           => null,
-                    'detailed_specs'  => $it['detailed_specs'],
-                    'qty'             => $it['qty'],
-                    'uom'             => $it['uom'],
-                    'estimated_price' => $price,
-                    'price_status'    => $priceStatus,
-                    'expected_date'   => now()->addDays(14)->toDateString(),
-                    'reason'          => 'Kebutuhan unit pengadaan sesuai prompt user (menunggu penawaran vendor)',
-                ];
-            }, $detectedItems);
+            }
+
+            if (empty($matrix)) {
+                return $this->emptyComparison('AI tidak mengembalikan perbandingan yang valid.', true);
+            }
+
+            $winnerId = (string) ($res['winner_id'] ?? '');
+            $winner = isset($candidates[$winnerId]) ? $candidates[$winnerId]['id'] : null;
+
+            $specTable = [];
+            foreach ((array) ($res['spec_table'] ?? []) as $row) {
+                $feature = $this->cleanString($row['feature'] ?? null);
+                if ($feature === null) {
+                    continue;
+                }
+                $values = [];
+                foreach ((array) ($row['values'] ?? []) as $vid => $val) {
+                    $vid = (string) $vid;
+                    if (isset($candidates[$vid])) {
+                        $values[$candidates[$vid]['name'] ?? $vid] = $this->cleanString(is_scalar($val) ? (string) $val : null);
+                    }
+                }
+                if (!empty($values)) {
+                    $specTable[] = ['feature' => $feature, 'values' => $values];
+                }
+            }
+
+            return [
+                'comparison_matrix' => $matrix,
+                'winner_id' => $winner,
+                'winner_reason' => $winner !== null ? $this->cleanString($res['winner_reason'] ?? null) : null,
+                'executive_summary' => $this->cleanString($res['executive_summary'] ?? null),
+                'spec_table' => $specTable,
+            ];
+        } catch (\Exception $e) {
+            Log::error('OpenAiService: compareProducts gagal', ['error' => $e->getMessage()]);
         }
 
-        $totalBudgetCalculated = collect($suggestedItems)->sum(fn($i) => ($i['qty'] ?? 1) * ($i['estimated_price'] ?? 0));
+        return $this->emptyComparison('Perbandingan otomatis tidak tersedia. Silakan tinjau kandidat secara manual.', true);
+    }
 
+    private function emptyComparison(string $summary, bool $error): array
+    {
         return [
-            'title'                  => 'PR-' . date('Ymd') . ': Pengadaan ' . implode(', ', array_slice(array_column($suggestedItems, 'name'), 0, 2)),
-            'department'             => $context['department'] ?? 'Information Technology',
-            'description'            => "Pengadaan resmi untuk kebutuhan operasional perusahaan: {$userPrompt}. Seluruh unit harus memenuhi standar kualitas enterprise dengan garansi resmi dan waktu pengiriman sesuai SLA.",
-            'business_justification' => 'Pengadaan ini sangat mendesak untuk menunjang kelancaran produktivitas tim operasional dan keberlangsungan proyek perusahaan.',
-            'duration_days'          => 7,
-            'priority'               => 'Normal',
-            'suggested_items'        => $suggestedItems,
-            'estimated_total_budget' => $detectedBudget ?: $totalBudgetCalculated,
-            'delivery_point_recommendation' => $context['address'] ?? 'Kantor Pusat',
-            'vendor_evaluation_criteria' => [
-                'Kesesuaian spesifikasi teknis 100%',
-                'Garansi resmi pabrikan/distributor terverifikasi',
-                'Waktu pengiriman maksimal 14 hari kerja'
-            ],
-            'manager_notes'          => 'Mohon review dan approval untuk proses penawaran tender vendor.',
+            'comparison_matrix' => [],
+            'winner_id' => null,
+            'winner_reason' => null,
+            'executive_summary' => $summary,
+            'spec_table' => [],
+            'error' => $error,
         ];
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Draft PR
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Autofill metadata & spesifikasi katalog produk menggunakan OpenAI ChatGPT.
+     * Susun draft PR. $items disusun SERVER (dari intent buyer + katalog tervalidasi);
+     * AI hanya menulis teks deskripsi, justifikasi, dan catatan.
+     * AI tidak menyentuh harga, merek, spesifikasi, maupun kuantitas item.
+     */
+    public function generatePrDraft(string $userPrompt, array $items, array $context = []): array
+    {
+        $itemNames = array_values(array_filter(array_map(fn($i) => $i['name'] ?? null, $items)));
+        $title = !empty($itemNames)
+            ? 'Pengadaan ' . implode(', ', array_slice($itemNames, 0, 2)) . (count($itemNames) > 2 ? ' dan lainnya' : '')
+            : 'Purchase Requisition ' . date('Y-m-d');
+
+        $draft = [
+            'title' => $title,
+            'department' => $context['department'] ?? null,
+            'description' => 'Permintaan pengadaan: ' . $userPrompt,
+            'business_justification' => null,
+            'manager_notes' => null,
+            'duration_days' => (int) config('ai.default_rfq_duration_days', 7),
+            'priority' => $context['urgency'] ?? 'Normal',
+            'suggested_items' => $items,
+            'estimated_total_budget' => 0,
+            'delivery_point_recommendation' => $context['address'] ?? null,
+            'vendor_evaluation_criteria' => [],
+        ];
+
+        return $draft;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Katalog & gambar
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Autofill metadata katalog. Hasil WAJIB ditinjau manusia (needs_review = true).
      */
     public function autofillCatalogue(string $name, ?string $categoryHint = null, ?string $companyId = null): array
     {
-        $categoryHintText = $categoryHint ? "Kategori yang disarankan: {$categoryHint}" : "";
+        $categories = implode(' | ', self::CATALOGUE_CATEGORIES);
+        $uoms = implode(' | ', self::CATALOGUE_UOMS);
+        $hint = $categoryHint ? "Kategori yang disarankan: {$categoryHint}" : '';
+
         $prompt = <<<PROMPT
-Nama Produk: "{$name}"
-{$categoryHintText}
+Nama produk: "{$name}"
+{$hint}
 
-Lengkapi data katalog produk B2B di atas secara akurat dan profesional.
-PILIH SALAH SATU Kategori yang paling tepat dari daftar ini:
-- Electronics
-- Spareparts
-- Construction
-- Software
-- Furniture
-- Stationery
-- Mechanical
-- Chemicals
-- General
+Lengkapi data katalog berikut HANYA dari informasi yang tertulis pada nama produk dan petunjuk di atas.
 
-PILIH SALAH SATU Satuan UOM yang paling sesuai:
-- Unit
-- Pc
-- Set
-- Box
-- Pack
-- Roll
-- Litre
-- Kg
-- Meter
-- License
+Aturan:
+- category: salah satu dari {$categories}.
+- uom: salah satu dari {$uoms}.
+- brand: hanya jika merek tertulis pada nama produk; selain itu "Generic".
+- specifications: hanya spesifikasi yang tertulis pada nama produk. JANGAN menambah angka, kapasitas, material, atau fitur yang tidak tertulis. Jika tidak ada, null.
+- keywords: kata kunci dari nama produk, dipisah koma.
+- image_search_query: pencarian gambar bahasa Inggris berdasarkan nama produk.
 
-Balas HANYA dengan JSON valid format:
-{
-  "category": "Salah satu kategori di atas",
-  "brand": "Nama merk/brand spesifik atau 'Generic'",
-  "uom": "Salah satu UOM di atas",
-  "specifications": "Ringkasan spesifikasi teknis lengkap, dimensi/kapasitas, material, dan fitur utama produk (2-4 kalimat/bullet points)",
-  "keywords": "kata-kunci-1, kata-kunci-2, merek, kategori, spesifikasi-kunci",
-  "image_search_query": "Keyword pencarian gambar produk bahasa inggris yang sangat spesifik dan akurat di Wikipedia/Commons"
-}
+Skema JSON:
+{"category": "...", "brand": "...", "uom": "...", "specifications": null, "keywords": "...", "image_search_query": "..."}
 PROMPT;
 
+        $category = $categoryHint && in_array($categoryHint, self::CATALOGUE_CATEGORIES, true) ? $categoryHint : 'General';
+        $result = [
+            'category' => $category,
+            'brand' => 'Generic',
+            'uom' => 'Unit',
+            'specifications' => null,
+            'keywords' => mb_strtolower($name),
+            'image_search_query' => $name,
+            'needs_review' => true,
+        ];
+
         try {
-            $res = $this->askJson($prompt, 'Kamu adalah B2B Product Master Data Specialist dan Technical Catalogue Manager yang sangat teliti.', $companyId, 'autofillCatalogue');
-            if (!empty($res['category'])) {
-                return $res;
+            $res = $this->askJson(
+                $prompt,
+                'Kamu adalah staf master data katalog yang teliti dan tidak menebak.' . "\n\n" . self::GROUNDING_RULES,
+                $companyId,
+                'autofillCatalogue',
+                0.1
+            );
+
+            if (!empty($res)) {
+                if (in_array($res['category'] ?? null, self::CATALOGUE_CATEGORIES, true)) {
+                    $result['category'] = $res['category'];
+                }
+                if (in_array($res['uom'] ?? null, self::CATALOGUE_UOMS, true)) {
+                    $result['uom'] = $res['uom'];
+                }
+                $brand = $this->cleanString($res['brand'] ?? null);
+                if ($brand !== null && (strcasecmp($brand, 'Generic') === 0 || stripos($name, $brand) !== false)) {
+                    $result['brand'] = $brand;
+                }
+                $result['specifications'] = $this->cleanString($res['specifications'] ?? null);
+                $result['keywords'] = $this->cleanString($res['keywords'] ?? null) ?? $result['keywords'];
+                $result['image_search_query'] = $this->cleanString($res['image_search_query'] ?? null) ?? $name;
             }
         } catch (\Exception $e) {
             Log::warning('OpenAiService: autofillCatalogue fallback', ['error' => $e->getMessage()]);
         }
 
-        return [
-            'category'           => $categoryHint ?: 'General',
-            'brand'              => 'Generic',
-            'uom'                => 'Unit',
-            'specifications'     => "{$name} - Spesifikasi standar industri kualitas enterprise.",
-            'keywords'           => strtolower("{$name}, general, procurement"),
-            'image_search_query' => $name,
-        ];
+        return $result;
     }
 
     /**
-     * Generate foto produk katalog komersial nyata menggunakan AI Diffusion Engine & ChatGPT Prompt Optimizer.
-     * Menghasilkan foto produk nyata studio profesional tanpa halusinasi ilustrasi / 3D cartoon.
+     * Generate gambar ilustrasi produk. Gambar adalah HASIL AI (is_ai_generated = true)
+     * dan tidak boleh diperlakukan sebagai foto produk resmi.
      */
     public function generateProductImage(string $productName, ?string $category = null, ?string $brand = null, ?string $companyId = null): array
     {
         $brandClean = $brand && strtolower($brand) !== 'generic' ? $brand : '';
-        
-        // 1. Gunakan ChatGPT untuk merumuskan prompt visual foto produk yang detail, akurat, dan fotorealistis
-        $optimizedPrompt = "commercial product photography of {$brandClean} {$productName}, official real product packaging and hardware, centered, studio lighting, plain clean pure white background, 8k resolution, crisp sharp focus, real photo, unedited realistic materials, canon eos r5";
+
+        $optimizedPrompt = "commercial product photography of {$brandClean} {$productName}, centered, studio lighting, plain clean pure white background, sharp focus, realistic photo";
 
         try {
             $chatGptPrompt = <<<PROMPT
@@ -940,72 +902,59 @@ Nama Produk: "{$productName}"
 Kategori: "{$category}"
 Brand: "{$brandClean}"
 
-Tulis deskripsi visual bahasa Inggris singkat (1-2 kalimat) untuk foto produk katalog e-commerce NYATA (bukan gambar animasi/kartun/lukisan).
-Deskripsikan bentuk fisik barang yang tepat, material nyata (metal, plastik matte, kaca, packaging resmi), dan posisinya di atas background putih studio bersih.
-Wajib diakhiri dengan: "commercial product photo, centered, pure white background, 8k, sharp focus, real photograph".
+Tulis deskripsi visual bahasa Inggris singkat (1-2 kalimat) untuk foto produk katalog e-commerce (bukan kartun/lukisan).
+Deskripsikan bentuk fisik umum barang di atas background putih studio. Jangan menambah logo, teks, atau fitur yang tidak disebut pada nama produk.
+Akhiri dengan: "commercial product photo, centered, pure white background, sharp focus".
 
-Balas HANYA dengan teks prompt bahasa Inggris tersebut tanpa tanda petik atau pengantar.
+Balas HANYA dengan teks prompt tanpa tanda petik.
 PROMPT;
 
-            $aiPrompt = trim($this->ask($chatGptPrompt, 'You are an expert commercial product photographer and catalog image prompt engineer.', $companyId, 'optimizeImagePrompt'));
-            if (!empty($aiPrompt) && strlen($aiPrompt) > 20) {
+            $aiPrompt = trim($this->ask(
+                $chatGptPrompt,
+                'You are a commercial product photographer and catalog image prompt engineer.',
+                $companyId,
+                'optimizeImagePrompt',
+                0.3
+            ));
+            if ($aiPrompt !== '' && strlen($aiPrompt) > 20) {
                 $optimizedPrompt = $aiPrompt;
             }
         } catch (\Exception $e) {
-            Log::warning('ChatGPT image prompt optimization fallback to default', ['error' => $e->getMessage()]);
+            Log::warning('OpenAiService: image prompt optimization fallback', ['error' => $e->getMessage()]);
         }
 
-        // Negative prompt untuk mematikan halusinasi (gambar kartun, teks aneh, lukisan, render 3D murahan)
-        $negativePrompt = "blurry, low quality, cartoon, anime, 3d render, drawing, painting, illustration, watermark, text, signature, duplicate, distorted, fantasy, deformed";
-        
+        $negative = 'blurry, low quality, cartoon, anime, 3d render, drawing, painting, illustration, watermark, text, signature, duplicate, distorted, fantasy, deformed';
         $encodedPrompt = urlencode($optimizedPrompt);
-        $encodedNegative = urlencode($negativePrompt);
+        $encodedNegative = urlencode($negative);
 
-        // 2. High Quality Realistic AI Diffusion Image Generator (Flux / Realistic Photo Engine)
-        try {
-            $diffusionUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?negative={$encodedNegative}&width=800&height=800&nologo=true&enhance=false&model=flux";
-            $res = Http::timeout(35)->get($diffusionUrl);
+        $attempts = [
+            ['url' => "https://image.pollinations.ai/prompt/{$encodedPrompt}?negative={$encodedNegative}&width=800&height=800&nologo=true&enhance=false&model=flux", 'timeout' => 35],
+            ['url' => "https://image.pollinations.ai/prompt/{$encodedPrompt}?negative={$encodedNegative}&width=600&height=600&nologo=true&model=turbo", 'timeout' => 20],
+        ];
 
-            if ($res->successful() && strlen($res->body()) > 2000) {
-                $b64 = base64_encode($res->body());
-                $this->trackUsage(['prompt_tokens' => 300, 'completion_tokens' => 0, 'total_tokens' => 300], 'generateProductImage', $companyId);
-
-                return [
-                    'success'  => true,
-                    'b64_json' => $b64,
-                    'url'      => $diffusionUrl,
-                ];
+        $lastError = null;
+        foreach ($attempts as $attempt) {
+            try {
+                $res = Http::timeout($attempt['timeout'])->get($attempt['url']);
+                if ($res->successful() && strlen($res->body()) > 2000) {
+                    return [
+                        'success' => true,
+                        'b64_json' => base64_encode($res->body()),
+                        'url' => $attempt['url'],
+                        'is_ai_generated' => true,
+                    ];
+                }
+            } catch (\Exception $e) {
+                $lastError = $e->getMessage();
+                Log::warning('OpenAiService: image generation attempt failed', ['error' => $lastError]);
             }
-        } catch (\Exception $e) {
-            Log::warning('Pollinations Flux realistic photo generation failed, trying Turbo model', ['error' => $e->getMessage()]);
         }
 
-        // 3. Fallback High-Speed Turbo Diffusion Model
-        try {
-            $turboUrl = "https://image.pollinations.ai/prompt/{$encodedPrompt}?negative={$encodedNegative}&width=600&height=600&nologo=true&model=turbo";
-            $res = Http::timeout(20)->get($turboUrl);
-
-            if ($res->successful() && strlen($res->body()) > 2000) {
-                $b64 = base64_encode($res->body());
-                return [
-                    'success'  => true,
-                    'b64_json' => $b64,
-                    'url'      => $turboUrl,
-                ];
-            }
-        } catch (\Exception $e) {
-            Log::error('All generative image engines failed', ['error' => $e->getMessage()]);
-            throw new \RuntimeException('Gagal meng-generate foto produk AI: ' . $e->getMessage());
-        }
-
-        throw new \RuntimeException('Gagal mendapatkan foto produk dari AI.');
+        throw new \RuntimeException('Gagal meng-generate gambar produk AI' . ($lastError ? ': ' . $lastError : '.'));
     }
 
-
-
-
     /**
-     * Teks perbandingan markdown dari prompt bebas.
+     * Teks perbandingan umum (markdown). Tidak memuat harga; berisi penafian.
      */
     public function generateComparisonText(string $userQuery): string
     {
@@ -1013,51 +962,170 @@ PROMPT;
 User meminta perbandingan produk berikut:
 "{$userQuery}"
 
-Berikan analisis perbandingan spesifikasi teknis dan saran pengadaan yang komprehensif menggunakan pengetahuan Anda.
-Tulis dalam format Markdown table yang rapi dengan kolom: Fitur | Produk A | Produk B
-Sertakan baris untuk: Prosesor / Tipe, RAM / Kapasitas, Storage / Material, Display / Dimensi, Daya / Baterai, Estimasi Harga (IDR), Kelebihan, Kekurangan.
-Tambahkan narasi singkat rekomendasi procurement di bawah tabel.
+Buat perbandingan spesifikasi umum dalam tabel Markdown (kolom: Aspek | Produk A | Produk B).
+Aturan:
+- JANGAN membuat baris harga atau estimasi harga.
+- Isi hanya aspek yang Anda yakin sebagai pengetahuan umum yang stabil; tulis "perlu verifikasi" jika ragu, dan "tidak diketahui" jika tidak tahu.
+- Jangan menyebut tipe/seri yang tidak disebut user.
+- Akhiri dengan satu kalimat bahwa ini perbandingan umum yang harus diverifikasi ke datasheet/vendor sebelum dipakai di dokumen pengadaan.
 PROMPT;
 
         try {
-            return $this->ask($prompt, 'Kamu adalah asisten pengadaan barang yang objektif dan ahli dalam spesifikasi teknis produk.', null, 'generateComparisonText');
+            return $this->ask(
+                $prompt,
+                'Kamu adalah asisten pengadaan yang objektif dan jujur terhadap batas pengetahuannya.' . "\n\n" . self::GROUNDING_RULES,
+                null,
+                'generateComparisonText',
+                0.2
+            );
         } catch (\Exception $e) {
             Log::error('OpenAiService: generateComparisonText failed', ['error' => $e->getMessage()]);
             return 'Gagal memuat perbandingan produk.';
         }
     }
 
-    /**
-     * Track penggunaan OpenAI ke database.
-     */
+    // ─────────────────────────────────────────────────────────────────────────
+    // Usage
+    // ─────────────────────────────────────────────────────────────────────────
+
     private function trackUsage(array $usage, string $endpoint, ?string $companyId = null): void
     {
         try {
-            $promptTokens     = (int) ($usage['prompt_tokens']     ?? 0);
+            $promptTokens = (int) ($usage['prompt_tokens'] ?? 0);
             $completionTokens = (int) ($usage['completion_tokens'] ?? 0);
-            $totalTokens      = (int) ($usage['total_tokens']      ?? ($promptTokens + $completionTokens));
+            $totalTokens = (int) ($usage['total_tokens'] ?? ($promptTokens + $completionTokens));
 
             AiUsageLog::create([
-                'company_id'       => $companyId,
-                'user_id'          => null, // bisa diisi dari request context jika diperlukan
-                'endpoint'         => $endpoint,
-                'model'            => $this->model,
-                'prompt_tokens'    => $promptTokens,
-                'completion_tokens'=> $completionTokens,
-                'total_tokens'     => $totalTokens,
+                'company_id' => $companyId,
+                'user_id' => null,
+                'endpoint' => $endpoint,
+                'model' => $this->model,
+                'prompt_tokens' => $promptTokens,
+                'completion_tokens' => $completionTokens,
+                'total_tokens' => $totalTokens,
                 'estimated_cost_usd' => AiUsageLog::estimateCost($this->model, $promptTokens, $completionTokens),
             ]);
         } catch (\Throwable $e) {
-            // Jangan sampai tracking error memblok fitur AI
             Log::warning('OpenAiService: trackUsage failed', ['error' => $e->getMessage()]);
         }
     }
 
-    /**
-     * Ambil ringkasan penggunaan AI bulan ini untuk satu company.
-     */
     public function getUsageSummary(string $companyId): array
     {
         return AiUsageLog::getMonthlySummary($companyId);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function cleanString(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        $value = trim($value);
+        if ($value === '' || in_array(mb_strtolower($value), ['null', 'none', 'n/a', '-', 'tidak ada'], true)) {
+            return null;
+        }
+        return $value;
+    }
+
+    private function stringList(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        return array_values(array_filter(array_map(fn($v) => $this->cleanString($v), $value)));
+    }
+
+    /** Merek hanya valid jika benar-benar tertulis di teks user. */
+    private function verifyBrand(mixed $brand, string $query): ?string
+    {
+        $brand = $this->cleanString($brand);
+        if ($brand === null) {
+            return null;
+        }
+        return $this->containsOnlySourceWords($brand, $query) ? $brand : null;
+    }
+
+    /** Nominal hasil AI hanya valid jika angka itu memang disebut di teks user. */
+    private function moneyAppearsInText(float $amount, string $text): bool
+    {
+        foreach ($this->findMoneyValues($text) as $value) {
+            if (abs($value - $amount) < 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function findMoneyValues(string $text): array
+    {
+        $values = [];
+
+        if (preg_match_all('/(?<![\p{L}])(?:rp\.?|idr)\s*(\d+(?:[.,]\d+)*)(?:\s*(miliar|milyar|juta|jt|ribu|rb|k)(?![\p{L}]))?/iu', $text, $m, PREG_SET_ORDER)) {
+            foreach ($m as $row) {
+                $v = $this->parseIdrAmount($row[1], $row[2] ?? '', 1_000);
+                if ($v !== null) {
+                    $values[] = $v;
+                }
+            }
+        }
+
+        if (preg_match_all('/(\d+(?:[.,]\d+)*)\s*(miliar|milyar|juta|jt|ribu|rb)(?![\p{L}])/iu', $text, $m, PREG_SET_ORDER)) {
+            foreach ($m as $row) {
+                $v = $this->parseIdrAmount($row[1], $row[2], 1_000);
+                if ($v !== null) {
+                    $values[] = $v;
+                }
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * Parse nominal rupiah; null jika ambigu atau di bawah batas $min.
+     */
+    private function parseIdrAmount(string $raw, string $unit, float $min): ?float
+    {
+        $multiplier = match (mb_strtolower($unit)) {
+            'miliar', 'milyar' => 1_000_000_000,
+            'juta', 'jt' => 1_000_000,
+            'ribu', 'rb', 'k' => 1_000,
+            '' => 1,
+            default => null,
+        };
+
+        if ($multiplier === null) {
+            return null;
+        }
+
+        if ($multiplier > 1) {
+            if (preg_match('/^\d+$/', $raw)) {
+                $num = (float) $raw;
+            } elseif (preg_match('/^\d+[.,]\d{1,2}$/', $raw)) {
+                $num = (float) str_replace(',', '.', $raw);
+            } else {
+                return null;
+            }
+        } else {
+            if (preg_match('/^\d+$/', $raw)) {
+                $num = (float) $raw;
+            } elseif (preg_match('/^\d{1,3}(?:[.,]\d{3})+$/', $raw)) {
+                $num = (float) preg_replace('/[.,]/', '', $raw);
+            } elseif (preg_match('/^(\d{1,3}(?:\.\d{3})+),\d{1,2}$/', $raw, $mm)) {
+                $num = (float) str_replace('.', '', $mm[1]);
+            } elseif (preg_match('/^(\d{1,3}(?:,\d{3})+)\.\d{1,2}$/', $raw, $mm)) {
+                $num = (float) str_replace(',', '', $mm[1]);
+            } else {
+                return null;
+            }
+        }
+
+        $value = $num * $multiplier;
+
+        return ($value >= $min && $value <= 50_000_000_000) ? $value : null;
     }
 }

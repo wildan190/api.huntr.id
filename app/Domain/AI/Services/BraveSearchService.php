@@ -2,65 +2,173 @@
 
 namespace App\Domain\AI\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * BraveSearchService
  *
- * Wrapper untuk Brave Search API (Web Search).
- * Digunakan oleh AgenticProcurementService untuk menemukan:
- *   1. Produk & spesifikasi teknis di internet
- *   2. Harga pasar terkini dari distributor resmi / B2B marketplaces
- *   3. Review & referensi produk secara real-time
+ * Wrapper Brave Search API untuk riset produk & harga pasar.
+ *
+ * Prinsip anti-halusinasi di file ini:
+ *  - Harga hanya diambil dari angka berawalan Rp/IDR, bukan angka lepas.
+ *  - Hasil pencarian difilter relevansinya SEBELUM harga dihitung (buang aksesoris, bekas, dll).
+ *  - Statistik harga memakai MEDIAN dan wajib minimal 3 sampel; jika kurang => null (bukan tebakan).
+ *  - Harga dan link sumber selalu dipasangkan dalam satu record sehingga tidak bisa tertukar.
+ *  - Hasil kosong / error tidak di-cache.
+ *  - Deteksi merek memakai pencocokan kata utuh dan wajib diverifikasi oleh pencarian per merek.
  *
  * Konfigurasi:
- *   BRAVE_SEARCH_API_KEY  — API Key dari Brave Search Console (api.search.brave.com)
+ *   BRAVE_SEARCH_API_KEY  - API key Brave Search
+ *   config('ai.known_brands') - (opsional) daftar tambahan merek untuk deteksi
  */
 class BraveSearchService
 {
     private const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
     private const CACHE_TTL = 3600; // 1 jam
 
-    /**
-     * Daftar domain yang diprioritaskan untuk pencarian harga & produk Indonesia.
-     * Mencakup distributor resmi alat berat, marketplace B2B, dan e-commerce lokal.
-     */
-    private const TARGET_DOMAINS = [
-        'unitedtractors.com',   // UNTR — distributor resmi Komatsu
-        'sanyindonesia.co.id',  // Sany — alat berat
-        'gsmarena.com',         // GSMArena — referensi gadget/elektronik
-        'tokopedia.com',        // Tokopedia — marketplace utama
-        'shopee.co.id',         // Shopee — marketplace
-        'blibli.com',           // Blibli — marketplace
-        'indotrading.com',      // Indotrading — B2B marketplace Indonesia
+    private const MIN_PRICE = 5_000;
+    private const MAX_PRICE = 50_000_000_000;
+    private const MIN_PRICE_SAMPLES = 3;
+
+    /** Domain default: marketplace umum. Kategori khusus (alat berat) harus diminta eksplisit. */
+    public const MARKETPLACE_DOMAINS = [
+        'tokopedia.com',
+        'shopee.co.id',
+        'blibli.com',
+        'bhinneka.com',
+        'indotrading.com',
     ];
+
+    public const HEAVY_EQUIPMENT_DOMAINS = [
+        'unitedtractors.com',
+        'sanyindonesia.co.id',
+    ];
+
+    /** Merek yang dikenali. Tidak ada merek 1-2 huruf yang ambigu (mis. "Mi"). */
+    private const KNOWN_BRANDS = [
+        'Philips',
+        'Xiaomi',
+        'Yeelight',
+        'TP-Link',
+        'Sengled',
+        'Govee',
+        'Tuya',
+        'Sonoff',
+        'IKEA',
+        'Panasonic',
+        'Osram',
+        'Samsung',
+        'LG',
+        'Bardi',
+        'Smartlife',
+        'Lifx',
+        'Nanoleaf',
+        'Meross',
+        'Lepro',
+        'Bosch',
+        'Komatsu',
+        'Caterpillar',
+        'Hitachi',
+        'Volvo',
+        'Sany',
+        'XCMG',
+        'HP',
+        'Dell',
+        'Lenovo',
+        'Asus',
+        'Acer',
+        'Apple',
+        'Microsoft',
+        'Minisforum',
+        'Intel',
+        'Logitech',
+        'Epson',
+        'Canon',
+        'Brother',
+    ];
+
+    /** Kata pada judul yang menandakan listing aksesoris / bukan unit utama. */
+    private const ACCESSORY_WORDS = [
+        'casing',
+        'case',
+        'cover',
+        'charger',
+        'kabel',
+        'sparepart',
+        'spare part',
+        'bekas',
+        'second',
+        'replika',
+        'sewa',
+        'rental',
+        'stiker',
+        'sticker',
+        'skin',
+        'pelindung',
+        'tempered',
+        'adaptor',
+        'adapter',
+    ];
+
+    private const STOPWORDS = [
+        'dan',
+        'yang',
+        'untuk',
+        'dengan',
+        'harga',
+        'murah',
+        'baru',
+        'original',
+        'resmi',
+        'unit',
+        'set',
+        'pcs',
+        'the',
+        'for',
+        'with',
+    ];
+
+    /** Penanda konteks BUKAN harga jual (cicilan, ongkir, per kemasan, dll). */
+    private const NON_PRICE_MARKERS = '/cicil|angsur|per\s*bulan|\/\s*(?:bln|bulan)|ongkir|ongkos\s*kirim|uang\s*muka|\bdp\b|per\s*(?:lusin|dus|box|karton|pack)\b|isi\s*\d+/i';
 
     private string $apiKey;
     private int $timeout;
+    private array $knownBrands;
+    private bool $lastSearchFailed = false;
 
     public function __construct()
     {
-        $this->apiKey  = config('ai.brave_search_api_key', env('BRAVE_SEARCH_API_KEY', ''));
+        $this->apiKey = (string) config('ai.brave_search_api_key', env('BRAVE_SEARCH_API_KEY', ''));
         $this->timeout = (int) config('ai.timeout', 30);
+
+        $extra = (array) config('ai.known_brands', []);
+        $this->knownBrands = array_values(array_unique(array_merge(self::KNOWN_BRANDS, $extra)));
     }
 
-    /**
-     * Apakah Brave Search dikonfigurasi dan siap digunakan.
-     */
     public function isEnabled(): bool
     {
         return !empty($this->apiKey);
     }
 
     /**
-     * Cari produk di internet berdasarkan query.
+     * True jika pemanggilan API terakhir GAGAL (bukan sekadar tidak ada hasil).
+     */
+    public function lastSearchFailed(): bool
+    {
+        return $this->lastSearchFailed;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Public API
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Cari produk di internet.
      *
-     * @param  string      $query         Query pencarian
-     * @param  int         $limit         Jumlah hasil maksimal (1-20)
-     * @param  array|null  $targetDomains Domain yang diprioritaskan (null = pakai TARGET_DOMAINS)
-     * @return array                      Array hasil dengan fields: title, link, snippet, price, source, thumbnail
+     * @param  array|null $targetDomains null = MARKETPLACE_DOMAINS, [] = tanpa filter domain
+     * @return array      Daftar: title, link, snippet, source, thumbnail, price
      */
     public function searchProducts(string $query, int $limit = 5, ?array $targetDomains = null): array
     {
@@ -70,316 +178,473 @@ class BraveSearchService
         }
 
         $enrichedQuery = $this->buildQueryWithDomains($query, $targetDomains);
-
         $cacheKey = 'bsearch_' . md5($enrichedQuery . '_' . $limit);
-        return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($enrichedQuery, $limit) {
-            return $this->fetchSearch($enrichedQuery, $limit);
-        });
-    }
 
-    /**
-     * Cari harga pasar terkini untuk satu item/produk.
-     *
-     * @param  string $itemName   Nama produk/barang
-     * @param  string $brand      Merk (optional)
-     * @param  string $specs      Spesifikasi singkat (optional)
-     * @return array              [min_price, max_price, avg_price, sources, raw_results]
-     */
-    public function searchMarketPrice(string $itemName, string $brand = '', string $specs = '', ?array $targetDomains = null): array
-    {
-        // ══════════════════════════════════════════════════════════
-        // 🔥 FIX 6 — Query LEBIH SPESIFIK:
-        //    - Hilangkan "distributor resmi" jika sudah ada merk biar tdk over-broad.
-        //    - Tambahkan kata "harga unit satuan" dan "harga produk utama" agar
-        //      hasil pencarian TIDAK ambil harga aksesoris (SSD, RAM, keyboard)
-        //      yang muncul bersama listing produk utama.
-        //    - Hindari query terlalu umum (misal: "harga keyboard harga ssd harga pc" → BAD)
-        // ══════════════════════════════════════════════════════════
-        $queryBase = array_filter([$brand, $itemName, $specs]);
-        $base = implode(' ', $queryBase);
-        $specificity = '';
-        if (!empty($base) && strlen($base) > 12) {
-            // Jika query cukup spesifik (tidak cuma "PC" atau "Laptop"), tambahkan
-            // kata "harga unit produk lengkap" agar tidak ambil listing aksesoris satuan.
-            $specificity = 'harga unit produk utama satuan';
-        } else {
-            $specificity = 'harga Indonesia';
-        }
-        $query = trim("{$base} {$specificity} site:tokopedia.com OR site:blibli.com OR site:shopee.co.id OR site:bhinneka.com OR site:indotrading.com");
-
-        $results = $this->searchProducts($query, 12, $targetDomains);
-
-        if (empty($results)) {
-            return [
-                'min_price'   => null,
-                'max_price'   => null,
-                'avg_price'   => null,
-                'sources'     => [],
-                'raw_results' => [],
-            ];
+        try {
+            $cached = Cache::get($cacheKey);
+        } catch (\Throwable $e) {
+            $cached = null;
+            Log::warning('BraveSearchService: cache read failed, continuing without cache', [
+                'error' => $e->getMessage(),
+            ]);
         }
 
-        $prices  = [];
-        $sources = [];
+        if (is_array($cached) && !empty($cached)) {
+            $this->lastSearchFailed = false;
+            return $cached;
+        }
 
-        foreach ($results as $r) {
-            $extracted = $this->extractPriceFromText(($r['title'] ?? '') . ' ' . ($r['snippet'] ?? ''));
-            if ($extracted > 0) {
-                $prices[]  = $extracted;
-                $sources[] = [
-                    'title'  => $r['title'],
-                    'link'   => $r['link'],
-                    'price'  => $extracted,
-                ];
+        $results = $this->fetchSearch($enrichedQuery, $limit);
+
+        if ($results === null) {
+            $this->lastSearchFailed = true;
+            return [];
+        }
+
+        $this->lastSearchFailed = false;
+
+        // Jangan cache hasil kosong agar error sementara tidak "menempel" 1 jam.
+        if (!empty($results)) {
+            try {
+                Cache::put($cacheKey, $results, self::CACHE_TTL);
+            } catch (\Throwable $e) {
+                Log::warning('BraveSearchService: cache write failed, returning live results', [
+                    'error' => $e->getMessage(),
+                ]);
             }
-        }
-
-        if (empty($prices)) {
-            return [
-                'min_price'   => null,
-                'max_price'   => null,
-                'avg_price'   => null,
-                'sources'     => [],
-                'raw_results' => $results,
-            ];
-        }
-
-        // ══════════════════════════════════════════════════════════
-        // 🔥 OUTLIER FILTERING (IQR Method):
-        //    Setelah daftar harga terkumpul, BUANG harga outlier
-        //    (terlalu murah / terlalu mahal) karena biasanya itu:
-        //    → listing Aksesoris (Rp 50rb keyboard di halaman Mini PC)
-        //    → listing Paket Bundling Upgrade (Rp 50jt CPU + monitor)
-        //    → iklan / listing typo.
-        //    HANYA jika jumlah sample >= 3.
-        // ══════════════════════════════════════════════════════════
-        sort($prices, SORT_NUMERIC);
-        if (count($prices) >= 3) {
-            $values = array_values($prices);
-            $q1Idx = (int) floor((count($values) - 1) * 0.25);
-            $q3Idx = (int) floor((count($values) - 1) * 0.75);
-            $q1    = $values[$q1Idx];
-            $q3    = $values[$q3Idx];
-            $iqr   = $q3 - $q1;
-            $lower = $q1 - 1.5 * $iqr;
-            $upper = $q3 + 1.5 * $iqr;
-            $filteredPrices = [];
-            $filteredSources = [];
-            foreach ($prices as $idx => $p) {
-                if ($p >= $lower && $p <= $upper) {
-                    $filteredPrices[] = $p;
-                    if (isset($sources[$idx])) {
-                        $filteredSources[] = $sources[$idx];
-                    }
-                }
-            }
-            // Jika setelah dibuang outlier tersisa >= 2 sample, pakai.
-            // Jika terlalu terbuang, fallback ke seluruh harga (aman).
-            if (count($filteredPrices) >= 2) {
-                $prices  = $filteredPrices;
-                $sources = $filteredSources;
-            }
-        }
-
-        return [
-            'min_price'   => min($prices),
-            'max_price'   => max($prices),
-            'avg_price'   => round(array_sum($prices) / count($prices)),
-            'sources'     => $sources,
-            'raw_results' => $results,
-        ];
-    }
-
-    /**
-     * Cari spesifikasi teknis untuk beberapa item sekaligus.
-     *
-     * @param  array $items  [['name' => ..., 'brand' => ..., 'category' => ...], ...]
-     * @return array         Keyed by item name: hasil searchProducts
-     */
-    public function searchProductSpecs(array $items): array
-    {
-        $results = [];
-
-        foreach ($items as $item) {
-            $name     = $item['name']     ?? '';
-            $brand    = $item['brand']    ?? '';
-            $category = $item['category'] ?? '';
-
-            if (empty($name)) continue;
-
-            $query = trim("{$brand} {$name} {$category} spesifikasi teknis B2B Indonesia");
-            $results[strtolower(trim($name))] = [
-                'query'   => $query,
-                'results' => $this->searchProducts($query, 5),
-            ];
         }
 
         return $results;
     }
 
     /**
-     * Cari alternatif produk dari internet berdasarkan kategori & kebutuhan.
+     * Cari harga pasar satu item.
      *
-     * @param  string $productCategory   Jenis produk (misal: "laptop gaming")
-     * @param  array  $requirements      Spesifikasi yang dibutuhkan
-     * @return array                     Daftar produk alternatif dari web
+     * avg_price adalah MEDIAN dari harga yang lolos filter relevansi & outlier.
+     * Jika sampel < 3, seluruh angka statistik bernilai null.
+     *
+     * @return array [min_price, max_price, avg_price, sample_count, sources, raw_results]
      */
-    public function searchProductAlternatives(string $productCategory, array $requirements = [], ?array $targetDomains = null): array
+    public function searchMarketPrice(string $itemName, string $brand = '', string $specs = '', ?array $targetDomains = null): array
     {
-        $specsHint = implode(' ', array_slice(array_values($requirements), 0, 3));
-        $query     = trim("rekomendasi {$productCategory} terbaik {$specsHint} harga B2B Indonesia 2025 2026");
+        $result = $this->emptyPriceResult();
+        $itemName = trim($itemName);
+        if ($itemName === '') {
+            return $result;
+        }
 
-        return $this->searchProducts($query, 8, $targetDomains);
+        $query = trim(implode(' ', array_filter([trim($brand), $itemName, trim($specs)])) . ' harga');
+        $results = $this->searchProducts($query, 20, $targetDomains);
+
+        // 1) Buang hasil tidak relevan / aksesoris SEBELUM menghitung harga.
+        $relevant = $this->filterRelevant($results, $itemName, $brand);
+        $samples = $this->collectPriceSamples($relevant);
+
+        // A broad retry helps when the marketplace-restricted query has too few priced listings.
+        if (count($samples) < self::MIN_PRICE_SAMPLES || $this->summarizePrices($samples) === null) {
+            $broadQuery = trim(implode(' ', array_filter([
+                trim($brand),
+                $itemName,
+                trim($specs),
+                'harga Indonesia baru',
+            ])));
+            $retryDomains = $targetDomains === null ? [] : $targetDomains;
+            $retryResults = $this->filterRelevant(
+                $this->searchProducts($broadQuery, 20, $retryDomains),
+                $itemName,
+                $brand
+            );
+            $relevant = $this->mergeUniqueSearchResults($relevant, $retryResults);
+            $samples = $this->collectPriceSamples($relevant);
+        }
+
+        $result['raw_results'] = $relevant;
+        $result['sample_count'] = count($samples);
+        $result['sources'] = $samples;
+
+        // 3) Statistik hanya jika cukup sampel.
+        $summary = $this->summarizePrices($samples);
+        if ($summary === null) {
+            return $result;
+        }
+
+        return array_merge($result, [
+            'min_price' => $summary['min'],
+            'max_price' => $summary['max'],
+            'avg_price' => $summary['median'],
+            'sample_count' => $summary['count'],
+            'sources' => $summary['sources'],
+        ]);
     }
 
-    /**
-     * Temukan brand/merek terbaik untuk kategori produk, lalu cari harga per brand.
-     *
-     * Digunakan ketika user tidak menyebutkan brand spesifik dan sistem perlu
-     * merekomendasikan pilihan merek beserta data harga dari web.
-     *
-     * @param  string $itemName   Nama/kategori produk (misal: "smart bulb RGB")
-     * @param  string $specs      Spesifikasi (misal: "9-12 watt")
-     * @param  int    $maxBrands  Jumlah brand maksimal yang dicari (default 4)
-     * @return array              Array per brand: [brand, item_name, results, web_prices]
-     */
-    public function searchBrandComparison(string $itemName, string $specs = '', int $maxBrands = 4): array
+    private function mergeUniqueSearchResults(array $primary, array $additional): array
     {
-        // Step 1: Temukan brand terbaik dari web
-        $brandQuery = "rekomendasi merk brand {$itemName} {$specs} terbaik Indonesia 2025 harga";
-        $brandResults = $this->searchProducts($brandQuery, 10);
-
-        // Ekstrak nama brand dari title hasil pencarian menggunakan pattern umum
-        $knownBrands   = [];
-        $brandPatterns = [
-            'Philips', 'Xiaomi', 'Mi', 'Yeelight', 'TP-Link', 'KASA', 'Sengled',
-            'Govee', 'Wyze', 'Tuya', 'Sonoff', 'IKEA', 'Panasonic', 'Osram',
-            'Samsung', 'LG', 'Bardi', 'Smartlife', 'Ecolink', 'Lifx', 'Nanoleaf',
-            'Hue', 'Wiz', 'Meross', 'Lepro', 'Innr', 'Bosch', 'ACPower',
-            // Heavy equipment & generic brands
-            'Komatsu', 'Caterpillar', 'CAT', 'Hitachi', 'Volvo', 'Sany', 'XCMG',
-            'HP', 'Dell', 'Lenovo', 'Asus', 'Acer', 'Apple', 'Microsoft',
-        ];
-
-        foreach ($brandResults as $r) {
-            $text = ($r['title'] ?? '') . ' ' . ($r['snippet'] ?? '');
-            foreach ($brandPatterns as $brand) {
-                if (stripos($text, $brand) !== false && !in_array($brand, $knownBrands)) {
-                    $knownBrands[] = $brand;
-                }
+        $merged = [];
+        foreach (array_merge($primary, $additional) as $result) {
+            $link = trim((string) ($result['link'] ?? ''));
+            $identity = $link !== ''
+                ? $link
+                : mb_strtolower(trim((string) ($result['title'] ?? '') . ' ' . ($result['snippet'] ?? '')));
+            if ($identity === '' || isset($merged[$identity])) {
+                continue;
             }
-            if (count($knownBrands) >= $maxBrands * 2) break;
+            $merged[$identity] = $result;
         }
 
-        // Jika tidak ada brand terdeteksi dari pattern, pakai top domain sebagai fallback
-        if (empty($knownBrands)) {
-            $knownBrands = array_slice(array_map(fn($r) => $r['source'] ?? '', $brandResults), 0, $maxBrands);
-            $knownBrands = array_filter($knownBrands);
-        }
+        return array_values($merged);
+    }
 
-        $knownBrands = array_unique(array_slice($knownBrands, 0, $maxBrands));
+    public function searchProductSpecs(array $items): array
+    {
+        $results = [];
 
-        if (empty($knownBrands)) {
-            return [];
-        }
+        foreach ($items as $item) {
+            $name = $item['name'] ?? '';
+            $brand = $item['brand'] ?? '';
+            $category = $item['category'] ?? '';
 
-        // Step 2: Cari harga & spesifikasi per brand
-        $brandComparisons = [];
-        foreach ($knownBrands as $brand) {
-            // ══════════════════════════════════════════════════════════
-            // 🔥 FIX 6b — Query PER BRAND LEBIH SPESIFIK:
-            //    Jangan "harga Indonesia" saja; tapi sertakan "harga unit
-            //    produk utama lengkap (bukan aksesoris/part)" agar Brave
-            //    tidak mengembalikan listing keyboard/ssd satuannya ketika
-            //    kita sebenarnya sedang cari satu unit laptop/mini pc merk X.
-            // ══════════════════════════════════════════════════════════
-            $query   = trim("{$brand} {$itemName} {$specs} harga unit produk utama lengkap"
-                          . " (site:tokopedia.com OR site:blibli.com OR site:shopee.co.id OR site:bhinneka.com)");
-            $results = $this->searchProducts($query, 6);
-
-            if (empty($results)) continue;
-
-            // Ekstrak harga dari hasil per brand + IQR outlier filter
-            $prices = [];
-            $priceSources = [];
-            foreach ($results as $r) {
-                $p = $this->extractPriceFromText(($r['title'] ?? '') . ' ' . ($r['snippet'] ?? ''));
-                if ($p > 0) {
-                    $prices[] = $p;
-                    $priceSources[] = [
-                        'title' => $r['title'],
-                        'link'  => $r['link'],
-                        'price' => $p,
-                    ];
-                }
+            if (empty($name)) {
+                continue;
             }
 
-            // Outlier filter per brand (jika >= 3 sampel)
-            if (count($prices) >= 3) {
-                sort($prices, SORT_NUMERIC);
-                $vals   = array_values($prices);
-                $q1     = $vals[(int) floor((count($vals) - 1) * 0.25)];
-                $q3     = $vals[(int) floor((count($vals) - 1) * 0.75)];
-                $iqr    = $q3 - $q1;
-                $lower  = $q1 - 1.5 * $iqr;
-                $upper  = $q3 + 1.5 * $iqr;
-                $filtPrices = [];
-                $filtSrc    = [];
-                foreach ($prices as $i => $p) {
-                    if ($p >= $lower && $p <= $upper) {
-                        $filtPrices[] = $p;
-                        if (isset($priceSources[$i])) $filtSrc[] = $priceSources[$i];
-                    }
-                }
-                if (count($filtPrices) >= 2) {
-                    $prices       = $filtPrices;
-                    $priceSources = $filtSrc;
-                }
-            }
-
-            $avgPrice = !empty($prices) ? round(array_sum($prices) / count($prices)) : null;
-            $thumbnail = null;
-            foreach ($results as $r) {
-                if (!empty($r['thumbnail'])) { $thumbnail = $r['thumbnail']; break; }
-            }
-
-            $brandComparisons[] = [
-                'brand'      => $brand,
-                'item_name'  => "{$brand} {$itemName}",
-                'results'    => array_slice($results, 0, 3),
-                'web_prices' => [
-                    'avg_price' => $avgPrice,
-                    'min_price' => !empty($prices) ? min($prices) : null,
-                    'max_price' => !empty($prices) ? max($prices) : null,
-                    'sources'   => $priceSources,
-                ],
-                'thumbnail'  => $thumbnail,
+            $query = trim("{$brand} {$name} {$category} spesifikasi teknis Indonesia");
+            $results[strtolower(trim($name))] = [
+                'query' => $query,
+                'results' => $this->filterRelevant($this->searchProducts($query, 5, []), $name, $brand),
             ];
         }
 
-        return $brandComparisons;
+        return $results;
     }
 
+    public function searchProductAlternatives(string $productCategory, array $requirements = [], ?array $targetDomains = null): array
+    {
+        $specsHint = implode(' ', array_slice(array_values($requirements), 0, 3));
+        $query = trim("rekomendasi {$productCategory} {$specsHint} Indonesia");
+
+        return $this->filterRelevant($this->searchProducts($query, 8, $targetDomains), $productCategory);
+    }
+
+    /**
+     * Deteksi merek yang muncul di web untuk satu kategori produk, lalu VERIFIKASI
+     * setiap merek dengan pencarian tersendiri (minimal 2 listing relevan berisi merek tsb).
+     *
+     * Hasil adalah "merek yang terdeteksi di web", bukan rekomendasi resmi.
+     */
+    public function searchBrandComparison(string $itemName, string $specs = '', int $maxBrands = 4): array
+    {
+        $itemName = trim($itemName);
+        if ($itemName === '') {
+            return [];
+        }
+
+        // Step 1: temukan merek dari hasil pencarian yang relevan.
+        $discovery = $this->searchProducts("merk {$itemName} {$specs} populer Indonesia", 20);
+        $discovery = $this->filterRelevant($discovery, $itemName);
+        if (empty($discovery)) {
+            return [];
+        }
+
+        $counts = [];
+        foreach ($discovery as $r) {
+            $text = ($r['title'] ?? '') . ' ' . ($r['snippet'] ?? '');
+            foreach ($this->knownBrands as $brand) {
+                if ($this->textMentionsBrand($text, $brand)) {
+                    $counts[$brand] = ($counts[$brand] ?? 0) + 1;
+                }
+            }
+        }
+
+        if (empty($counts)) {
+            return [];
+        }
+
+        arsort($counts);
+        $candidates = array_slice(array_keys($counts), 0, max(1, $maxBrands) * 2);
+
+        // Step 2: verifikasi per merek.
+        $comparisons = [];
+        foreach ($candidates as $brand) {
+            if (count($comparisons) >= $maxBrands) {
+                break;
+            }
+
+            $price = $this->searchMarketPrice($itemName, $brand, $specs);
+            $results = $price['raw_results'];
+
+            if (count($results) < 2) {
+                continue; // merek tidak terbukti punya listing produk yang relevan
+            }
+
+            $thumbnail = null;
+            foreach ($results as $r) {
+                if (!empty($r['thumbnail'])) {
+                    $thumbnail = $r['thumbnail'];
+                    break;
+                }
+            }
+
+            $comparisons[] = [
+                'brand' => $brand,
+                'item_name' => "{$brand} {$itemName}",
+                'results' => array_slice($results, 0, 10),
+                'web_prices' => [
+                    'avg_price' => $price['avg_price'],
+                    'min_price' => $price['min_price'],
+                    'max_price' => $price['max_price'],
+                    'sample_count' => $price['sample_count'],
+                    'sources' => $price['sources'],
+                ],
+                'thumbnail' => $thumbnail,
+                'detected_from_web' => true,
+            ];
+        }
+
+        return $comparisons;
+    }
+
+    /**
+     * Filter hasil pencarian: relevan terhadap nama item, memuat merek (jika ada),
+     * dan bukan listing aksesoris.
+     */
+    public function filterRelevant(array $results, string $itemName, string $brand = ''): array
+    {
+        return array_values(array_filter(
+            $results,
+            fn($r) => $this->isRelevantResult($r, $itemName, $brand)
+        ));
+    }
+
+    public function isRelevantResult(array $result, string $itemName, string $brand = ''): bool
+    {
+        $title = mb_strtolower((string) ($result['title'] ?? ''));
+        $text = $title . ' ' . mb_strtolower((string) ($result['snippet'] ?? ''));
+
+        $tokens = $this->tokenize($itemName);
+        if (empty($tokens)) {
+            return false;
+        }
+
+        $textTokens = $this->tokenize($text);
+        $hits = count(array_intersect($tokens, $textTokens));
+        if ($hits / count($tokens) < 0.6) {
+            return false;
+        }
+
+        $brand = mb_strtolower(trim($brand));
+        if ($brand !== '' && !str_contains($text, $brand)) {
+            return false;
+        }
+
+        $itemLower = mb_strtolower($itemName);
+        foreach (self::ACCESSORY_WORDS as $word) {
+            if (str_contains($itemLower, $word)) {
+                continue; // user memang mencari barang ini
+            }
+            if (preg_match('/(?<![\p{L}\p{N}])' . preg_quote($word, '/') . '(?![\p{L}\p{N}])/u', $title)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Ekstrak harga rupiah dari teks. Hanya angka berawalan Rp/IDR yang dianggap harga.
+     * Mengembalikan 0 jika tidak ada harga yang meyakinkan.
+     */
+    public function extractPriceFromText(string $text): float
+    {
+        if ($text === '') {
+            return 0;
+        }
+
+        $pattern = '/(?<![\p{L}])(?:rp\.?|idr)\s*(\d+(?:[.,]\d+)*)(?:\s*(miliar|milyar|juta|jt|ribu|rb|k)(?![\p{L}]))?/iu';
+        if (!preg_match_all($pattern, $text, $all, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            return 0;
+        }
+
+        foreach ($all as $m) {
+            // Lewati angka yang konteksnya cicilan / ongkir / per kemasan.
+            $start = max(0, $m[0][1] - 30);
+            $window = substr($text, $start, strlen($m[0][0]) + 60);
+            if (preg_match(self::NON_PRICE_MARKERS, $window)) {
+                continue;
+            }
+
+            $value = $this->parseAmount($m[1][0], mb_strtolower($m[2][0] ?? ''));
+            if ($value !== null) {
+                return $value;
+            }
+        }
+
+        return 0;
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
+    private function emptyPriceResult(): array
+    {
+        return [
+            'min_price' => null,
+            'max_price' => null,
+            'avg_price' => null,
+            'sample_count' => 0,
+            'sources' => [],
+            'raw_results' => [],
+        ];
+    }
+
     /**
-     * Tambahkan filter site: ke query agar Brave memprioritaskan domain tertentu.
-     *
-     * Contoh hasil: "Komatsu PC200 harga (site:unitedtractors.com OR site:tokopedia.com OR ...)"
-     *
-     * @param  string     $query         Query asli
-     * @param  array|null $targetDomains Domain list (null = pakai TARGET_DOMAINS default)
-     * @return string                    Query yang sudah diperkaya
+     * Satu record per sampel: harga dan link tidak mungkin tertukar.
+     */
+    private function collectPriceSamples(array $results): array
+    {
+        $samples = [];
+        foreach ($results as $r) {
+            $price = (float) ($r['price'] ?? 0);
+            if ($price <= 0) {
+                $price = $this->extractPriceFromText(($r['title'] ?? '') . ' ' . ($r['snippet'] ?? ''));
+            }
+            if ($price <= 0) {
+                continue;
+            }
+
+            $samples[] = [
+                'title' => $r['title'] ?? '',
+                'link' => $r['link'] ?? '',
+                'source' => $r['source'] ?? '',
+                'price' => $price,
+            ];
+        }
+
+        usort($samples, fn($a, $b) => $a['price'] <=> $b['price']);
+
+        return $samples;
+    }
+
+    /**
+     * Ringkasan harga berbasis MEDIAN. Null jika sampel kurang dari MIN_PRICE_SAMPLES
+     * (sebelum maupun sesudah pembuangan outlier IQR).
+     */
+    private function summarizePrices(array $samples): ?array
+    {
+        if (count($samples) < self::MIN_PRICE_SAMPLES) {
+            return null;
+        }
+
+        usort($samples, fn($a, $b) => $a['price'] <=> $b['price']);
+        $prices = array_column($samples, 'price');
+        $n = count($prices);
+
+        $q1 = $prices[(int) floor(($n - 1) * 0.25)];
+        $q3 = $prices[(int) floor(($n - 1) * 0.75)];
+        $iqr = $q3 - $q1;
+        $lower = $q1 - 1.5 * $iqr;
+        $upper = $q3 + 1.5 * $iqr;
+
+        $kept = array_values(array_filter(
+            $samples,
+            fn($s) => $s['price'] >= $lower && $s['price'] <= $upper
+        ));
+
+        if (count($kept) < self::MIN_PRICE_SAMPLES) {
+            return null; // data terlalu berantakan untuk dipercaya
+        }
+
+        $p = array_column($kept, 'price');
+        $m = count($p);
+        $median = $m % 2 === 1
+            ? $p[intdiv($m, 2)]
+            : ($p[$m / 2 - 1] + $p[$m / 2]) / 2;
+
+        return [
+            'min' => min($p),
+            'max' => max($p),
+            'median' => round($median),
+            'count' => $m,
+            'sources' => $kept,
+        ];
+    }
+
+    /**
+     * Parse angka rupiah. Mengembalikan null jika ambigu atau di luar batas wajar.
+     */
+    private function parseAmount(string $raw, string $unit): ?float
+    {
+        $multiplier = match ($unit) {
+            'miliar', 'milyar' => 1_000_000_000,
+            'juta', 'jt' => 1_000_000,
+            'ribu', 'rb', 'k' => 1_000,
+            '' => 1,
+            default => null,
+        };
+
+        if ($multiplier === null) {
+            return null;
+        }
+
+        if ($multiplier > 1) {
+            if (preg_match('/^\d+$/', $raw)) {
+                $num = (float) $raw;
+            } elseif (preg_match('/^\d+[.,]\d{1,2}$/', $raw)) {
+                $num = (float) str_replace(',', '.', $raw);
+            } else {
+                return null;
+            }
+        } else {
+            if (preg_match('/^\d+$/', $raw)) {
+                $num = (float) $raw;
+            } elseif (preg_match('/^\d{1,3}(?:[.,]\d{3})+$/', $raw)) {
+                $num = (float) preg_replace('/[.,]/', '', $raw);
+            } elseif (preg_match('/^(\d{1,3}(?:\.\d{3})+),\d{1,2}$/', $raw, $mm)) {
+                $num = (float) str_replace('.', '', $mm[1]);
+            } elseif (preg_match('/^(\d{1,3}(?:,\d{3})+)\.\d{1,2}$/', $raw, $mm)) {
+                $num = (float) str_replace(',', '', $mm[1]);
+            } else {
+                return null;
+            }
+        }
+
+        $value = $num * $multiplier;
+
+        return ($value >= self::MIN_PRICE && $value <= self::MAX_PRICE) ? $value : null;
+    }
+
+    private function tokenize(string $text): array
+    {
+        $text = preg_replace('/smart[\s-]*bulb/iu', 'smart bulb', $text);
+        $text = mb_strtolower(preg_replace('/[^\p{L}\p{N}\s\-]/u', ' ', $text));
+        $tokens = preg_split('/\s+/u', trim($text)) ?: [];
+
+        return array_values(array_unique(array_filter(
+            $tokens,
+            fn($t) => mb_strlen($t) >= 2 && !in_array($t, self::STOPWORDS, true)
+        )));
+    }
+
+    private function textMentionsBrand(string $text, string $brand): bool
+    {
+        $quoted = preg_quote($brand, '/');
+        $flags = mb_strlen($brand) <= 3 ? 'u' : 'iu'; // merek pendek (LG, HP) wajib huruf kapital persis
+
+        return (bool) preg_match(
+            '/(?<![\p{L}\p{N}])' . $quoted . '(?![\p{L}\p{N}])/' . $flags,
+            $text
+        );
+    }
+
+    /**
+     * Tambahkan filter site: sekali saja. [] = tanpa filter domain.
      */
     private function buildQueryWithDomains(string $query, ?array $targetDomains): string
     {
-        $domains = $targetDomains ?? self::TARGET_DOMAINS;
+        $domains = $targetDomains ?? self::MARKETPLACE_DOMAINS;
 
         if (empty($domains)) {
-            return $query;
+            return trim($query);
         }
 
         $siteFilter = implode(' OR ', array_map(
@@ -392,111 +657,59 @@ class BraveSearchService
 
     /**
      * Panggil Brave Search API.
+     *
+     * @return array|null  null = request GAGAL; [] = berhasil tapi tidak ada hasil
      */
-    private function fetchSearch(string $query, int $limit): array
+    private function fetchSearch(string $query, int $limit): ?array
     {
         try {
             $response = Http::withHeaders([
-                'Accept'               => 'application/json',
+                'Accept' => 'application/json',
                 'X-Subscription-Token' => $this->apiKey,
             ])
-            ->timeout($this->timeout)
-            ->retry(2, 1000)
-            ->get(self::ENDPOINT, [
-                'q'       => $query,
-                'count'   => min(max($limit, 1), 20),
-                'country' => 'id',
-            ]);
+                ->timeout($this->timeout)
+                ->retry(2, 1000)
+                ->get(self::ENDPOINT, [
+                    'q' => $query,
+                    'count' => min(max($limit, 1), 20),
+                    'country' => 'id',
+                ]);
 
             if (!$response->successful()) {
                 Log::warning('BraveSearchService: API request failed', [
                     'status' => $response->status(),
-                    'query'  => $query,
-                    'body'   => $response->body(),
+                    'query' => $query,
+                    'body' => $response->body(),
                 ]);
-                return [];
+                return null;
             }
 
-            $data = $response->json();
-            $webResults = $data['web']['results'] ?? [];
+            $webResults = $response->json('web.results') ?? [];
 
             return array_map(function ($item) {
-                // Strip HTML tags from description
                 $snippet = strip_tags($item['description'] ?? '');
-                $extraSnippets = $item['extra_snippets'] ?? [];
-                if (!empty($extraSnippets)) {
-                    $snippet .= ' ' . implode(' ', array_map('strip_tags', $extraSnippets));
+                foreach (($item['extra_snippets'] ?? []) as $extra) {
+                    $snippet .= ' ' . strip_tags($extra);
                 }
 
                 $title = strip_tags($item['title'] ?? '');
                 $link = $item['url'] ?? '';
 
                 return [
-                    'title'     => $title,
-                    'link'      => $link,
-                    'snippet'   => trim($snippet),
-                    'source'    => parse_url($link, PHP_URL_HOST) ?: '',
+                    'title' => $title,
+                    'link' => $link,
+                    'snippet' => trim($snippet),
+                    'source' => parse_url($link, PHP_URL_HOST) ?: '',
                     'thumbnail' => $item['thumbnail']['src'] ?? null,
-                    'price'     => $this->extractPriceFromText($title . ' ' . $snippet),
+                    'price' => $this->extractPriceFromText($title . ' ' . $snippet),
                 ];
             }, $webResults);
-
         } catch (\Throwable $e) {
             Log::error('BraveSearchService: fetchSearch exception', [
                 'query' => $query,
                 'error' => $e->getMessage(),
             ]);
-            return [];
+            return null;
         }
-    }
-
-    /**
-     * Ekstrak harga rupiah dari teks (snippet / judul halaman web).
-     * Mendukung: Rp 1.234.567 | IDR 1,234,567 | Rp 1,5 miliar | Rp 500 juta
-     *            Rp 139rb | Rp 139K | 139,000 | 139.000
-     */
-    private function extractPriceFromText(string $text): float
-    {
-        // 1. Format kata: "Rp 1,5 miliar / juta / jt"
-        if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)\s*(miliar|milyar|jt|juta|mio|b)/i', $text, $m)) {
-            $num  = (float) str_replace(',', '.', preg_replace('/[.,](?=\d{3})/', '', $m[1]));
-            $unit = strtolower($m[2]);
-            if (str_starts_with($unit, 'm') && !str_starts_with($unit, 'mi')) {
-                return $num * 1_000_000_000;
-            }
-            return $num * 1_000_000;
-        }
-
-        // 2. Format "Rp 139rb" / "Rp 139K" / "Rp 139k"
-        if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)\s*(?:rb|ribu|k\b)/i', $text, $m)) {
-            $num = (float) str_replace(['.', ','], ['', '.'], $m[1]);
-            $val = $num * 1000;
-            if ($val >= 5_000 && $val <= 50_000_000_000) return $val;
-        }
-
-        // 3. Format standar: "Rp 139.000" atau "IDR 139,000"
-        if (preg_match('/(?:rp\.?|idr\.?)\s*([\d.,]+)/i', $text, $m)) {
-            $raw = $m[1];
-            // Deteksi pemisah ribuan: titik (ID) atau koma (EN)
-            // Contoh: 139.000 → 139000 | 1,234,567 → 1234567
-            $cleaned = preg_replace('/[.,](?=\d{3}(?:[.,]|$))/', '', $raw);
-            $cleaned = str_replace(',', '.', $cleaned);
-            $val     = (float) $cleaned;
-            if ($val >= 5_000 && $val <= 50_000_000_000) {
-                return $val;
-            }
-        }
-
-        // 4. Angka besar standalone: "15.000.000" atau "1,234,567"
-        if (preg_match('/\b([\d]{1,3}(?:[.,]\d{3}){1,})(?:[.,]\d{1,2})?\b/', $text, $m)) {
-            $num = preg_replace('/[.,](?=\d{3})/', '', $m[1]);
-            $val = (float) str_replace(',', '.', $num);
-            if ($val >= 10_000 && $val <= 50_000_000_000) {
-                return $val;
-            }
-        }
-
-        return 0;
     }
 }
-
