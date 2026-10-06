@@ -130,8 +130,10 @@ class CatalogueController extends \App\Http\Controllers\Controller
             return response()->json(['data' => $cachedData], 200);
         }
         
-        // If not in cache, load fresh data
-        $catalogue->load('company');
+        // If not in cache, load fresh data with company fields limited to public-safe columns
+        $catalogue->load(['company' => function ($q) {
+            $q->select('id', 'owner_id', 'name', 'type', 'status', 'country', 'email', 'industry_type', 'logo_path', 'created_at', 'updated_at');
+        }]);
         $data = $catalogue->toArray();
         
         // Store in cache for future requests
