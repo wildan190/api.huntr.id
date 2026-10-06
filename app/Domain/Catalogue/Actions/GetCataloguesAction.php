@@ -43,7 +43,9 @@ class GetCataloguesAction
             return $this->paginateFromCache($cachedData, $params);
         }
         
-        $query = Catalogue::query()->with('company');
+        $query = Catalogue::query()->with(['company' => function ($q) {
+            $q->select('id', 'owner_id', 'name', 'type', 'status', 'country', 'email', 'industry_type', 'logo_path', 'created_at', 'updated_at');
+        }]);
 
         if (!empty($params['company_id'])) {
             $query->where('company_id', $params['company_id']);

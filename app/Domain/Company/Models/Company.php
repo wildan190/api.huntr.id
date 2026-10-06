@@ -73,7 +73,7 @@ class Company extends Model
         'hq_addresses' => 'array',
     ];
 
-    protected $appends = ['formatted_tax_id', 'logo_url'];
+    protected $appends = ['logo_url'];
 
     /**
      * Get the formatted tax ID.
