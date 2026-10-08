@@ -17,6 +17,10 @@ class NotificationController extends Controller
      * - The user is the company owner (company.owner_id === user.id)
      * - The user is a member of the company (user.company_id === company.id)
      * - The user owns the company via the companies() hasMany relation
+     *
+     * @param  User    $user    The authenticated user requesting access
+     * @param  Company $company The target company
+     * @return bool
      */
     private function userCanAccessCompany(User $user, Company $company): bool
     {
@@ -28,7 +32,7 @@ class NotificationController extends Controller
             return true;
         }
 
-        if ($user->companies()->where('id', $company->id)->exists()) {
+        if ($user->companies()->where('companies.id', $company->id)->exists()) {
             return true;
         }
 
@@ -39,6 +43,10 @@ class NotificationController extends Controller
      * Resolve and authorize the company from the request, if any.
      * Returns the Company instance if authorized, null if no company_id provided,
      * or aborts with 403 if company_id is provided but user is not authorized.
+     *
+     * @param  Request $request
+     * @param  User    $user   Authenticated user (guaranteed instanceof User by caller)
+     * @return Company|null
      */
     private function resolveAuthorizedCompany(Request $request, User $user): ?Company
     {
@@ -65,22 +73,30 @@ class NotificationController extends Controller
      * Get the authenticated user and validate any client-supplied user_id matches.
      * For backward compatibility, client may still send user_id, but it MUST match
      * the authenticated user's id. Otherwise, authorization is rejected.
+     *
+     * Uses an explicit instanceof guard so static analyzers (PHPStan, Intelephense, Psalm)
+     * can correctly narrow the type to the concrete User model and recognise the `id`
+     * property without emitting "Undefined property/method" warnings.
+     *
+     * @param  Request $request
+     * @return User
      */
     private function resolveAuthenticatedUser(Request $request): User
     {
-        $user = $request->user();
+        /** @var User|null $authenticatable */
+        $authenticatable = $request->user();
 
-        if (!$user) {
+        if (!$authenticatable instanceof User) {
             abort(401, 'Authentication required.');
         }
 
         $clientUserId = $request->input('user_id') ?? $request->query('user_id');
 
-        if ($clientUserId && $clientUserId !== $user->id) {
+        if ($clientUserId !== null && $clientUserId !== '' && $clientUserId !== $authenticatable->id) {
             abort(403, 'You are not authorized to access notifications for another user.');
         }
 
-        return $user;
+        return $authenticatable;
     }
 
     /**
