@@ -2,14 +2,15 @@
 
 namespace App\Domain\AI\Http\Controllers;
 
-use App\Domain\AI\Actions\AiSearchCatalogueAction;
-use App\Domain\AI\Actions\AiCompareProductsAction;
-use App\Domain\AI\Actions\AiRankProposalsAction;
-use App\Domain\AI\Actions\AiGeneratePrAction;
-use App\Domain\AI\Actions\RunAgenticProcurementAction;
 use App\Domain\AI\Actions\AgenticProcurementChatAction;
+use App\Domain\AI\Actions\AiCompareProductsAction;
+use App\Domain\AI\Actions\AiGeneratePrAction;
+use App\Domain\AI\Actions\AiRankProposalsAction;
+use App\Domain\AI\Actions\AiSearchCatalogueAction;
 use App\Domain\AI\Actions\CreateAgenticPrAction;
+use App\Domain\AI\Actions\RunAgenticProcurementAction;
 use App\Domain\AI\Services\OpenAiService;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -19,7 +20,7 @@ use Illuminate\Http\Request;
  * Tanggung jawab: Mengelola semua request terkait fitur AI & Agentic Procurement di platform Huntr.
  * Pattern: Thin Controller — semua logic ada di Actions.
  */
-class AiController extends \App\Http\Controllers\Controller
+class AiController extends Controller
 {
     /**
      * POST /api/ai/agentic-procurement/run
@@ -29,11 +30,11 @@ class AiController extends \App\Http\Controllers\Controller
     public function agenticRun(Request $request, RunAgenticProcurementAction $action): JsonResponse
     {
         $request->validate([
-            'query'            => 'required|string|min:5|max:2000',
-            'company_id'       => 'nullable|string',
-            'auto_create_pr'   => 'nullable|boolean',
-            'catalogue_ids'    => 'nullable|array',
-            'catalogue_ids.*'  => 'string',
+            'query' => 'required|string|min:5|max:2000',
+            'company_id' => 'nullable|string',
+            'auto_create_pr' => 'nullable|boolean',
+            'catalogue_ids' => 'nullable|array',
+            'catalogue_ids.*' => 'string',
         ]);
 
         try {
@@ -49,7 +50,7 @@ class AiController extends \App\Http\Controllers\Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal menjalankan Agentic Procurement: ' . $e->getMessage(),
+                'error' => 'Gagal menjalankan Agentic Procurement: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -62,10 +63,10 @@ class AiController extends \App\Http\Controllers\Controller
     public function agenticChat(Request $request, AgenticProcurementChatAction $action): JsonResponse
     {
         $request->validate([
-            'messages'           => 'required|array|min:1',
-            'messages.*.role'    => 'required|string|in:user,assistant,system',
+            'messages' => 'required|array|min:1',
+            'messages.*.role' => 'required|string|in:user,assistant,system',
             'messages.*.content' => 'required|string',
-            'company_id'         => 'nullable|string',
+            'company_id' => 'nullable|string',
         ]);
 
         try {
@@ -78,7 +79,7 @@ class AiController extends \App\Http\Controllers\Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal memproses percakapan: ' . $e->getMessage(),
+                'error' => 'Gagal memproses percakapan: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -92,8 +93,9 @@ class AiController extends \App\Http\Controllers\Controller
     {
         $request->validate([
             'company_id' => 'required|string|exists:companies,id',
-            'pr_draft'   => 'required|array',
+            'pr_draft' => 'required|array',
             'pr_draft.suggested_items' => 'required|array|min:1',
+            'pr_draft.warehouse_id' => 'nullable|uuid',
         ]);
 
         try {
@@ -107,12 +109,12 @@ class AiController extends \App\Http\Controllers\Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Purchase Requisition berhasil dibuat ke sistem.',
-                'rfq'     => $rfq->load(['items.catalogue', 'company']),
+                'rfq' => $rfq->load(['items.catalogue', 'company']),
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal membuat PR: ' . $e->getMessage(),
+                'error' => 'Gagal membuat PR: '.$e->getMessage(),
             ], 422);
         }
     }
@@ -135,21 +137,21 @@ class AiController extends \App\Http\Controllers\Controller
             );
 
             return response()->json([
-                'success'      => true,
+                'success' => true,
                 'is_ai_search' => true,
-                'intent'       => $result['intent'],
-                'ai_summary'   => $result['ai_summary'],
-                'data'         => $result['products'],
-                'total'        => $result['total'],
+                'intent' => $result['intent'],
+                'ai_summary' => $result['ai_summary'],
+                'data' => $result['products'],
+                'total' => $result['total'],
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success'      => false,
+                'success' => false,
                 'is_ai_search' => false,
-                'ai_summary'   => null,
-                'data'         => [],
-                'total'        => 0,
-                'error'        => 'AI service tidak tersedia. Silakan gunakan pencarian biasa.',
+                'ai_summary' => null,
+                'data' => [],
+                'total' => 0,
+                'error' => 'AI service tidak tersedia. Silakan gunakan pencarian biasa.',
             ], 200);
         }
     }
@@ -167,15 +169,16 @@ class AiController extends \App\Http\Controllers\Controller
 
         try {
             $text = $openAi->generateComparisonText($request->input('query'));
+
             return response()->json([
-                'success'  => true,
+                'success' => true,
                 'markdown' => $text,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'success'  => false,
+                'success' => false,
                 'markdown' => null,
-                'error'    => 'Gagal membuat perbandingan: ' . $e->getMessage(),
+                'error' => 'Gagal membuat perbandingan: '.$e->getMessage(),
             ], 200);
         }
     }
@@ -188,7 +191,7 @@ class AiController extends \App\Http\Controllers\Controller
     public function compare(Request $request, AiCompareProductsAction $action): JsonResponse
     {
         $request->validate([
-            'catalogue_ids'   => 'required|array|min:2|max:5',
+            'catalogue_ids' => 'required|array|min:2|max:5',
             'catalogue_ids.*' => 'required|string',
         ]);
 
@@ -196,8 +199,8 @@ class AiController extends \App\Http\Controllers\Controller
             $result = $action->execute($request->input('catalogue_ids'));
 
             return response()->json([
-                'success'     => true,
-                'catalogues'  => $result['catalogues'],
+                'success' => true,
+                'catalogues' => $result['catalogues'],
                 'ai_analysis' => $result['ai_analysis'],
             ]);
         } catch (\InvalidArgumentException $e) {
@@ -205,7 +208,7 @@ class AiController extends \App\Http\Controllers\Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'AI comparison tidak tersedia saat ini.',
+                'error' => 'AI comparison tidak tersedia saat ini.',
             ], 200);
         }
     }
@@ -226,13 +229,13 @@ class AiController extends \App\Http\Controllers\Controller
 
             return response()->json([
                 'success' => true,
-                'data'    => $result,
+                'data' => $result,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'AI ranking tidak tersedia saat ini.',
-                'data'    => ['rankings' => [], 'overall_analysis' => '', 'recommended_winner_id' => null],
+                'error' => 'AI ranking tidak tersedia saat ini.',
+                'data' => ['rankings' => [], 'overall_analysis' => '', 'recommended_winner_id' => null],
             ], 200);
         }
     }
@@ -245,8 +248,8 @@ class AiController extends \App\Http\Controllers\Controller
     public function generatePr(Request $request, AiGeneratePrAction $action): JsonResponse
     {
         $request->validate([
-            'query'           => 'required|string|min:10|max:1000',
-            'catalogue_ids'   => 'nullable|array',
+            'query' => 'required|string|min:10|max:1000',
+            'catalogue_ids' => 'nullable|array',
             'catalogue_ids.*' => 'string',
         ]);
 
@@ -258,12 +261,12 @@ class AiController extends \App\Http\Controllers\Controller
 
             return response()->json([
                 'success' => true,
-                'draft'   => $result,
+                'draft' => $result,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal membuat draft PR. Silakan coba lagi.',
+                'error' => 'Gagal membuat draft PR. Silakan coba lagi.',
             ], 200);
         }
     }
@@ -284,12 +287,12 @@ class AiController extends \App\Http\Controllers\Controller
 
             return response()->json([
                 'success' => true,
-                'data'    => $summary,
+                'data' => $summary,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal mengambil data usage.',
+                'error' => 'Gagal mengambil data usage.',
             ], 200);
         }
     }
@@ -302,8 +305,8 @@ class AiController extends \App\Http\Controllers\Controller
     public function autofillCatalogue(Request $request, OpenAiService $openAi): JsonResponse
     {
         $request->validate([
-            'name'       => 'required|string|min:2|max:300',
-            'category'   => 'nullable|string',
+            'name' => 'required|string|min:2|max:300',
+            'category' => 'nullable|string',
             'company_id' => 'nullable|string',
         ]);
 
@@ -316,12 +319,12 @@ class AiController extends \App\Http\Controllers\Controller
 
             return response()->json([
                 'success' => true,
-                'data'    => $result,
+                'data' => $result,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal auto-fill spesifikasi katalog: ' . $e->getMessage(),
+                'error' => 'Gagal auto-fill spesifikasi katalog: '.$e->getMessage(),
             ], 200);
         }
     }
@@ -334,9 +337,9 @@ class AiController extends \App\Http\Controllers\Controller
     public function generateProductImage(Request $request, OpenAiService $openAi): JsonResponse
     {
         $request->validate([
-            'name'       => 'required|string|min:2|max:300',
-            'category'   => 'nullable|string',
-            'brand'      => 'nullable|string',
+            'name' => 'required|string|min:2|max:300',
+            'category' => 'nullable|string',
+            'brand' => 'nullable|string',
             'company_id' => 'nullable|string',
         ]);
 
@@ -352,9 +355,8 @@ class AiController extends \App\Http\Controllers\Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error'   => 'Gagal generate gambar dengan AI: ' . $e->getMessage(),
+                'error' => 'Gagal generate gambar dengan AI: '.$e->getMessage(),
             ], 500);
         }
     }
 }
-

@@ -2,13 +2,15 @@
 
 namespace App\Domain\Rfq\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
 use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
 use App\Domain\Proposal\Models\Proposal;
-
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @property string $id
@@ -20,10 +22,11 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property string $status
  * @property int|null $duration_days
  * @property string|null $approved_by
- * @property \Illuminate\Support\Carbon|null $approved_at
+ * @property Carbon|null $approved_at
  * @property string|null $delivery_point
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property string|null $warehouse_id
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Rfq extends Model
 {
@@ -39,12 +42,17 @@ class Rfq extends Model
         'duration_days',
         'approved_by',
         'approved_at',
+        'rejected_by',
+        'rejected_at',
+        'rejection_reason',
         'delivery_point',
+        'warehouse_id',
         'department',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
         'duration_days' => 'integer',
     ];
 
@@ -52,11 +60,12 @@ class Rfq extends Model
 
     public function getDocumentUrlAttribute(): ?string
     {
-        if (!$this->document_path) {
+        if (! $this->document_path) {
             return null;
         }
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
-        $storage = \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'));
+        /** @var FilesystemAdapter $storage */
+        $storage = Storage::disk(config('filesystems.default'));
+
         return $storage->url($this->document_path);
     }
 

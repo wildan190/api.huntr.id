@@ -4,6 +4,7 @@ namespace App\Domain\Wms\Http\Controllers;
 
 use App\Domain\Wms\Http\Requests\AdjustStockRequest;
 use App\Domain\Wms\Http\Requests\AllocateStockRequest;
+use App\Domain\Wms\Http\Requests\CheckStockAvailabilityRequest;
 use App\Domain\Wms\Http\Requests\ImportGoodsReceiptsRequest;
 use App\Domain\Wms\Http\Requests\PackWarehouseOrderRequest;
 use App\Domain\Wms\Http\Requests\PutAwayStockRequest;
@@ -109,6 +110,11 @@ class WmsController
         return $service->import($request);
     }
 
+    public function repairLegacyGoodsReceiptStock(Request $request, WmsGoodsReceiptImportService $service)
+    {
+        return $service->repairLegacyInventory($request);
+    }
+
     public function putaway(PutAwayStockRequest $request, WmsInventoryService $service)
     {
         return $service->putaway($request);
@@ -127,6 +133,11 @@ class WmsController
     public function allocate(AllocateStockRequest $request, WmsOrderService $service)
     {
         return $service->allocate($request);
+    }
+
+    public function availability(CheckStockAvailabilityRequest $request, WmsOrderService $service)
+    {
+        return $service->availability($request);
     }
 
     public function pack(PackWarehouseOrderRequest $request, int $id, WmsOrderService $service)

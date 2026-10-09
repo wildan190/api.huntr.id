@@ -21,7 +21,13 @@ class WmsAnalyticsService
             'on_hand_units' => (float) (clone $stock)->sum('on_hand'),
             'allocated_units' => (float) (clone $stock)->sum('allocated'),
             'low_stock' => (clone $stock)->where('reorder_level', '>', 0)->whereRaw('(on_hand - allocated) <= reorder_level')->count(),
-            'recent_transactions' => DB::table('warehouse_transactions')->where('company_id', $company->id)->orderByDesc('id')->limit(8)->get(),
+            'recent_transactions' => DB::table('warehouse_transactions as t')
+                ->leftJoin('warehouse_stock as s', 's.id', '=', 't.stock_id')
+                ->where('t.company_id', $company->id)
+                ->orderByDesc('t.id')
+                ->limit(8)
+                ->select('t.*', 's.sku', 's.item_name')
+                ->get(),
             'orders' => DB::table('warehouse_orders')->where('company_id', $company->id)->orderByDesc('id')->limit(8)->get(),
         ]);
     }

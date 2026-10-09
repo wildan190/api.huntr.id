@@ -20,10 +20,12 @@ Route::prefix('api/wms')->middleware(['api', 'auth:api'])->group(function () {
     Route::post('/receiving', [WmsController::class, 'receive']);
     Route::get('/receipts', [WmsController::class, 'receipts']);
     Route::post('/goods-receipts/import', [WmsController::class, 'importGoodsReceipts']);
+    Route::post('/goods-receipts/repair-legacy', [WmsController::class, 'repairLegacyGoodsReceiptStock']);
     Route::post('/putaway', [WmsController::class, 'putaway']);
     Route::post('/adjustments', [WmsController::class, 'adjust']);
     Route::post('/transfers', [WmsController::class, 'transfer']);
     Route::post('/allocations', [WmsController::class, 'allocate']);
+    Route::post('/stock/availability', [WmsController::class, 'availability']);
     Route::get('/orders', [WmsController::class, 'orders']);
     Route::post('/orders/{id}/pack', [WmsController::class, 'pack']);
     Route::post('/orders/{id}/ship', [WmsController::class, 'ship']);
