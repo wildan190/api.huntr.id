@@ -2,25 +2,27 @@
 
 namespace App\Domain\Rfq\Http\Controllers;
 
-use App\Domain\Rfq\Actions\CreateRfqAction;
+use App\Domain\Company\Models\Company;
 use App\Domain\Rfq\Actions\ApproveRfqAction;
-use App\Domain\Rfq\Actions\RejectRfqAction;
+use App\Domain\Rfq\Actions\CreateRfqAction;
 use App\Domain\Rfq\Actions\GetRfqsAction;
+use App\Domain\Rfq\Actions\RejectRfqAction;
+use App\Domain\Rfq\Actions\ResubmitRejectedRfqAction;
 use App\Domain\Rfq\Http\Requests\CreateRfqRequest;
 use App\Domain\Rfq\Models\Rfq;
-use App\Domain\Company\Models\Company;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-
+use Illuminate\Validation\ValidationException;
 
 /**
  * RfqController
- * 
+ *
  * Tanggung jawab: Mengelola permintaan terkait Request for Quotation (RFQ).
  * Pola: Thin Controller.
  */
-class RfqController extends \App\Http\Controllers\Controller
+class RfqController extends Controller
 {
     /**
      * Menampilkan daftar RFQ dengan filter.
@@ -42,7 +44,7 @@ class RfqController extends \App\Http\Controllers\Controller
             'user',
             'proposals' => function ($query) {
                 $query->with('company');
-            }
+            },
         ]);
 
         // Load items dengan prioritas berdasarkan ketersediaan gambar
@@ -52,13 +54,14 @@ class RfqController extends \App\Http\Controllers\Controller
             ->sortBy([
                 // Prioritas 1: Items dengan gambar (image_path tidak null dan tidak empty)
                 function ($item) {
-                    $hasImage = !empty($item->catalogue->image_path);
+                    $hasImage = ! empty($item->catalogue->image_path);
+
                     return $hasImage ? 0 : 1; // 0 = tinggi, 1 = rendah
                 },
                 // Prioritas 2: Urutkan berdasarkan nama katalog untuk konsistensi
                 function ($item) {
                     return $item->catalogue->name;
-                }
+                },
             ])
             ->values(); // Reset array keys setelah sorting
 
@@ -66,7 +69,7 @@ class RfqController extends \App\Http\Controllers\Controller
         $rfqData->setRelation('items', $items);
 
         return response()->json([
-            'rfq' => $rfqData
+            'rfq' => $rfqData,
         ], 200);
     }
 
@@ -94,7 +97,7 @@ class RfqController extends \App\Http\Controllers\Controller
         $documentPath = null;
         if ($request->hasFile('document')) {
             $diskName = config('filesystems.default');
-            \Illuminate\Support\Facades\Log::info('Uploading RFQ document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.' . $diskName . '.bucket')]);
+            Log::info('Uploading RFQ document', ['disk' => $diskName, 'bucket' => config('filesystems.disks.'.$diskName.'.bucket')]);
             $documentPath = $request->file('document')->storePublicly('rfq_documents', $diskName);
         }
 
@@ -108,7 +111,8 @@ class RfqController extends \App\Http\Controllers\Controller
             $data['duration_days'] ?? 7,
             $documentPath,
             $data['delivery_point'] ?? null,
-            $data['department'] ?? null
+            $data['department'] ?? null,
+            $data['warehouse_id'] ?? null,
         );
 
         return response()->json(['rfq' => $rfq], 201);
@@ -122,15 +126,15 @@ class RfqController extends \App\Http\Controllers\Controller
         // Use authenticated user instead of manager_id from request
         $manager = $request->user();
 
-        if (!$manager) {
+        if (! $manager) {
             return response()->json([
                 'message' => 'Authentication required.',
-                'error' => 'User not authenticated'
+                'error' => 'User not authenticated',
             ], 401);
         }
 
         return response()->json([
-            'rfq' => $action->execute($manager, $rfq)
+            'rfq' => $action->execute($manager, $rfq),
         ], 200);
     }
 
@@ -143,10 +147,10 @@ class RfqController extends \App\Http\Controllers\Controller
             // Get the authenticated user from the request context
             $rejector = $request->user();
 
-            if (!$rejector) {
+            if (! $rejector) {
                 return response()->json([
                     'message' => 'Authentication required.',
-                    'error' => 'User not authenticated'
+                    'error' => 'User not authenticated',
                 ], 401);
             }
 
@@ -154,7 +158,7 @@ class RfqController extends \App\Http\Controllers\Controller
             Log::info('Reject RFQ by user:', ['user_id' => $rejector->id, 'user_name' => $rejector->name]);
 
             $validation = $request->validate([
-                'reason' => 'nullable|string|max:1000'
+                'reason' => 'nullable|string|max:1000',
             ]);
 
             $reason = $request->input('reason');
@@ -163,31 +167,42 @@ class RfqController extends \App\Http\Controllers\Controller
 
             return response()->json([
                 'message' => 'RFQ has been rejected successfully.',
-                'rfq' => $rejectedRfq->load(['company', 'user'])
+                'rfq' => $rejectedRfq->load(['company', 'user']),
             ], 200);
 
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             Log::error('Validation error in reject RFQ:', [
                 'errors' => $e->errors(),
-                'request_data' => $request->all()
+                'request_data' => $request->all(),
             ]);
 
             return response()->json([
                 'message' => 'Failed to reject RFQ.',
-                'error' => 'Validation failed: ' . implode(', ', $e->errors()),
-                'validation_errors' => $e->errors()
+                'error' => 'Validation failed: '.implode(', ', $e->errors()),
+                'validation_errors' => $e->errors(),
             ], 422);
         } catch (\Exception $e) {
             Log::error('Error rejecting RFQ:', [
                 'message' => $e->getMessage(),
-                'authenticated_user' => $request->user()?->id
+                'authenticated_user' => $request->user()?->id,
             ]);
 
             return response()->json([
                 'message' => 'Failed to reject RFQ.',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 422);
         }
+    }
+
+    public function resubmit(Request $request, Rfq $rfq, ResubmitRejectedRfqAction $action): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user, 401, 'Authentication required.');
+
+        return response()->json([
+            'message' => 'PR revised and resubmitted for approval.',
+            'rfq' => $action->execute($user, $rfq),
+        ]);
     }
 
     /**
@@ -203,7 +218,7 @@ class RfqController extends \App\Http\Controllers\Controller
                 return [
                     'rank' => $index + 1,
                     'proposal' => $proposal,
-                    'is_winner' => $proposal->winner_status === 'awarded' || $proposal->winner_status === 'approved'
+                    'is_winner' => $proposal->winner_status === 'awarded' || $proposal->winner_status === 'approved',
                 ];
             });
 
@@ -222,19 +237,19 @@ class RfqController extends \App\Http\Controllers\Controller
         $whatsapp = preg_replace('/[^0-9]/', '', $request->input('whatsapp'));
         // Normalize to international format: replace leading 0 with 62
         if (str_starts_with($whatsapp, '0')) {
-            $whatsapp = '62' . substr($whatsapp, 1);
+            $whatsapp = '62'.substr($whatsapp, 1);
         }
 
         $frontendUrl = config('app.frontend_url', 'https://app.huntr.id');
-        $rfqLink = $frontendUrl . "/rfq/" . $rfq->id;
+        $rfqLink = $frontendUrl.'/rfq/'.$rfq->id;
 
         $message = "Hello! You have been invited to submit a quotation for RFQ #{$rfq->id} - {$rfq->title}.\n\nRegister on Huntr.id to view the details and submit your proposal:\n{$rfqLink}";
 
-        $whatsappLink = "https://wa.me/" . $whatsapp . "?text=" . urlencode($message);
+        $whatsappLink = 'https://wa.me/'.$whatsapp.'?text='.urlencode($message);
 
         return response()->json([
             'message' => 'Invitation link generated successfully.',
-            'whatsapp_link' => $whatsappLink
+            'whatsapp_link' => $whatsappLink,
         ], 200);
     }
 
@@ -266,10 +281,10 @@ class RfqController extends \App\Http\Controllers\Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhereHas('company', function ($cq) use ($search) {
-                      $cq->where('name', 'like', "%{$search}%");
-                  });
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhereHas('company', function ($cq) use ($search) {
+                        $cq->where('name', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -288,10 +303,10 @@ class RfqController extends \App\Http\Controllers\Controller
             'company',
             'items.catalogue',
         ])
-        ->withCount('proposals')
-        ->find($id);
+            ->withCount('proposals')
+            ->find($id);
 
-        if (!$rfq) {
+        if (! $rfq) {
             return response()->json(['message' => 'RFQ not found.', 'rfq' => null], 404);
         }
 

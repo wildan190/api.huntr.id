@@ -47,7 +47,7 @@ class AgenticProcurementService
             'workstation',
             'server tower',
             'all in one pc',
-            'nuc '
+            'nuc ',
         ],
         'LAPTOP' => ['laptop', 'notebook', 'ultrabook', 'ultrathin', 'thinkpad', 'macbook', 'chromebook'],
         'STORAGE_SSD' => ['ssd nvme', 'ssd sata', 'ssd 2.5', 'nvme gen', 'm.2 ssd', 'solid state drive'],
@@ -88,16 +88,15 @@ class AgenticProcurementService
         private readonly OpenAiService $openAi,
         private readonly BraveSearchService $webSearch,
         private readonly CreateRfqAction $createRfqAction
-    ) {
-    }
+    ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
     // Workflow utama
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @param string $query   Kebutuhan pengadaan (bahasa natural)
-     * @param array  $options [company_id, user_id, auto_create_pr, catalogue_ids]
+     * @param  string  $query  Kebutuhan pengadaan (bahasa natural)
+     * @param  array  $options  [company_id, user_id, auto_create_pr, catalogue_ids]
      */
     public function runFullWorkflow(string $query, array $options = []): array
     {
@@ -124,7 +123,7 @@ class AgenticProcurementService
             'summary' => $historicalCount > 0
                 ? "Ditemukan {$historicalCount} referensi harga dari transaksi PO & penawaran vendor sebelumnya."
                 : 'Tidak ada riwayat transaksi yang cocok. Harga akan ditentukan melalui RFQ bila tidak ada referensi lain.',
-            'sources' => array_values(array_map(fn($v) => [
+            'sources' => array_values(array_map(fn ($v) => [
                 'name' => $v['item_name'],
                 'avg_price' => $v['avg_price'],
                 'last_price' => $v['last_price'],
@@ -140,15 +139,15 @@ class AgenticProcurementService
             'title' => 'Brave Search - Harga & Spek dari Web',
             'status' => 'completed',
             'total_found' => count($webSearchResults),
-            'brand_recommendations' => array_values(array_map(fn($bc) => [
+            'brand_recommendations' => array_values(array_map(fn ($bc) => [
                 'brand' => $bc['brand'],
                 'avg_price' => $bc['web_prices']['avg_price'] ?? null,
                 'thumbnail' => $bc['thumbnail'] ?? null,
             ], $brandComparisons)),
             'summary' => $webSearchSummary,
             'sources' => collect($webSearchResults)
-                ->flatMap(fn($d) => array_slice($d['results'] ?? [], 0, 2))
-                ->map(fn($r) => ['title' => $r['title'] ?? '', 'link' => $r['link'] ?? '', 'price' => $r['price'] ?? 0])
+                ->flatMap(fn ($d) => array_slice($d['results'] ?? [], 0, 2))
+                ->map(fn ($r) => ['title' => $r['title'] ?? '', 'link' => $r['link'] ?? '', 'price' => $r['price'] ?? 0])
                 ->values()
                 ->toArray(),
         ];
@@ -161,7 +160,7 @@ class AgenticProcurementService
             'status' => 'completed',
             'total_found' => count($foundCatalogues),
             'summary' => count($foundCatalogues) > 0
-                ? 'Ditemukan ' . count($foundCatalogues) . ' produk katalog yang cocok dengan kebutuhan.'
+                ? 'Ditemukan '.count($foundCatalogues).' produk katalog yang cocok dengan kebutuhan.'
                 : 'Tidak ada produk katalog yang cocok. Item PR mengikuti kebutuhan buyer dan harga ditentukan via RFQ.',
         ];
 
@@ -170,7 +169,7 @@ class AgenticProcurementService
         $steps[] = $comparisonStep;
 
         // Step 6: Susun PR
-        $company = !empty($options['company_id']) ? Company::find($options['company_id']) : null;
+        $company = ! empty($options['company_id']) ? Company::find($options['company_id']) : null;
 
         $items = $this->buildPrItems($intent, $foundCatalogues, $options);
 
@@ -187,8 +186,8 @@ class AgenticProcurementService
         $prDraft['suggested_items'] = $enrichedItems;
 
         // Total HANYA dari item yang punya harga bersumber. Item rfq_required tidak dihitung.
-        $priced = array_values(array_filter($enrichedItems, fn($i) => ($i['estimated_price'] ?? 0) > 0));
-        $calculatedTotal = array_sum(array_map(fn($i) => $i['qty'] * $i['estimated_price'], $priced));
+        $priced = array_values(array_filter($enrichedItems, fn ($i) => ($i['estimated_price'] ?? 0) > 0));
+        $calculatedTotal = array_sum(array_map(fn ($i) => $i['qty'] * $i['estimated_price'], $priced));
 
         $buyerBudget = (float) ($intent['estimated_total_budget_idr'] ?? 0);
 
@@ -210,7 +209,7 @@ class AgenticProcurementService
 
         // Step 7: Eksekusi otomatis
         $createdRfq = null;
-        if (!empty($options['auto_create_pr']) && $company && $company->type === 'buyer') {
+        if (! empty($options['auto_create_pr']) && $company && $company->type === 'buyer') {
             try {
                 $createdRfq = $this->createPrFromDraft($company, $prDraft, $options['user_id'] ?? null);
                 $steps[] = [
@@ -226,7 +225,7 @@ class AgenticProcurementService
                     'step' => 'pr_creation',
                     'title' => 'Pembuatan PR ke Sistem Huntr',
                     'status' => 'failed',
-                    'summary' => 'Gagal menyimpan PR otomatis: ' . $e->getMessage(),
+                    'summary' => 'Gagal menyimpan PR otomatis: '.$e->getMessage(),
                 ];
             }
         }
@@ -302,7 +301,7 @@ INSTRUCTION;
         $results = [];
         $brandComparisons = [];
 
-        if (!$this->webSearch->isEnabled()) {
+        if (! $this->webSearch->isEnabled()) {
             return [$results, $brandComparisons, 'Brave Search tidak dikonfigurasi.'];
         }
 
@@ -318,7 +317,7 @@ INSTRUCTION;
             }
 
             $priceData = $this->webSearch->searchMarketPrice($name, $brand, $spec);
-            if (!empty($priceData['raw_results'])) {
+            if (! empty($priceData['raw_results'])) {
                 $results[$this->normalizeKey($name)] = [
                     'item_name' => trim("{$brand} {$name}"),
                     'brand' => $brand,
@@ -335,13 +334,13 @@ INSTRUCTION;
         }
 
         // Tidak ada target item -> pencarian kategori dari keywords.
-        if (empty($results) && !empty($keywords)) {
+        if (empty($results) && ! empty($keywords)) {
             $altQuery = implode(' ', array_slice($keywords, 0, 4));
             $alt = $this->webSearch->filterRelevant(
                 $this->webSearch->searchProducts("{$altQuery} harga Indonesia", 8),
                 $altQuery
             );
-            if (!empty($alt)) {
+            if (! empty($alt)) {
                 $results['__general__'] = ['item_name' => $altQuery, 'results' => $alt];
             }
 
@@ -351,13 +350,13 @@ INSTRUCTION;
             }
         }
 
-        $totalFound = count(array_filter($results, fn($v) => !empty($v['results'])));
+        $totalFound = count(array_filter($results, fn ($v) => ! empty($v['results'])));
         $brandCount = count($brandComparisons);
 
         if ($totalFound > 0) {
             $summary = "Brave Search menemukan {$totalFound} kelompok produk"
-                . ($brandCount > 0 ? " dan {$brandCount} merek terdeteksi (belum terverifikasi)" : '')
-                . '. Harga ditampilkan hanya jika tersedia minimal 3 sampel yang relevan.';
+                .($brandCount > 0 ? " dan {$brandCount} merek terdeteksi (belum terverifikasi)" : '')
+                .'. Harga ditampilkan hanya jika tersedia minimal 3 sampel yang relevan.';
         } elseif ($this->webSearch->lastSearchFailed()) {
             $summary = 'Pencarian web gagal diakses (bukan berarti produk tidak ada). Coba ulangi.';
         } else {
@@ -371,7 +370,7 @@ INSTRUCTION;
     {
         foreach ($brandComparisons as $bc) {
             $key = $this->normalizeKey($bc['item_name']);
-            if (!isset($results[$key])) {
+            if (! isset($results[$key])) {
                 $results[$key] = [
                     'item_name' => $bc['item_name'],
                     'brand' => $bc['brand'],
@@ -387,14 +386,14 @@ INSTRUCTION;
      */
     private function runComparison(string $query, array $catalogues, array $brandComparisons, array $webSearchResults): array
     {
-        $matched = array_values(array_filter($catalogues, fn($c) => ($c['ai_match'] ?? false) === true));
+        $matched = array_values(array_filter($catalogues, fn ($c) => ($c['ai_match'] ?? false) === true));
 
         // Skenario A: >= 2 produk katalog yang dinyatakan cocok
         if (count($matched) >= 2) {
             $candidates = array_slice($matched, 0, 5);
             $comparison = $this->openAi->compareProducts($candidates, $query);
 
-            if (!empty($comparison['comparison_matrix'])) {
+            if (! empty($comparison['comparison_matrix'])) {
                 $byId = collect($candidates)->keyBy('id');
 
                 $comparison['comparison_matrix'] = array_map(function ($row) use ($byId, $webSearchResults) {
@@ -420,7 +419,7 @@ INSTRUCTION;
                     'status' => 'completed',
                     'summary' => $comparison['executive_summary'] ?? 'Evaluasi komparasi produk selesai.',
                     'winner_id' => $comparison['winner_id'] ?? null,
-                ]
+                ],
             ];
         }
 
@@ -429,7 +428,7 @@ INSTRUCTION;
             $synthetic = [];
             $byId = [];
             foreach ($brandComparisons as $bc) {
-                $id = 'brave_' . preg_replace('/[^a-z0-9]+/', '_', strtolower($bc['brand']));
+                $id = 'brave_'.preg_replace('/[^a-z0-9]+/', '_', strtolower($bc['brand']));
                 $byId[$id] = $bc;
 
                 $synthetic[] = [
@@ -446,7 +445,7 @@ INSTRUCTION;
 
             $comparison = $this->openAi->compareProducts($synthetic, $query);
 
-            if (!empty($comparison['comparison_matrix'])) {
+            if (! empty($comparison['comparison_matrix'])) {
                 $comparison['comparison_matrix'] = array_map(function ($row) use ($byId) {
                     $bc = $byId[(string) $row['catalogue_id']] ?? null;
 
@@ -471,10 +470,10 @@ INSTRUCTION;
                     'title' => 'Komparasi Merek Terdeteksi (Brave Search, belum terverifikasi)',
                     'status' => 'completed',
                     'summary' => $comparison['executive_summary']
-                        ?? ('Perbandingan ' . count($brandComparisons) . ' merek berdasarkan cuplikan web.'),
+                        ?? ('Perbandingan '.count($brandComparisons).' merek berdasarkan cuplikan web.'),
                     'winner_id' => $comparison['winner_id'] ?? null,
                     'source' => 'brave_brand_comparison',
-                ]
+                ],
             ];
         }
 
@@ -488,7 +487,7 @@ INSTRUCTION;
                     continue;
                 }
 
-                $identity = $link !== '' ? $link : $groupKey . ':' . $index;
+                $identity = $link !== '' ? $link : $groupKey.':'.$index;
                 if (isset($seenLinks[$identity])) {
                     continue;
                 }
@@ -496,7 +495,7 @@ INSTRUCTION;
 
                 $price = (float) ($result['price'] ?? 0);
                 $webListings[] = [
-                    'id' => 'brave_' . substr(sha1($identity), 0, 12),
+                    'id' => 'brave_'.substr(sha1($identity), 0, 12),
                     'catalogue_id' => null,
                     'product_name' => $title !== '' ? $title : ($entry['item_name'] ?? 'Listing web'),
                     'vendor_name' => $result['source'] ?? (parse_url($link, PHP_URL_HOST) ?: null),
@@ -522,12 +521,12 @@ INSTRUCTION;
             }
         }
 
-        if (!empty($webListings)) {
+        if (! empty($webListings)) {
             $comparison = [
                 'comparison_matrix' => $webListings,
                 'winner_id' => null,
                 'winner_reason' => null,
-                'executive_summary' => count($webListings) . ' listing ditemukan melalui Brave Search. Listing ditampilkan sebagai referensi web mentah, bukan rekomendasi atau perbandingan produk terverifikasi.',
+                'executive_summary' => count($webListings).' listing ditemukan melalui Brave Search. Listing ditampilkan sebagai referensi web mentah, bukan rekomendasi atau perbandingan produk terverifikasi.',
                 'spec_table' => [],
                 'source' => 'brave_web_listings',
                 'unverified' => true,
@@ -552,7 +551,7 @@ INSTRUCTION;
                 'title' => 'Evaluasi Produk',
                 'status' => 'completed',
                 'summary' => 'Kandidat produk belum cukup untuk dibandingkan.',
-            ]
+            ],
         ];
     }
 
@@ -574,7 +573,7 @@ INSTRUCTION;
                 'source' => $r['source'] ?? '',
                 'thumbnail' => $r['thumbnail'] ?? null,
             ];
-            if (!$thumbnail && !empty($r['thumbnail'])) {
+            if (! $thumbnail && ! empty($r['thumbnail'])) {
                 $thumbnail = $r['thumbnail'];
             }
         }
@@ -604,20 +603,20 @@ INSTRUCTION;
     public function queryHistoricalPrices(array $intent): array
     {
         $terms = array_map(
-            fn($t) => mb_strtolower(trim((string) $t)),
+            fn ($t) => mb_strtolower(trim((string) $t)),
             array_merge(
                 $intent['keywords'] ?? [],
-                array_map(fn($t) => $t['name'] ?? '', $intent['target_items'] ?? [])
+                array_map(fn ($t) => $t['name'] ?? '', $intent['target_items'] ?? [])
             )
         );
-        $terms = array_values(array_unique(array_filter($terms, fn($t) => mb_strlen($t) >= 3)));
+        $terms = array_values(array_unique(array_filter($terms, fn ($t) => mb_strlen($t) >= 3)));
 
         if (empty($terms)) {
             return [];
         }
 
         $operator = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-        $like = fn(string $t) => '%' . addcslashes($t, '%_\\') . '%';
+        $like = fn (string $t) => '%'.addcslashes($t, '%_\\').'%';
         $results = [];
 
         // Sumber 1: historical_po_items (hanya IDR; mata uang lain tidak boleh dirata-rata dengan IDR)
@@ -625,7 +624,7 @@ INSTRUCTION;
             $rows = HistoricalPoItem::query()
                 ->whereNotNull('inventory_name')
                 ->where('unit_price', '>', 0)
-                ->where(fn($q) => $q->whereNull('currency')->orWhere('currency', 'IDR'))
+                ->where(fn ($q) => $q->whereNull('currency')->orWhere('currency', 'IDR'))
                 ->where(function ($q) use ($terms, $operator, $like) {
                     foreach ($terms as $term) {
                         $q->orWhere('inventory_name', $operator, $like($term))
@@ -639,7 +638,7 @@ INSTRUCTION;
                 ->get();
 
             foreach ($rows->groupBy('inventory_name') as $itemName => $group) {
-                $prices = $group->pluck('unit_price')->map(fn($p) => (float) $p)->filter(fn($p) => $p > 0);
+                $prices = $group->pluck('unit_price')->map(fn ($p) => (float) $p)->filter(fn ($p) => $p > 0);
                 if ($prices->isEmpty()) {
                     continue;
                 }
@@ -687,7 +686,7 @@ INSTRUCTION;
                     continue; // PO historis diprioritaskan
                 }
 
-                $prices = $group->pluck('price_offer')->map(fn($p) => (float) $p)->filter(fn($p) => $p > 0);
+                $prices = $group->pluck('price_offer')->map(fn ($p) => (float) $p)->filter(fn ($p) => $p > 0);
                 if ($prices->isEmpty()) {
                     continue;
                 }
@@ -730,7 +729,7 @@ INSTRUCTION;
             });
 
             // Buyer memilih katalog secara eksplisit -> tidak perlu penilaian AI.
-            if (!empty($options['catalogue_ids'])) {
+            if (! empty($options['catalogue_ids'])) {
                 $dbQuery->whereIn('id', $options['catalogue_ids']);
 
                 return $dbQuery->get()->map(function (Catalogue $c) {
@@ -738,18 +737,19 @@ INSTRUCTION;
                     $item['ai_match'] = true;
                     $item['ai_score'] = null;
                     $item['fit_reason'] = 'Dipilih langsung oleh buyer.';
+
                     return $item;
                 })->values()->toArray();
             }
 
             $terms = array_values(array_unique(array_filter(
-                array_map(fn($k) => trim((string) $k), $intent['keywords'] ?? []),
-                fn($k) => mb_strlen($k) >= 3
+                array_map(fn ($k) => trim((string) $k), $intent['keywords'] ?? []),
+                fn ($k) => mb_strlen($k) >= 3
             )));
             $category = $intent['category'] ?? null;
             $brand = $intent['brand'] ?? null;
 
-            if (empty($terms) && !$category && !$brand) {
+            if (empty($terms) && ! $category && ! $brand) {
                 return []; // tanpa kata kunci, jangan mengembalikan katalog acak
             }
 
@@ -776,21 +776,22 @@ INSTRUCTION;
             // Guard kategori: buang produk yang JELAS berbeda kategori dari SEMUA target item.
             $targetTexts = [];
             foreach ($intent['target_items'] ?? [] as $t) {
-                $targetTexts[] = trim(($t['name'] ?? '') . ' ' . ($t['spec_requirements'] ?? ''));
+                $targetTexts[] = trim(($t['name'] ?? '').' '.($t['spec_requirements'] ?? ''));
             }
-            if (empty($targetTexts) && !empty($intent['ai_summary'])) {
+            if (empty($targetTexts) && ! empty($intent['ai_summary'])) {
                 $targetTexts[] = (string) $intent['ai_summary'];
             }
             $targetTexts = array_values(array_filter($targetTexts));
 
-            if ($results->isNotEmpty() && !empty($targetTexts)) {
+            if ($results->isNotEmpty() && ! empty($targetTexts)) {
                 $results = $results->filter(function (Catalogue $c) use ($targetTexts) {
-                    $text = trim(($c->name ?? '') . ' ' . ($c->category ?? ''));
+                    $text = trim(($c->name ?? '').' '.($c->category ?? ''));
                     foreach ($targetTexts as $target) {
-                        if (!$this->isClearlyDifferentCategory($text, $target)) {
+                        if (! $this->isClearlyDifferentCategory($text, $target)) {
                             return true;
                         }
                     }
+
                     return false;
                 })->values();
             }
@@ -815,7 +816,7 @@ INSTRUCTION;
             });
 
             return $mapped
-                ->filter(fn($i) => $i['ai_match'] === true)
+                ->filter(fn ($i) => $i['ai_match'] === true)
                 ->sortByDesc('ai_score')
                 ->values()
                 ->toArray();
@@ -857,12 +858,12 @@ INSTRUCTION;
      */
     private function buildPrItems(array $intent, array $catalogues, array $options = []): array
     {
-        $matched = array_values(array_filter($catalogues, fn($c) => ($c['ai_match'] ?? false) === true));
-        usort($matched, fn($a, $b) => ($b['ai_score'] ?? 0) <=> ($a['ai_score'] ?? 0));
+        $matched = array_values(array_filter($catalogues, fn ($c) => ($c['ai_match'] ?? false) === true));
+        usort($matched, fn ($a, $b) => ($b['ai_score'] ?? 0) <=> ($a['ai_score'] ?? 0));
 
         $targets = array_values(array_filter(
             $intent['target_items'] ?? [],
-            fn($t) => trim((string) ($t['name'] ?? '')) !== ''
+            fn ($t) => trim((string) ($t['name'] ?? '')) !== ''
         ));
 
         $items = [];
@@ -877,8 +878,8 @@ INSTRUCTION;
         }
 
         // Tidak ada target item tetapi ada katalog yang cocok / dipilih buyer.
-        if (empty($items) && !empty($matched)) {
-            $pool = !empty($options['catalogue_ids']) ? $matched : [$matched[0]];
+        if (empty($items) && ! empty($matched)) {
+            $pool = ! empty($options['catalogue_ids']) ? $matched : [$matched[0]];
             foreach ($pool as $cat) {
                 $items[] = $this->itemFromCatalogue($cat, 1, null);
             }
@@ -905,7 +906,7 @@ INSTRUCTION;
                 continue;
             }
 
-            $hay = trim(($cat['name'] ?? '') . ' ' . ($cat['category'] ?? '') . ' ' . ($cat['specifications'] ?? ''));
+            $hay = trim(($cat['name'] ?? '').' '.($cat['category'] ?? '').' '.($cat['specifications'] ?? ''));
             if ($this->isClearlyDifferentCategory($hay, $name)) {
                 continue;
             }
@@ -991,7 +992,7 @@ INSTRUCTION;
                     number_format((float) $hist['min_price'], 0, ',', '.'),
                     number_format((float) $hist['max_price'], 0, ',', '.'),
                     (int) $hist['sample_count'],
-                    !empty($hist['last_date']) ? ' (terakhir ' . $hist['last_date'] . ')' : ''
+                    ! empty($hist['last_date']) ? ' (terakhir '.$hist['last_date'].')' : ''
                 );
             }
 
@@ -1010,7 +1011,7 @@ INSTRUCTION;
             if ($price <= 0 && $this->webSearch->isEnabled() && trim($name) !== '') {
                 try {
                     $live = $this->webSearch->searchMarketPrice($name, $brand);
-                    if (!empty($live['raw_results'])) {
+                    if (! empty($live['raw_results'])) {
                         $webEntry = [
                             'web_prices' => $live,
                             'results' => $live['raw_results'],
@@ -1028,7 +1029,7 @@ INSTRUCTION;
 
             $webPrices = $webEntry['web_prices'] ?? [];
             $webAverage = (float) ($webPrices['avg_price'] ?? 0);
-            $webSources = array_map(fn($source) => [
+            $webSources = array_map(fn ($source) => [
                 'title' => $source['title'] ?? '',
                 'link' => $source['link'] ?? '',
                 'source' => $source['source'] ?? '',
@@ -1036,7 +1037,7 @@ INSTRUCTION;
             ], array_slice($webEntry['results'] ?? [], 0, 10));
 
             // 3) Anggaran per-item yang disebut buyer (sudah diverifikasi terhadap teks buyer di OpenAiService)
-            if ($price <= 0 && !empty($item['_budget_hint_idr'])) {
+            if ($price <= 0 && ! empty($item['_budget_hint_idr'])) {
                 $hint = (float) $item['_budget_hint_idr'];
                 if ($hint > 0) {
                     $price = round($hint / $qty);
@@ -1106,7 +1107,7 @@ INSTRUCTION;
             if ($this->isClearlyDifferentCategory($name, $key)) {
                 continue;
             }
-            if ($brand !== '' && !str_contains($key, $brand)) {
+            if ($brand !== '' && ! str_contains($key, $brand)) {
                 continue;
             }
 
@@ -1131,7 +1132,7 @@ INSTRUCTION;
      *  - item tanpa merek -> hanya entri tanpa merek (100 x overlap token)
      *  - skor minimum MIN_WEB_MATCH_SCORE; tidak ada fuzzy prefix.
      *
-     * @param bool $requirePrice true = hanya entri yang punya statistik harga valid
+     * @param  bool  $requirePrice  true = hanya entri yang punya statistik harga valid
      */
     private function bestWebEntry(string $name, string $brand, array $webSearchResults, bool $requirePrice): ?array
     {
@@ -1155,7 +1156,7 @@ INSTRUCTION;
             if ($requirePrice && (float) ($data['web_prices']['avg_price'] ?? 0) <= 0) {
                 continue;
             }
-            if ($this->isClearlyDifferentCategory(trim($name . ' ' . $brand), trim($dataName . ' ' . $dataBrand))) {
+            if ($this->isClearlyDifferentCategory(trim($name.' '.$brand), trim($dataName.' '.$dataBrand))) {
                 continue;
             }
 
@@ -1167,7 +1168,7 @@ INSTRUCTION;
                 if ($dataBrand !== '' && $dataBrand !== $brand) {
                     continue;
                 }
-                if ($dataBrand === '' && !str_contains($dataName, $brand)) {
+                if ($dataBrand === '' && ! str_contains($dataName, $brand)) {
                     continue;
                 }
             }
@@ -1193,14 +1194,14 @@ INSTRUCTION;
      */
     public function createPrFromDraft(Company $buyerCompany, array $prDraft, ?string $userId = null): Rfq
     {
-        $title = $prDraft['title'] ?? ('Purchase Requisition - ' . date('Y-m-d H:i'));
+        $title = $prDraft['title'] ?? ('Purchase Requisition - '.date('Y-m-d H:i'));
         $description = (string) ($prDraft['description'] ?? '');
 
-        if (!empty($prDraft['business_justification'])) {
-            $description .= "\n\n**Justifikasi Bisnis:**\n" . $prDraft['business_justification'];
+        if (! empty($prDraft['business_justification'])) {
+            $description .= "\n\n**Justifikasi Bisnis:**\n".$prDraft['business_justification'];
         }
-        if (!empty($prDraft['manager_notes'])) {
-            $description .= "\n\n**Catatan Manager:**\n" . $prDraft['manager_notes'];
+        if (! empty($prDraft['manager_notes'])) {
+            $description .= "\n\n**Catatan Manager:**\n".$prDraft['manager_notes'];
         }
 
         $suggested = $prDraft['suggested_items'] ?? [];
@@ -1209,12 +1210,12 @@ INSTRUCTION;
         $claimedIds = array_values(array_filter(array_column($suggested, 'catalogue_id')));
         $validIds = empty($claimedIds)
             ? []
-            : Catalogue::whereIn('id', $claimedIds)->pluck('id')->map(fn($id) => (string) $id)->all();
+            : Catalogue::whereIn('id', $claimedIds)->pluck('id')->map(fn ($id) => (string) $id)->all();
 
         $items = [];
         foreach ($suggested as $item) {
             $catalogueId = $item['catalogue_id'] ?? null;
-            if ($catalogueId !== null && !in_array((string) $catalogueId, $validIds, true)) {
+            if ($catalogueId !== null && ! in_array((string) $catalogueId, $validIds, true)) {
                 $catalogueId = null;
             }
 
@@ -1228,7 +1229,7 @@ INSTRUCTION;
                 $catalogue = Catalogue::firstOrCreate(
                     ['company_id' => $buyerCompany->id, 'name' => $name],
                     [
-                        'item_code' => $item['item_code'] ?? ('PR-ITEM-' . strtoupper(substr(md5(uniqid('', true)), 0, 6))),
+                        'item_code' => $item['item_code'] ?? ('PR-ITEM-'.strtoupper(substr(md5(uniqid('', true)), 0, 6))),
                         'category' => $item['category'] ?? 'General Procurement',
                         'brand' => $item['brand'] ?? null,
                         'specifications' => $item['detailed_specs'] ?? null,
@@ -1260,7 +1261,8 @@ INSTRUCTION;
             durationDays: (int) ($prDraft['duration_days'] ?? 7),
             documentPath: null,
             deliveryPoint: (string) ($prDraft['delivery_point_recommendation'] ?? $buyerCompany->address ?? ''),
-            department: $prDraft['department'] ?? 'Procurement'
+            department: $prDraft['department'] ?? 'Procurement',
+            warehouseId: $prDraft['warehouse_id'] ?? null,
         );
     }
 
@@ -1281,7 +1283,7 @@ INSTRUCTION;
 
         return array_values(array_unique(array_filter(
             $tokens,
-            fn($t) => mb_strlen($t) >= 2 && !in_array($t, self::STOPWORDS, true)
+            fn ($t) => mb_strlen($t) >= 2 && ! in_array($t, self::STOPWORDS, true)
         )));
     }
 

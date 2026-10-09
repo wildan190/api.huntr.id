@@ -2,11 +2,13 @@
 
 namespace App\Domain\Rfq\Actions;
 
-use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
-use App\Domain\Company\Models\Company;
-use App\Domain\Rfq\Models\Rfq;
+use App\Domain\AI\Services\DemoBotService;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
+use App\Domain\Company\Models\Company;
+use App\Domain\Rfq\Models\Rfq;
+use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CreateRfqAction
@@ -20,13 +22,12 @@ class CreateRfqAction
     /**
      * Create a draft RFQ and checkout cart items to request manager PO approval.
      *
-     * @param Company $buyerCompany The buyer's company
-     * @param string $title RFQ Title
-     * @param string|null $description RFQ Description
-     * @param array $cartItems Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
-     * @return Rfq
+     * @param  Company  $buyerCompany  The buyer's company
+     * @param  string  $title  RFQ Title
+     * @param  string|null  $description  RFQ Description
+     * @param  array  $cartItems  Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
      */
-    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null): Rfq
+    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null): Rfq
     {
         // Debug: Log jumlah item yang akan diproses
         Log::info('DEBUG: CreateRfqAction - Cart items processing', [
@@ -34,24 +35,29 @@ class CreateRfqAction
             'cart_items_details' => $cartItems,
         ]);
 
+        if ($warehouseId) {
+            abort_unless(DB::table('company_apps')->where('company_id', $buyerCompany->id)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists(), 422, 'Install WMS & Inventory before choosing a warehouse destination.');
+            abort_unless(DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $buyerCompany->id)->where('status', 'active')->exists(), 422, 'Warehouse tujuan tidak valid atau tidak aktif.');
+        }
         $rfq = $this->rfqRepository->create([
-            'company_id'    => $buyerCompany->id,
-            'user_id'       => $userId,
-            'title'         => $title,
-            'description'   => $description,
+            'company_id' => $buyerCompany->id,
+            'user_id' => $userId,
+            'title' => $title,
+            'description' => $description,
             'document_path' => $documentPath,
-            'status'        => $status,
+            'status' => $status,
             'duration_days' => $durationDays ?? 7,
             'delivery_point' => $deliveryPoint,
-            'department'    => $department,
+            'department' => $department,
+            'warehouse_id' => $warehouseId,
         ]);
 
-        $lineItems = array_map(fn($item) => [
-            'rfq_id'          => $rfq->id,
-            'catalogue_id'    => $item['catalogue_id'],
-            'qty'             => $item['qty'],
+        $lineItems = array_map(fn ($item) => [
+            'rfq_id' => $rfq->id,
+            'catalogue_id' => $item['catalogue_id'],
+            'qty' => $item['qty'],
             'estimated_price' => $item['estimated_price'] ?? null,
-            'expected_date'   => $item['expected_date'] ?? null,
+            'expected_date' => $item['expected_date'] ?? null,
         ], $cartItems);
 
         // Debug: Log line items yang akan dibuat
@@ -63,24 +69,24 @@ class CreateRfqAction
         $this->rfqRepository->createItems($lineItems);
 
         $this->broadcastAction->execute(
-            "New PR Created",
+            'New PR Created',
             "PR '{$title}' has been submitted and is pending approval.",
             'test-channel',
             true,
             $userId,
-            "/my-pr",
+            '/my-pr',
             ['type' => 'pr_created']
         );
 
         $managers = $buyerCompany->approvers();
         foreach ($managers as $manager) {
             $this->broadcastAction->execute(
-                "PR Requires Approval",
+                'PR Requires Approval',
                 "PR '{$title}' has been submitted and requires your approval.",
                 'test-channel',
                 true,
                 $manager->id,
-                "/approvals",
+                '/approvals',
                 ['type' => 'pending_approval']
             );
         }
@@ -100,9 +106,9 @@ class CreateRfqAction
         // Demo Mode: Trigger 5 AI Vendor Bots if active or demo mode
         if (config('app.demo_mode', false) && ($status === 'active' || $status === 'pending_approval')) {
             try {
-                app(\App\Domain\AI\Services\DemoBotService::class)->generateFiveVendorBotsForRfq($rfq);
+                app(DemoBotService::class)->generateFiveVendorBotsForRfq($rfq);
             } catch (\Exception $e) {
-                Log::warning("DemoBotService auto-trigger failed: " . $e->getMessage());
+                Log::warning('DemoBotService auto-trigger failed: '.$e->getMessage());
             }
         }
 
