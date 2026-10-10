@@ -25,9 +25,8 @@ class WmsAnalyticsService
                 ->leftJoin('warehouse_stock as s', 's.id', '=', 't.stock_id')
                 ->where('t.company_id', $company->id)
                 ->orderByDesc('t.id')
-                ->limit(8)
                 ->select('t.*', 's.sku', 's.item_name')
-                ->get(),
+                ->paginate(5, ['*'], 'activity_page'),
             'orders' => DB::table('warehouse_orders')->where('company_id', $company->id)->orderByDesc('id')->limit(8)->get(),
         ]);
     }
