@@ -110,14 +110,28 @@ class WmsInventoryService
         $company = $this->context->tenant($request);
         $orders = PurchaseOrder::query()
             ->where('buyer_company_id', $company->id)
-            ->whereIn('status', ['confirmed', 'shipping', 'completed'])
+            ->whereIn('status', ['issued', 'published', 'confirmed', 'paid', 'packing', 'in_transit', 'shipping', 'shipped', 'delivery', 'delivered', 'completed'])
             ->orderByDesc('expected_receiving_date')
-            ->get(['id', 'po_number', 'vendor_name', 'status', 'expected_receiving_date', 'is_historical', 'proposal_id'])
+            ->get(['id', 'po_number', 'vendor_name', 'status', 'expected_receiving_date', 'is_historical', 'proposal_id', 'rfq_id'])
             ->map(function (PurchaseOrder $order) use ($company) {
                 if ($order->is_historical) {
                     $lines = DB::table('historical_po_items')->where('purchase_order_id', $order->id)->get()->map(fn ($line) => ['catalogue_id' => null, 'sku' => $line->inventory_code, 'name' => $line->inventory_name, 'uom' => $line->uom, 'ordered_quantity' => (float) $line->qty]);
                 } elseif ($order->proposal_id) {
-                    $lines = DB::table('proposal_items as pi')->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')->join('catalogues as c', 'c.id', '=', 'ri.catalogue_id')->where('pi.proposal_id', $order->proposal_id)->select('c.id as catalogue_id', 'c.item_code as sku', 'c.name', 'c.uom', 'ri.qty as ordered_quantity')->get()->map(fn ($line) => (array) $line);
+                    $lines = DB::table('proposal_items as pi')
+                        ->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')
+                        ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
+                        ->where('pi.proposal_id', $order->proposal_id)
+                        ->selectRaw("c.id as catalogue_id, COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(ri.id::text, 1, 8))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
+                        ->get()
+                        ->map(fn ($line) => (array) $line);
+                } elseif ($order->rfq_id) {
+                    // Direct POs have no vendor proposal. Their approved PR is the source of truth.
+                    $lines = DB::table('rfq_items as ri')
+                        ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
+                        ->where('ri.rfq_id', $order->rfq_id)
+                        ->selectRaw("c.id as catalogue_id, COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(ri.id::text, 1, 8))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
+                        ->get()
+                        ->map(fn ($line) => (array) $line);
                 } else {
                     $lines = collect();
                 }

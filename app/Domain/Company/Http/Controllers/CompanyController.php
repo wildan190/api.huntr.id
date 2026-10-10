@@ -17,6 +17,7 @@ use App\Domain\Company\Models\Company;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 use App\Domain\Company\Actions\InviteUserAction;
 use App\Domain\Company\Actions\AcceptInvitationAction;
@@ -318,6 +319,10 @@ class CompanyController extends \App\Http\Controllers\Controller
         $validRoles = [];
         if ($company->type === 'buyer') {
             $validRoles = ['buyer', 'manager', 'finance'];
+            $wmsInstalled = DB::table('company_apps')->where('company_id', $company->id)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists();
+            if ($wmsInstalled) {
+                $validRoles[] = 'warehouse_admin';
+            }
         } elseif ($company->type === 'vendor') {
             $validRoles = ['admin', 'manager', 'finance', 'buyer'];
         } else {

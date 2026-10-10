@@ -48,6 +48,7 @@ class AwardVendorAction
 
         $po = $this->orderRepository->createPurchaseOrder([
             'rfq_id'          => $rfq->id,
+            'proposal_id'     => $winningProposal->id,
             'vendor_id'       => $winningProposal->company_id,
             'po_number'       => $poNumber,
             'status'          => 'issued',

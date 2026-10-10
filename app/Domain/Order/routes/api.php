@@ -10,6 +10,7 @@ Route::prefix('api/orders')->middleware(['api', 'auth:api'])->group(function () 
     Route::get('', [OrderController::class, 'index']);
     Route::post('award', [OrderController::class, 'award']);
     Route::post('direct', [OrderController::class, 'storeDirect']);
+    Route::post('{po}/advance-direct', [OrderController::class, 'advanceDirect']);
     Route::post('{po}/confirm', [OrderController::class, 'confirm']);
     Route::get('{po}/print', [OrderController::class, 'printPo'])->withoutMiddleware('auth:api');
     

@@ -9,6 +9,7 @@ use App\Domain\Order\Actions\UpdatePoTrackingStatusAction;
 use App\Domain\Order\Http\Requests\AwardVendorRequest;
 use App\Domain\Order\Http\Requests\CreateDirectPurchaseOrderRequest;
 use App\Domain\Order\Actions\CreateDirectPurchaseOrderAction;
+use App\Domain\Order\Actions\AdvanceDirectPurchaseOrderAction;
 use App\Domain\Order\Http\Requests\GetPurchaseOrdersRequest;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Order\Models\DeliveryOrder;
@@ -63,6 +64,17 @@ class OrderController extends \App\Http\Controllers\Controller
         return response()->json([
             'po' => $action->execute($actor, $rfq, $request->validated()),
         ], 201);
+    }
+
+    public function advanceDirect(Request $request, PurchaseOrder $po, AdvanceDirectPurchaseOrderAction $action): JsonResponse
+    {
+        $actor = $request->user();
+        abort_unless($actor, 401, 'Authentication required.');
+        $companyId = $request->validate(['company_id' => ['required', 'uuid']])['company_id'];
+
+        return response()->json([
+            'po' => $action->execute($actor, $po->load('buyer'), $companyId),
+        ]);
     }
 
     /**

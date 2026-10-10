@@ -253,6 +253,7 @@ class GetPurchaseOrdersAction
                 'expected_receiving_date' => $po->expected_receiving_date?->format('Y-m-d'),
                 'delivery_point' => $po->delivery_point ?? $po->rfq?->delivery_point ?? null,
                 'status' => $po->status,
+                'procurement_mode' => $po->rfq?->procurement_mode ?? 'tender',
                 'is_historical' => $isHistorical,
                 'created_at' => $po->created_at?->toIso8601String(),
                 'updated_at' => $po->updated_at?->toIso8601String(),
