@@ -19,6 +19,9 @@ class WmsContext
         abort_unless($company && ((string) $company->owner_id === (string) $user->id || $company->users()->whereKey($user->id)->exists()), 403, 'Anda tidak memiliki akses ke perusahaan ini.');
         if ($requireInstalled) {
             abort_unless(DB::table('company_apps')->where('company_id', $company->id)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists(), 403, 'Install WMS & Inventory dari App Market terlebih dahulu.');
+            $canAccessWms = $user->hasAnyRole(['warehouse_admin', 'manager'])
+                || (string) $company->owner_id === (string) $user->id;
+            abort_unless($canAccessWms, 403, 'Akses WMS hanya tersedia untuk Warehouse Admin atau Manager.');
         }
 
         return $company;

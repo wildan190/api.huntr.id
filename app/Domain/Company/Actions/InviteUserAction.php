@@ -7,6 +7,7 @@ use App\Domain\Company\Models\CompanyInvitation;
 use App\Domain\Auth\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class InviteUserAction
 {
@@ -21,7 +22,7 @@ class InviteUserAction
             throw new \Exception("Unauthorized to invite users to this company.");
         }
 
-        $this->validateRoleForCompanyType($data['role'], $company->type);
+        $this->validateRoleForCompanyType($data['role'], $company->type, $company->id);
 
         $token = Str::random(32);
 
@@ -52,9 +53,12 @@ class InviteUserAction
     /**
      * Validate that the role is appropriate for the company type.
      */
-    private function validateRoleForCompanyType(string $role, string $companyType): void
+    private function validateRoleForCompanyType(string $role, string $companyType, ?string $companyId = null): void
     {
         $buyerRoles = ['buyer', 'manager', 'finance'];
+        if ($companyId && DB::table('company_apps')->where('company_id', $companyId)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists()) {
+            $buyerRoles[] = 'warehouse_admin';
+        }
         $vendorRoles = ['admin', 'manager', 'finance', 'buyer'];
 
         if ($companyType === 'buyer' && !in_array($role, $buyerRoles)) {

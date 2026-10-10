@@ -5,6 +5,7 @@ namespace App\Domain\Company\Actions;
 use App\Domain\Company\Models\CompanyInvitation;
 use App\Domain\Auth\Models\User;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class AcceptInvitationAction
 {
@@ -20,7 +21,7 @@ class AcceptInvitationAction
             ->firstOrFail();
 
         // Validate role matches company type before accepting
-        $this->validateRoleForCompanyType($invitation->role, $invitation->company->type);
+        $this->validateRoleForCompanyType($invitation->role, $invitation->company->type, $invitation->company_id);
 
         // Update user's company and assign role via Access domain
         $user->update([
@@ -40,9 +41,12 @@ class AcceptInvitationAction
     /**
      * Validate that the role is appropriate for the company type.
      */
-    private function validateRoleForCompanyType(string $role, string $companyType): void
+    private function validateRoleForCompanyType(string $role, string $companyType, ?string $companyId = null): void
     {
         $buyerRoles = ['buyer', 'manager', 'finance'];
+        if ($companyId && DB::table('company_apps')->where('company_id', $companyId)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists()) {
+            $buyerRoles[] = 'warehouse_admin';
+        }
         $vendorRoles = ['admin', 'manager', 'finance'];
 
         if ($companyType === 'buyer' && !in_array($role, $buyerRoles)) {

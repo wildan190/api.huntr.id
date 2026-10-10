@@ -24,7 +24,7 @@ class RoleSwitchController extends Controller
         }
 
         $request->validate([
-            'role' => 'required|string|in:super-admin,admin,manager,staff,buyer,finance'
+            'role' => 'required|string|in:super-admin,admin,manager,staff,buyer,finance,warehouse_admin'
         ]);
 
         /** @var User $user */
