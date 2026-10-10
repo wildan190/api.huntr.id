@@ -59,21 +59,21 @@ class GetPurchaseOrdersAction
         $items = $paginator->items();
 
         if (!empty($items)) {
-            $hasHistorical  = collect($items)->contains(fn($po) => $po->is_historical);
-            $hasOperational = collect($items)->contains(fn($po) => !$po->is_historical);
+            $hasHistorical  = collect($items)->contains(fn($po) => $this->isHistoricalPo($po));
+            $hasOperational = collect($items)->contains(fn($po) => !$this->isHistoricalPo($po));
 
             // Always load historical items + buyer info for historical POs
             // (buyer_name/address needed for print PO; vendor_name is stored as plain text)
             if ($hasHistorical) {
                 $paginator->getCollection()
-                    ->filter(fn($po) => $po->is_historical)
+                    ->filter(fn($po) => $this->isHistoricalPo($po))
                     ->loadMissing(['historicalItems', 'buyer']);
             }
 
             // Only load heavy operational relations when there are operational POs on this page
             if ($hasOperational) {
                 $paginator->getCollection()
-                    ->filter(fn($po) => !$po->is_historical)
+                    ->filter(fn($po) => !$this->isHistoricalPo($po))
                     ->loadMissing([
                         'invoices',
                         'deliveryOrders',
@@ -136,8 +136,9 @@ class GetPurchaseOrdersAction
     {
         return array_map(function ($po) {
             $mappedItems = collect();
+            $isHistorical = $this->isHistoricalPo($po);
 
-            if ($po->is_historical) {
+            if ($isHistorical) {
                 $mappedItems = $po->historicalItems->map(function ($item) {
                     return [
                         'id' => $item->id,
@@ -215,32 +216,46 @@ class GetPurchaseOrdersAction
                 }
             }
             $paymentScheme = $paymentScheme ?? ($po->purchase_type !== 'N/A' ? $po->purchase_type : null);
+            $historicalFallback = 'Not recorded in historical data';
+            $vendorName = trim((string) $po->vendor_name)
+                ?: ($po->relationLoaded('vendor') ? ($po->vendor?->name ?? '') : '');
+            $department = trim((string) $po->department);
+            $purchaseCategory = trim((string) $po->purchase_category);
+            $purchaseType = trim((string) $po->purchase_type);
+            $createdBy = $po->relationLoaded('creator') && $po->creator
+                ? $po->creator->name
+                : trim((string) $po->created_by);
+            $approvedBy = $po->relationLoaded('approver') && $po->approver
+                ? $po->approver->name
+                : trim((string) $po->approved_by);
 
             return [
                 'id' => $po->id,
                 'po_number' => $po->po_number,
-                // vendor_name is stored directly on the PO for historical imports; also check relation
-                'vendor_name' => ($po->vendor_name && $po->vendor_name !== '') ? $po->vendor_name : ($po->relationLoaded('vendor') ? ($po->vendor?->name ?? 'N/A') : 'N/A'),
-                'vendor_address' => ($po->relationLoaded('vendor') ? ($po->vendor?->address ?? 'N/A') : 'N/A'),
+                // Historical POs may no longer have their original company/user relations after a restore.
+                // Preserve available raw values and describe missing values without exposing technical placeholders.
+                'vendor_name' => $vendorName ?: ($isHistorical ? $historicalFallback : 'Vendor not recorded'),
+                'vendor_address' => ($po->relationLoaded('vendor') ? ($po->vendor?->address ?? null) : null),
                 'vendor_tax_id' => ($po->relationLoaded('vendor') ? ($po->vendor?->formatted_tax_id ?? null) : null),
-                'buyer_name' => ($po->relationLoaded('buyer') ? ($po->buyer?->name ?? 'N/A') : 'N/A'),
-                'buyer_address' => ($po->relationLoaded('buyer') ? ($po->buyer?->address ?? 'N/A') : 'N/A'),
+                'buyer_name' => ($po->relationLoaded('buyer') ? ($po->buyer?->name ?? null) : null),
+                'buyer_address' => ($po->relationLoaded('buyer') ? ($po->buyer?->address ?? null) : null),
                 'buyer_tax_id' => ($po->relationLoaded('buyer') ? ($po->buyer?->formatted_tax_id ?? null) : null),
-                'department' => $po->department ?? 'N/A',
+                'department' => $department ?: ($isHistorical ? $historicalFallback : 'Department not recorded'),
                 'currency' => $po->currency ?? 'IDR',
-                'purchase_category' => $po->purchase_category ?? 'N/A',
-                'purchase_type' => $po->purchase_type ?? 'N/A',
+                'purchase_category' => $purchaseCategory ?: 'Not classified',
+                'purchase_type' => $purchaseType ?: 'Not specified',
                 'payment_scheme' => $paymentScheme,
                 // For historical POs, order_date is the actual PO date from the import file.
                 // NEVER fall back to created_at (upload date) for historical — use null instead.
-                'order_date' => $po->order_date?->format('Y-m-d') ?? ($po->is_historical ? null : $po->created_at->format('Y-m-d')),
+                'order_date' => $po->order_date?->format('Y-m-d') ?? ($isHistorical ? null : $po->created_at?->format('Y-m-d')),
                 'expected_receiving_date' => $po->expected_receiving_date?->format('Y-m-d'),
                 'delivery_point' => $po->delivery_point ?? $po->rfq?->delivery_point ?? null,
                 'status' => $po->status,
-                'is_historical' => $po->is_historical,
-                'updated_at' => $po->updated_at->toIso8601String(),
-                'created_by' => ($po->relationLoaded('creator') && $po->creator) ? $po->creator->name : ($po->created_by ?? 'N/A'),
-                'approved_by' => ($po->relationLoaded('approver') && $po->approver) ? $po->approver->name : ($po->approved_by ?? 'N/A'),
+                'is_historical' => $isHistorical,
+                'created_at' => $po->created_at?->toIso8601String(),
+                'updated_at' => $po->updated_at?->toIso8601String(),
+                'created_by' => $createdBy ?: ($isHistorical ? $historicalFallback : 'System'),
+                'approved_by' => $approvedBy ?: ($isHistorical ? $historicalFallback : 'Not recorded'),
                 'total_amount' => $totalAmount ?? $po->total_amount,
                 'items' => $mappedItems,
                 'buyer_logo_url' => $buyerLogoUrl,
@@ -308,5 +323,12 @@ class GetPurchaseOrdersAction
                 'tracking_timeline' => $po->tracking_timeline ?? [],
             ];
         }, $items);
+    }
+
+    private function isHistoricalPo(PurchaseOrder $po): bool
+    {
+        // Restored databases may predate the is_historical flag. A PO without an
+        // RFQ is a legacy import and must load its historical line items.
+        return (bool) $po->is_historical || empty($po->rfq_id);
     }
 }
