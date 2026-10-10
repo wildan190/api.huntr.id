@@ -32,8 +32,9 @@ class ApproveRfqAction
             throw new UnauthorizedException("Only purchasing managers or company owners can approve RFQs.");
         }
 
+        $isDirectPurchase = $rfq->procurement_mode === 'direct';
         $rfq = $this->rfqRepository->update($rfq, [
-            'status' => 'active',
+            'status' => $isDirectPurchase ? 'approved' : 'active',
             'approved_by' => $manager->name,
             'approved_at' => now(),
         ]);
@@ -41,7 +42,7 @@ class ApproveRfqAction
         // Notify the buyer who created the PR
         $this->broadcastAction->execute(
             "PR Approved",
-            "PR '{$rfq->title}' has been approved and published.",
+            $isDirectPurchase ? "PR '{$rfq->title}' has been approved for direct purchase." : "PR '{$rfq->title}' has been approved and published.",
             'test-channel',
             true,
             $rfq->user_id,
@@ -49,7 +50,11 @@ class ApproveRfqAction
             ['type' => 'pr_approved']
         );
 
-        // Notify relevant vendors
+        if ($isDirectPurchase) {
+            return $rfq;
+        }
+
+        // Notify relevant vendors only for a tender.
         $this->notifyVendorsAction->execute($rfq);
 
         // Demo Mode: Trigger 5 AI Vendor Bots

@@ -54,13 +54,13 @@ class RfqController extends Controller
             ->sortBy([
                 // Prioritas 1: Items dengan gambar (image_path tidak null dan tidak empty)
                 function ($item) {
-                    $hasImage = ! empty($item->catalogue->image_path);
+                    $hasImage = ! empty($item->catalogue?->image_path);
 
                     return $hasImage ? 0 : 1; // 0 = tinggi, 1 = rendah
                 },
                 // Prioritas 2: Urutkan berdasarkan nama katalog untuk konsistensi
                 function ($item) {
-                    return $item->catalogue->name;
+                    return $item->catalogue?->name ?? $item->item_name ?? '';
                 },
             ])
             ->values(); // Reset array keys setelah sorting
@@ -113,6 +113,7 @@ class RfqController extends Controller
             $data['delivery_point'] ?? null,
             $data['department'] ?? null,
             $data['warehouse_id'] ?? null,
+            $data['procurement_mode'] ?? 'tender',
         );
 
         return response()->json(['rfq' => $rfq], 201);

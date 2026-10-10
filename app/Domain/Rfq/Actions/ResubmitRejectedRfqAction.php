@@ -32,6 +32,7 @@ class ResubmitRejectedRfqAction
                 'title' => $data['title'],
                 'description' => $data['description'] ?? '',
                 'duration_days' => $data['duration_days'] ?? 7,
+                'procurement_mode' => $data['procurement_mode'] ?? $rfq->procurement_mode,
                 'delivery_point' => $data['delivery_point'] ?? null,
                 'department' => $data['department'] ?? null,
                 'warehouse_id' => $data['warehouse_id'] ?? null,
@@ -47,7 +48,10 @@ class ResubmitRejectedRfqAction
             foreach ($data['items'] as $item) {
                 RfqItem::create([
                     'rfq_id' => $rfq->id,
-                    'catalogue_id' => $item['catalogue_id'],
+                    'catalogue_id' => $item['catalogue_id'] ?? null,
+                    'item_name' => $item['item_name'] ?? null,
+                    'sku' => $item['sku'] ?? null,
+                    'uom' => $item['uom'] ?? null,
                     'qty' => $item['qty'],
                     'estimated_price' => $item['estimated_price'] ?? null,
                     'expected_date' => $item['expected_date'],

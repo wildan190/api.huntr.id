@@ -174,16 +174,18 @@ class GetPurchaseOrdersAction
                             ->first();
                     }
 
-                    $unitPrice = $negotiationItem ? $negotiationItem->negotiated_price : ($proposalItem ? $proposalItem->price_offer : ($cat?->price ?? 0));
+                    $unitPrice = $negotiationItem
+                        ? $negotiationItem->negotiated_price
+                        : ($proposalItem ? $proposalItem->price_offer : ($item->estimated_price ?? ($cat?->price ?? 0)));
                     $qty = $negotiationItem ? $negotiationItem->negotiated_qty : $item->qty;
 
                     return [
                         'id' => $item->id,
                         'pr_reference_number' => 'RFQ-' . $item->rfq_id,
-                        'inventory_code' => $cat?->item_code ?? 'N/A',
-                        'inventory_name' => $cat?->name ?? 'N/A',
-                        'category' => $cat?->category ?? 'N/A',
-                        'uom' => $cat?->uom ?? 'Pc',
+                        'inventory_code' => $cat?->item_code ?? $item->sku ?? 'MANUAL',
+                        'inventory_name' => $cat?->name ?? $item->item_name ?? 'Manual item',
+                        'category' => $cat?->category ?? 'Manual purchase',
+                        'uom' => $cat?->uom ?? $item->uom ?? 'Pc',
                         'qty' => $qty,
                         'unit_price' => (float) $unitPrice,
                         'tax_amount' => 0,

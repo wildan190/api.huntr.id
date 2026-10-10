@@ -7,6 +7,8 @@ use App\Domain\Order\Actions\GetPurchaseOrdersAction;
 use App\Domain\Order\Actions\ConfirmPurchaseOrderAction;
 use App\Domain\Order\Actions\UpdatePoTrackingStatusAction;
 use App\Domain\Order\Http\Requests\AwardVendorRequest;
+use App\Domain\Order\Http\Requests\CreateDirectPurchaseOrderRequest;
+use App\Domain\Order\Actions\CreateDirectPurchaseOrderAction;
 use App\Domain\Order\Http\Requests\GetPurchaseOrdersRequest;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Order\Models\DeliveryOrder;
@@ -49,6 +51,18 @@ class OrderController extends \App\Http\Controllers\Controller
         return response()->json([
             'po' => $action->execute($manager, $rfq, $proposal)
         ]);
+    }
+
+    public function storeDirect(CreateDirectPurchaseOrderRequest $request, CreateDirectPurchaseOrderAction $action): JsonResponse
+    {
+        $actor = $request->user();
+        abort_unless($actor, 401, 'Authentication required.');
+
+        $rfq = Rfq::with(['company', 'items'])->findOrFail($request->validated('rfq_id'));
+
+        return response()->json([
+            'po' => $action->execute($actor, $rfq, $request->validated()),
+        ], 201);
     }
 
     /**
