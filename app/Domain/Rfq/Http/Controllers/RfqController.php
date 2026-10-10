@@ -194,14 +194,22 @@ class RfqController extends Controller
         }
     }
 
-    public function resubmit(Request $request, Rfq $rfq, ResubmitRejectedRfqAction $action): JsonResponse
+    public function resubmit(CreateRfqRequest $request, Rfq $rfq, ResubmitRejectedRfqAction $action): JsonResponse
     {
         $user = $request->user();
         abort_unless($user, 401, 'Authentication required.');
 
+        $data = $request->validated();
+        abort_unless((string) $rfq->company_id === (string) $data['company_id'], 422, 'PR company cannot be changed during revision.');
+
+        $documentPath = null;
+        if ($request->hasFile('document')) {
+            $documentPath = $request->file('document')->storePublicly('rfq_documents', config('filesystems.default'));
+        }
+
         return response()->json([
             'message' => 'PR revised and resubmitted for approval.',
-            'rfq' => $action->execute($user, $rfq),
+            'rfq' => $action->execute($user, $rfq, $data, $documentPath),
         ]);
     }
 

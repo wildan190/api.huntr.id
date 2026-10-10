@@ -139,7 +139,11 @@ class WmsInventoryService
     public function stock(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('warehouse_stock as s')->join('warehouses as w', 'w.id', '=', 's.warehouse_id')->where('s.company_id', $company->id)->select('s.*', 'w.name as warehouse_name', 'w.code as warehouse_code');
+        $query = DB::table('warehouse_stock as s')
+            ->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
+            ->leftJoin('catalogues as c', 'c.id', '=', 's.catalogue_id')
+            ->where('s.company_id', $company->id)
+            ->select('s.*', 'w.name as warehouse_name', 'w.code as warehouse_code', 'c.category as catalogue_category');
         if ($request->filled('warehouse_id')) {
             $query->where('s.warehouse_id', $request->query('warehouse_id'));
         }

@@ -10,6 +10,7 @@ class StoreWarehouseRequest extends WmsFormRequest
             'code' => ['required', 'string', 'max:40'],
             'name' => ['required', 'string', 'max:160'],
             'address' => ['nullable', 'string', 'max:500'],
+            'capacity_units' => ['nullable', 'numeric', 'gt:0'],
         ];
     }
 }
