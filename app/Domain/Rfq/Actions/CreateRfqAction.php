@@ -27,7 +27,7 @@ class CreateRfqAction
      * @param  string|null  $description  RFQ Description
      * @param  array  $cartItems  Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
      */
-    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null): Rfq
+    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null, string $procurementMode = 'tender'): Rfq
     {
         // Debug: Log jumlah item yang akan diproses
         Log::info('DEBUG: CreateRfqAction - Cart items processing', [
@@ -46,6 +46,7 @@ class CreateRfqAction
             'description' => $description,
             'document_path' => $documentPath,
             'status' => $status,
+            'procurement_mode' => $procurementMode,
             'duration_days' => $durationDays ?? 7,
             'delivery_point' => $deliveryPoint,
             'department' => $department,
@@ -54,7 +55,10 @@ class CreateRfqAction
 
         $lineItems = array_map(fn ($item) => [
             'rfq_id' => $rfq->id,
-            'catalogue_id' => $item['catalogue_id'],
+            'catalogue_id' => $item['catalogue_id'] ?? null,
+            'item_name' => $item['item_name'] ?? null,
+            'sku' => $item['sku'] ?? null,
+            'uom' => $item['uom'] ?? null,
             'qty' => $item['qty'],
             'estimated_price' => $item['estimated_price'] ?? null,
             'expected_date' => $item['expected_date'] ?? null,

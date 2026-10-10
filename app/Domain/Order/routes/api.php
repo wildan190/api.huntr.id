@@ -9,6 +9,7 @@ use App\Domain\Order\Http\Controllers\BastController;
 Route::prefix('api/orders')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('', [OrderController::class, 'index']);
     Route::post('award', [OrderController::class, 'award']);
+    Route::post('direct', [OrderController::class, 'storeDirect']);
     Route::post('{po}/confirm', [OrderController::class, 'confirm']);
     Route::get('{po}/print', [OrderController::class, 'printPo'])->withoutMiddleware('auth:api');
     
@@ -81,4 +82,3 @@ Route::prefix('api/basts')->middleware(['api', 'auth:api'])->group(function () {
 Route::prefix('api/basts')->middleware(['api'])->group(function () {
     Route::get('{id}/pdf', [BastController::class, 'showPdf'])->name('basts.pdf')->withoutMiddleware('auth:sanctum');
 });
-

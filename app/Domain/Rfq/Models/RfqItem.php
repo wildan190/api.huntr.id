@@ -25,6 +25,9 @@ class RfqItem extends Model
     protected $fillable = [
         'rfq_id',
         'catalogue_id',
+        'item_name',
+        'sku',
+        'uom',
         'qty',
         'estimated_price',
         'expected_date',
