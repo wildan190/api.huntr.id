@@ -13,6 +13,9 @@ Route::prefix('api/wms')->middleware(['api', 'auth:api'])->group(function () {
     Route::put('/warehouses/{warehouseId}', [WmsController::class, 'updateWarehouse']);
     Route::get('/warehouses/{warehouseId}/bins', [WmsController::class, 'bins']);
     Route::post('/warehouses/{warehouseId}/bins', [WmsController::class, 'storeBin']);
+    Route::put('/warehouses/{warehouseId}/bins/{binId}', [WmsController::class, 'updateBin']);
+    Route::delete('/warehouses/{warehouseId}/bins/{binId}', [WmsController::class, 'destroyBin']);
+    Route::get('/warehouses/{warehouseId}/bins/{binId}/stock', [WmsController::class, 'binStock']);
     Route::get('/stock', [WmsController::class, 'stock']);
     Route::put('/stock/{stockId}/reorder-level', [WmsController::class, 'setReorderLevel']);
     Route::get('/catalogue', [WmsController::class, 'catalogue']);
