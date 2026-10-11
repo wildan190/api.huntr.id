@@ -4,6 +4,16 @@ namespace App\Domain\Wms\Http\Requests;
 
 class StoreWarehouseBinRequest extends WmsFormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if ($this->route('warehouseId') && ! $this->has('warehouse_id')) {
+            $this->merge(['warehouse_id' => $this->route('warehouseId')]);
+        }
+        if ($this->has('code')) {
+            $this->merge(['code' => strtoupper(trim((string) $this->input('code')))]);
+        }
+    }
+
     public function rules(): array
     {
         return $this->tenantRules() + [

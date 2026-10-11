@@ -11,6 +11,7 @@ use App\Domain\Wms\Http\Requests\SetReorderLevelRequest;
 use App\Domain\Wms\Http\Requests\StoreWarehouseBinRequest;
 use App\Domain\Wms\Http\Requests\StoreWarehouseRequest;
 use App\Domain\Wms\Http\Requests\TransferStockRequest;
+use App\Domain\Wms\Http\Requests\UpdateWarehouseBinRequest;
 use App\Domain\Wms\Http\Requests\UpdateWarehouseRequest;
 use App\Domain\Wms\Support\WmsContext;
 use Illuminate\Http\Request;
@@ -28,7 +29,7 @@ class WmsInventoryService
 
         $warehouses = DB::table('warehouses')->where('company_id', $company->id)->orderBy('name')->get();
         foreach ($warehouses as $warehouse) {
-            $warehouse->bins = DB::table('warehouse_bins')->where('company_id', $company->id)->where('warehouse_id', $warehouse->id)->orderBy('code')->get();
+            $warehouse->bins = $this->fetchBinsWithMetrics($company->id, $warehouse->id);
         }
 
         return response()->json(['data' => $warehouses]);
@@ -52,25 +53,173 @@ class WmsInventoryService
     {
         $company = $this->context->tenant($request);
         abort_unless(DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
-        $bins = DB::table('warehouse_bins')->where('company_id', $company->id)->where('warehouse_id', $warehouseId)->orderBy('code')->get();
+        $bins = $this->fetchBinsWithMetrics($company->id, $warehouseId);
 
         return response()->json(['data' => $bins]);
     }
 
-    public function storeBin(StoreWarehouseBinRequest $request)
+    public function binStock(Request $request, string $warehouseId, string $binId)
+    {
+        $company = $this->context->tenant($request);
+        $bin = DB::table('warehouse_bins')
+            ->where('id', $binId)
+            ->where('warehouse_id', $warehouseId)
+            ->where('company_id', $company->id)
+            ->first();
+        abort_unless($bin, 404, 'Bin / rak tidak ditemukan.');
+
+        $stock = DB::table('warehouse_stock as s')
+            ->where('s.company_id', $company->id)
+            ->where('s.warehouse_id', $warehouseId)
+            ->where(function ($q) use ($bin) {
+                $q->where('s.bin_id', $bin->id)
+                    ->orWhere(function ($legacy) use ($bin) {
+                        $legacy->whereNull('s.bin_id')
+                            ->where('s.bin_location', $bin->code);
+                    });
+            })
+            ->where('s.on_hand', '>', 0)
+            ->leftJoin('catalogues as c', 'c.id', '=', 's.catalogue_id')
+            ->select('s.*', 'c.category as catalogue_category')
+            ->orderBy('s.item_name')
+            ->get();
+
+        return response()->json([
+            'data' => [
+                'bin' => $bin,
+                'items' => $stock,
+            ],
+        ]);
+    }
+
+    public function storeBin(StoreWarehouseBinRequest $request, ?string $warehouseId = null)
     {
         $company = $this->context->tenant($request);
         $data = $request->validated();
-        abort_unless(DB::table('warehouses')->where('id', $data['warehouse_id'])->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
+        $targetWarehouseId = $warehouseId ?: ($data['warehouse_id'] ?? null);
+        abort_unless($targetWarehouseId && DB::table('warehouses')->where('id', $targetWarehouseId)->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
+
+        $code = strtoupper(trim($data['code']));
+        $exists = DB::table('warehouse_bins')
+            ->where('warehouse_id', $targetWarehouseId)
+            ->where('code', $code)
+            ->exists();
+        abort_if($exists, 422, "Kode rak {$code} sudah digunakan di gudang ini.");
+
         $id = (string) Str::uuid();
         DB::table('warehouse_bins')->insert([
-            'id' => $id, 'company_id' => $company->id, 'warehouse_id' => $data['warehouse_id'],
-            'code' => strtoupper($data['code']), 'name' => $data['name'], 'type' => $data['type'],
-            'pick_priority' => $data['pick_priority'] ?? 100, 'capacity_units' => $data['capacity_units'] ?? null,
-            'created_at' => now(), 'updated_at' => now(),
+            'id' => $id,
+            'company_id' => $company->id,
+            'warehouse_id' => $targetWarehouseId,
+            'code' => $code,
+            'name' => $data['name'],
+            'type' => $data['type'],
+            'status' => 'active',
+            'is_system' => false,
+            'pick_priority' => $data['pick_priority'] ?? 100,
+            'capacity_units' => $data['capacity_units'] ?? null,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return response()->json(['data' => DB::table('warehouse_bins')->where('id', $id)->first()], 201);
+    }
+
+    public function updateBin(UpdateWarehouseBinRequest $request, string $warehouseId, string $binId)
+    {
+        $company = $this->context->tenant($request);
+        $bin = DB::table('warehouse_bins')
+            ->where('id', $binId)
+            ->where('warehouse_id', $warehouseId)
+            ->where('company_id', $company->id)
+            ->first();
+        abort_unless($bin, 404, 'Bin / rak tidak ditemukan.');
+
+        $data = $request->validated();
+        unset($data['company_id']);
+
+        if ($bin->is_system && isset($data['status']) && $data['status'] === 'inactive') {
+            abort(422, 'Lokasi sistem (Receiving/Storage/Quarantine) tidak dapat dinonaktifkan.');
+        }
+
+        DB::table('warehouse_bins')
+            ->where('id', $binId)
+            ->update($data + ['updated_at' => now()]);
+
+        return response()->json(['data' => DB::table('warehouse_bins')->where('id', $binId)->first()]);
+    }
+
+    public function destroyBin(Request $request, string $warehouseId, string $binId)
+    {
+        $company = $this->context->tenant($request);
+        $bin = DB::table('warehouse_bins')
+            ->where('id', $binId)
+            ->where('warehouse_id', $warehouseId)
+            ->where('company_id', $company->id)
+            ->first();
+        abort_unless($bin, 404, 'Bin / rak tidak ditemukan.');
+
+        abort_if((bool) $bin->is_system, 422, 'Lokasi sistem default tidak dapat dihapus.');
+
+        $hasStock = DB::table('warehouse_stock as s')
+            ->where('s.company_id', $company->id)
+            ->where('s.warehouse_id', $warehouseId)
+            ->where(function ($q) use ($bin) {
+                $q->where('s.bin_id', $bin->id)
+                    ->orWhere(function ($legacy) use ($bin) {
+                        $legacy->whereNull('s.bin_id')
+                            ->where('s.bin_location', $bin->code);
+                    });
+            })
+            ->where('s.on_hand', '>', 0)
+            ->exists();
+
+        abort_if($hasStock, 422, 'Rak tidak dapat dihapus karena masih terdapat stok barang di dalamnya. Pindahkan barang terlebih dahulu.');
+
+        DB::table('warehouse_bins')->where('id', $binId)->delete();
+
+        return response()->json(['message' => 'Rak berhasil dihapus.']);
+    }
+
+    private function fetchBinsWithMetrics(string $companyId, string $warehouseId)
+    {
+        $bins = DB::table('warehouse_bins as b')
+            ->where('b.company_id', $companyId)
+            ->where('b.warehouse_id', $warehouseId)
+            ->leftJoin('warehouse_stock as s', function ($join) {
+                $join->on('s.warehouse_id', '=', 'b.warehouse_id')
+                    ->where(function ($q) {
+                        $q->on('s.bin_id', '=', 'b.id')
+                            ->orWhere(function ($legacy) {
+                                $legacy->whereNull('s.bin_id')
+                                    ->on('s.bin_location', '=', 'b.code');
+                            });
+                    });
+            })
+            ->groupBy('b.id')
+            ->select(
+                'b.*',
+                DB::raw('COALESCE(SUM(s.on_hand), 0) as total_units'),
+                DB::raw('COALESCE(SUM(s.allocated), 0) as allocated_units'),
+                DB::raw('COUNT(DISTINCT CASE WHEN s.on_hand > 0 THEN s.sku ELSE NULL END) as sku_count')
+            )
+            ->orderBy('b.code')
+            ->get();
+
+        return $bins->map(function ($bin) {
+            $total = (float) $bin->total_units;
+            $allocated = (float) $bin->allocated_units;
+            $bin->total_units = $total;
+            $bin->allocated_units = $allocated;
+            $bin->available_units = max(0.0, $total - $allocated);
+            $bin->sku_count = (int) $bin->sku_count;
+            $capacity = $bin->capacity_units !== null ? (float) $bin->capacity_units : null;
+            $bin->occupancy_pct = ($capacity && $capacity > 0)
+                ? min(100.0, round(($total / $capacity) * 100, 1))
+                : null;
+
+            return $bin;
+        });
     }
 
     private function createSystemBins(string $companyId, string $warehouseId): void
@@ -137,13 +286,50 @@ class WmsInventoryService
         $query = DB::table('warehouse_stock as s')
             ->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
             ->leftJoin('catalogues as c', 'c.id', '=', 's.catalogue_id')
+            ->leftJoin('warehouse_bins as b', function ($join) {
+                $join->on('b.warehouse_id', '=', 's.warehouse_id')
+                    ->where(function ($q) {
+                        $q->on('b.id', '=', 's.bin_id')
+                            ->orWhere(function ($legacy) {
+                                $legacy->whereNull('s.bin_id')
+                                    ->on('b.code', '=', 's.bin_location');
+                            });
+                    });
+            })
             ->where('s.company_id', $company->id)
-            ->select('s.*', 'w.name as warehouse_name', 'w.code as warehouse_code', 'c.category as catalogue_category');
+            ->select(
+                's.*',
+                'w.name as warehouse_name',
+                'w.code as warehouse_code',
+                'c.category as catalogue_category',
+                'b.id as resolved_bin_id',
+                'b.name as bin_name',
+                'b.type as bin_type'
+            );
+
         if ($request->filled('warehouse_id')) {
             $query->where('s.warehouse_id', $request->query('warehouse_id'));
         }
+        if ($request->filled('bin_id')) {
+            $binId = $request->query('bin_id');
+            $query->where(function ($q) use ($binId) {
+                $q->where('s.bin_id', $binId)
+                    ->orWhere('b.id', $binId);
+            });
+        }
+        if ($request->filled('bin_location')) {
+            $binCode = $request->query('bin_location');
+            $query->where(function ($q) use ($binCode) {
+                $q->where('s.bin_location', $binCode)
+                    ->orWhere('b.code', $binCode);
+            });
+        }
         if ($request->filled('search')) {
-            $query->where(fn ($q) => $q->where('s.sku', 'like', '%'.$request->query('search').'%')->orWhere('s.item_name', 'like', '%'.$request->query('search').'%'));
+            $search = '%'.$request->query('search').'%';
+            $query->where(fn ($q) => $q->where('s.sku', 'like', $search)
+                ->orWhere('s.item_name', 'like', $search)
+                ->orWhere('s.bin_location', 'like', $search)
+                ->orWhere('b.name', 'like', $search));
         }
 
         return response()->json(['data' => $query->orderBy('s.item_name')->paginate(100)]);

@@ -14,6 +14,7 @@ use App\Domain\Wms\Http\Requests\ShipWarehouseOrderRequest;
 use App\Domain\Wms\Http\Requests\StoreWarehouseBinRequest;
 use App\Domain\Wms\Http\Requests\StoreWarehouseRequest;
 use App\Domain\Wms\Http\Requests\TransferStockRequest;
+use App\Domain\Wms\Http\Requests\UpdateWarehouseBinRequest;
 use App\Domain\Wms\Http\Requests\UpdateWarehouseOrderStatusRequest;
 use App\Domain\Wms\Http\Requests\UpdateWarehouseRequest;
 use App\Domain\Wms\Services\WmsAnalyticsService;
@@ -70,9 +71,24 @@ class WmsController
         return $service->bins($request, $warehouseId);
     }
 
-    public function storeBin(StoreWarehouseBinRequest $request, WmsInventoryService $service)
+    public function storeBin(StoreWarehouseBinRequest $request, string $warehouseId, WmsInventoryService $service)
     {
-        return $service->storeBin($request);
+        return $service->storeBin($request, $warehouseId);
+    }
+
+    public function updateBin(UpdateWarehouseBinRequest $request, string $warehouseId, string $binId, WmsInventoryService $service)
+    {
+        return $service->updateBin($request, $warehouseId, $binId);
+    }
+
+    public function destroyBin(Request $request, string $warehouseId, string $binId, WmsInventoryService $service)
+    {
+        return $service->destroyBin($request, $warehouseId, $binId);
+    }
+
+    public function binStock(Request $request, string $warehouseId, string $binId, WmsInventoryService $service)
+    {
+        return $service->binStock($request, $warehouseId, $binId);
     }
 
     public function catalogue(Request $request, WmsInventoryService $service)
