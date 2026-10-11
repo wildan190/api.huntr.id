@@ -185,14 +185,7 @@ class WmsGoodsReceiptImportService
                 ->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')
                 ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
                 ->where('pi.proposal_id', $po->proposal_id)
-                ->select(
-                    'ri.id as po_item_id',
-                    'c.id as catalogue_id',
-                    'c.item_code as sku',
-                    'c.name as item_name',
-                    'c.uom',
-                    'ri.qty as ordered_quantity',
-                )
+                ->selectRaw("ri.id as po_item_id, c.id as catalogue_id, UPPER(COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(CAST(ri.id AS TEXT), 1, 8)))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as item_name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
                 ->get();
             if ($proposalLines->isNotEmpty()) {
                 return $this->mapCatalogRows($proposalLines);
@@ -203,14 +196,7 @@ class WmsGoodsReceiptImportService
             $rfqLines = DB::table('rfq_items as ri')
                 ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
                 ->where('ri.rfq_id', $po->rfq_id)
-                ->select(
-                    'ri.id as po_item_id',
-                    'c.id as catalogue_id',
-                    'c.item_code as sku',
-                    'c.name as item_name',
-                    'c.uom',
-                    'ri.qty as ordered_quantity',
-                )
+                ->selectRaw("ri.id as po_item_id, c.id as catalogue_id, UPPER(COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(CAST(ri.id AS TEXT), 1, 8)))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as item_name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
                 ->get();
             if ($rfqLines->isNotEmpty()) {
                 return $this->mapCatalogRows($rfqLines);
@@ -230,7 +216,7 @@ class WmsGoodsReceiptImportService
             $sku = strtoupper(trim((string) ($line->sku ?? '')));
             $name = trim((string) ($line->item_name ?? ''));
             if ($sku === '') {
-                $sku = 'PO-'.$line->po_item_id;
+                $sku = 'PR-'.strtoupper(substr(str_replace('-', '', (string) $line->po_item_id), 0, 8));
             }
             if ($name === '') {
                 $name = $sku;
@@ -501,7 +487,7 @@ class WmsGoodsReceiptImportService
         $prefix = strtolower($matches[1]);
 
         return GoodsReceipt::query()
-            ->whereRaw("LOWER(REPLACE(id, '-', '')) LIKE ?", [$prefix.'%'])
+            ->whereRaw("LOWER(REPLACE(CAST(id AS TEXT), '-', '')) LIKE ?", [$prefix.'%'])
             ->orderBy('created_at')
             ->value('id');
     }

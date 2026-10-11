@@ -14,6 +14,7 @@ use App\Domain\Wms\Http\Requests\TransferStockRequest;
 use App\Domain\Wms\Http\Requests\UpdateWarehouseRequest;
 use App\Domain\Wms\Support\WmsContext;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -114,27 +115,7 @@ class WmsInventoryService
             ->orderByDesc('expected_receiving_date')
             ->get(['id', 'po_number', 'vendor_name', 'status', 'expected_receiving_date', 'is_historical', 'proposal_id', 'rfq_id'])
             ->map(function (PurchaseOrder $order) use ($company) {
-                if ($order->is_historical) {
-                    $lines = DB::table('historical_po_items')->where('purchase_order_id', $order->id)->get()->map(fn ($line) => ['catalogue_id' => null, 'sku' => $line->inventory_code, 'name' => $line->inventory_name, 'uom' => $line->uom, 'ordered_quantity' => (float) $line->qty]);
-                } elseif ($order->proposal_id) {
-                    $lines = DB::table('proposal_items as pi')
-                        ->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')
-                        ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
-                        ->where('pi.proposal_id', $order->proposal_id)
-                        ->selectRaw("c.id as catalogue_id, COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(ri.id::text, 1, 8))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
-                        ->get()
-                        ->map(fn ($line) => (array) $line);
-                } elseif ($order->rfq_id) {
-                    // Direct POs have no vendor proposal. Their approved PR is the source of truth.
-                    $lines = DB::table('rfq_items as ri')
-                        ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
-                        ->where('ri.rfq_id', $order->rfq_id)
-                        ->selectRaw("c.id as catalogue_id, COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(ri.id::text, 1, 8))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
-                        ->get()
-                        ->map(fn ($line) => (array) $line);
-                } else {
-                    $lines = collect();
-                }
+                $lines = $this->purchaseOrderLines($order);
                 $lines = $lines->map(function ($line) use ($order, $company) {
                     $received = (float) DB::table('warehouse_receipt_lines as rl')->join('warehouse_receipts as r', 'r.id', '=', 'rl.receipt_id')->where('r.company_id', $company->id)->where('r.purchase_order_id', $order->id)->where('rl.sku', $line['sku'])->sum('rl.received_quantity');
                     $line['received_quantity'] = $received;
@@ -211,13 +192,15 @@ class WmsInventoryService
                 'notes' => $data['notes'] ?? null, 'received_at' => now(), 'created_at' => now(), 'updated_at' => now(),
             ]);
             if ($purchaseOrder) {
+                $poLines = $this->purchaseOrderLines($purchaseOrder);
+                $poOrderedBySku = $poLines->groupBy(fn ($item) => strtoupper(trim((string) $item['sku'])))
+                    ->map(fn ($group) => (float) $group->sum('ordered_quantity'));
+
                 $requestedBySku = [];
                 $orderedBySku = [];
                 foreach ($data['lines'] as $line) {
                     $sku = $this->context->skuForTenant($company, $line, true)->code;
-                    $ordered = $purchaseOrder->is_historical
-                        ? DB::table('historical_po_items')->where('purchase_order_id', $purchaseOrder->id)->where('inventory_code', $sku)->sum('qty')
-                        : DB::table('proposal_items as pi')->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')->join('catalogues as c', 'c.id', '=', 'ri.catalogue_id')->where('pi.proposal_id', $purchaseOrder->proposal_id)->where('c.item_code', $sku)->sum('ri.qty');
+                    $ordered = $poOrderedBySku->get(strtoupper($sku), 0.0);
                     abort_unless($ordered > 0, 422, "SKU {$sku} is not part of this purchase order.");
                     $requestedBySku[$sku] = ($requestedBySku[$sku] ?? 0) + (float) $line['received_quantity'];
                     $orderedBySku[$sku] = (float) $ordered;
@@ -244,7 +227,7 @@ class WmsInventoryService
                 $lineId = (string) Str::uuid();
                 DB::table('warehouse_receipt_lines')->insert([
                     'id' => $lineId, 'receipt_id' => $receiptId, 'stock_id' => $stock->id, 'catalogue_id' => $catalogue?->id,
-                    'sku' => $sku, 'item_name' => $line['item_name'], 'uom' => $line['uom'], 'ordered_quantity' => null,
+                    'sku' => $sku, 'item_name' => $line['item_name'], 'uom' => $line['uom'], 'ordered_quantity' => $orderedBySku[$sku] ?? null,
                     'received_quantity' => $line['received_quantity'], 'accepted_quantity' => $line['accepted_quantity'],
                     'rejected_quantity' => $line['rejected_quantity'], 'condition' => $line['condition'],
                     'inspection_notes' => $line['inspection_notes'] ?? null, 'created_at' => now(), 'updated_at' => now(),
@@ -358,5 +341,43 @@ class WmsInventoryService
         });
 
         return response()->json(['message' => 'Stock transfer completed.']);
+    }
+
+    public function purchaseOrderLines(PurchaseOrder $order): Collection
+    {
+        if ($order->is_historical) {
+            return DB::table('historical_po_items')
+                ->where('purchase_order_id', $order->id)
+                ->get()
+                ->map(fn ($line) => [
+                    'catalogue_id' => null,
+                    'sku' => strtoupper(trim((string) $line->inventory_code)),
+                    'name' => $line->inventory_name,
+                    'uom' => $line->uom,
+                    'ordered_quantity' => (float) $line->qty,
+                ]);
+        }
+
+        if ($order->proposal_id) {
+            return DB::table('proposal_items as pi')
+                ->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')
+                ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
+                ->where('pi.proposal_id', $order->proposal_id)
+                ->selectRaw("c.id as catalogue_id, UPPER(COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(CAST(ri.id AS TEXT), 1, 8)))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
+                ->get()
+                ->map(fn ($line) => (array) $line);
+        }
+
+        if ($order->rfq_id) {
+            // Direct POs have no vendor proposal. Their approved PR is the source of truth.
+            return DB::table('rfq_items as ri')
+                ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
+                ->where('ri.rfq_id', $order->rfq_id)
+                ->selectRaw("c.id as catalogue_id, UPPER(COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(CAST(ri.id AS TEXT), 1, 8)))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
+                ->get()
+                ->map(fn ($line) => (array) $line);
+        }
+
+        return collect();
     }
 }
