@@ -111,6 +111,11 @@ class WmsController
         return $service->setReorderLevel($request, $stockId);
     }
 
+    public function reorderStock(Request $request, int $stockId, WmsInventoryService $service)
+    {
+        return $service->reorderStock($request, $stockId);
+    }
+
     public function receive(ReceiveStockRequest $request, WmsInventoryService $service)
     {
         return $service->receive($request);
