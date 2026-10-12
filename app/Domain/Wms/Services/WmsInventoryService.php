@@ -21,7 +21,10 @@ use Illuminate\Support\Str;
 
 class WmsInventoryService
 {
-    public function __construct(private WmsContext $context) {}
+    public function __construct(
+        private WmsContext $context,
+        private WmsNotificationService $notificationService
+    ) {}
 
     public function warehouses(Request $request)
     {
@@ -340,9 +343,88 @@ class WmsInventoryService
         $company = $this->context->tenant($request);
         $data = $request->validated();
         $stock = $this->context->stockForTenant($company, $stockId);
-        DB::table('warehouse_stock')->where('id', $stock->id)->update(['reorder_level' => $data['reorder_level'], 'updated_at' => now()]);
+
+        $updates = [
+            'reorder_level' => $data['reorder_level'],
+            'updated_at' => now(),
+        ];
+        if (array_key_exists('lead_time_days', $data)) {
+            $updates['lead_time_days'] = (int) ($data['lead_time_days'] ?? 0);
+        }
+
+        DB::table('warehouse_stock')->where('id', $stock->id)->update($updates);
+
+        // Notify in-app if current stock is below the newly set reorder point
+        $this->notificationService->checkAndNotifyLowStock($company, $stock->id);
 
         return response()->json(['data' => DB::table('warehouse_stock')->where('id', $stock->id)->first()]);
+    }
+
+    public function reorderStock(Request $request, int $stockId)
+    {
+        $company = $this->context->tenant($request);
+        $stock = $this->context->stockForTenant($company, $stockId);
+
+        $validated = $request->validate([
+            'quantity' => ['required', 'numeric', 'min:0.001'],
+            'vendor_name' => ['nullable', 'string', 'max:255'],
+            'expected_receiving_date' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $po = DB::transaction(function () use ($company, $stock, $validated, $request) {
+            $leadDays = (int) ($stock->lead_time_days ?? 0);
+            $expectedDate = $validated['expected_receiving_date']
+                ?? ($leadDays > 0 ? now()->addDays($leadDays)->format('Y-m-d') : now()->addDays(7)->format('Y-m-d'));
+
+            $vendorName = ! empty($validated['vendor_name']) ? trim($validated['vendor_name']) : 'Vendor Supplier';
+            $poNumber = 'PO-RO-'.now()->format('Ymd').'-'.strtoupper(Str::random(5));
+            $poId = (string) Str::uuid();
+
+            $unitCost = (float) ($stock->average_unit_cost ?? 0);
+            $totalAmount = (float) $validated['quantity'] * $unitCost;
+
+            DB::table('purchase_orders')->insert([
+                'id' => $poId,
+                'buyer_company_id' => $company->id,
+                'po_number' => $poNumber,
+                'vendor_name' => $vendorName,
+                'status' => 'confirmed',
+                'order_date' => now()->format('Y-m-d'),
+                'expected_receiving_date' => $expectedDate,
+                'is_historical' => true,
+                'total_amount' => $totalAmount,
+                'created_by' => $request->user()?->id,
+                'purchase_category' => 'Replenishment',
+                'purchase_type' => 'Immediate',
+                'delivery_point' => DB::table('warehouses')->where('id', $stock->warehouse_id)->value('name') ?? 'Warehouse',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('historical_po_items')->insert([
+                'id' => (string) Str::uuid(),
+                'purchase_order_id' => $poId,
+                'inventory_code' => $stock->sku,
+                'inventory_name' => $stock->item_name,
+                'uom' => $stock->uom ?? 'unit',
+                'qty' => $validated['quantity'],
+                'unit_price' => $unitCost,
+                'amount' => $totalAmount,
+                'total_amount' => $totalAmount,
+                'currency' => 'IDR',
+                'expected_receiving_date' => $expectedDate,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return DB::table('purchase_orders')->where('id', $poId)->first();
+        });
+
+        return response()->json([
+            'message' => "Purchase Order replenishment {$po->po_number} berhasil dibuat.",
+            'data' => $po,
+        ]);
     }
 
     public function receive(ReceiveStockRequest $request)
@@ -494,14 +576,20 @@ class WmsInventoryService
     {
         $company = $this->context->tenant($request);
         $data = $request->validated();
-        DB::transaction(function () use ($company, $data, $request) {
+        $stockId = null;
+        DB::transaction(function () use ($company, $data, $request, &$stockId) {
             $stock = $this->context->getStock($company, $data['warehouse_id'], ['sku' => $data['sku'], 'bin_location' => $data['bin_location']]);
             $stock = DB::table('warehouse_stock')->where('id', $stock->id)->lockForUpdate()->first();
             $next = (float) $stock->on_hand + (float) $data['quantity'];
             abort_unless($next >= (float) $stock->allocated, 422, 'Penyesuaian tidak boleh mengurangi stok yang sudah dialokasikan.');
             DB::table('warehouse_stock')->where('id', $stock->id)->update(['on_hand' => $next, 'updated_at' => now()]);
             DB::table('warehouse_transactions')->insert(['company_id' => $company->id, 'warehouse_id' => $data['warehouse_id'], 'stock_id' => $stock->id, 'type' => 'adjustment', 'quantity' => $data['quantity'], 'reference' => 'ADJ-'.now()->format('YmdHis'), 'notes' => $data['reason'], 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
+            $stockId = $stock->id;
         });
+
+        if ($stockId) {
+            $this->notificationService->checkAndNotifyLowStock($company, $stockId);
+        }
 
         return response()->json(['message' => 'Stock adjustment recorded.']);
     }
@@ -510,7 +598,8 @@ class WmsInventoryService
     {
         $company = $this->context->tenant($request);
         $data = $request->validated();
-        DB::transaction(function () use ($company, $data, $request) {
+        $sourceStockId = null;
+        DB::transaction(function () use ($company, $data, $request, &$sourceStockId) {
             foreach ([$data['from_warehouse_id'], $data['to_warehouse_id']] as $warehouseId) {
                 abort_unless(DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan untuk tenant ini.');
             }
@@ -518,6 +607,7 @@ class WmsInventoryService
             abort_unless($source, 404, 'SKU tidak ditemukan pada warehouse/bin asal.');
             abort_unless((float) $source->on_hand - (float) $source->allocated >= (float) $data['quantity'], 422, 'Stok tersedia tidak mencukupi untuk transfer.');
             DB::table('warehouse_stock')->where('id', $source->id)->decrement('on_hand', $data['quantity']);
+            $sourceStockId = $source->id;
             $target = $this->context->getStock($company, $data['to_warehouse_id'], ['sku' => $source->sku, 'item_name' => $source->item_name, 'uom' => $source->uom, 'catalogue_id' => $source->catalogue_id, 'bin_location' => $data['to_bin']], true);
             DB::table('warehouse_stock')->where('id', $target->id)->increment('on_hand', $data['quantity']);
             $reference = $data['reference'] ?? 'TRF-'.now()->format('YmdHis');
@@ -525,6 +615,10 @@ class WmsInventoryService
                 DB::table('warehouse_transactions')->insert(['company_id' => $company->id, 'warehouse_id' => $warehouseId, 'stock_id' => $stock->id, 'type' => 'transfer', 'quantity' => $quantity, 'reference' => $reference, 'notes' => $data['from_warehouse_id'].' → '.$data['to_warehouse_id'], 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
             }
         });
+
+        if ($sourceStockId) {
+            $this->notificationService->checkAndNotifyLowStock($company, $sourceStockId);
+        }
 
         return response()->json(['message' => 'Stock transfer completed.']);
     }

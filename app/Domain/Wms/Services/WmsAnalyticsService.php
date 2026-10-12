@@ -40,7 +40,36 @@ class WmsAnalyticsService
             'movement_summary' => DB::table('warehouse_transactions')->where('company_id', $company->id)->where('created_at', '>=', now()->subDays(30))->groupBy('type')->select('type', DB::raw('COUNT(*) as transactions'), DB::raw('SUM(quantity) as quantity'))->get(),
             'orders_by_status' => DB::table('warehouse_orders')->where('company_id', $company->id)->groupBy('status')->select('status', DB::raw('COUNT(*) as total'))->get(),
             'catalogue_linked_skus' => DB::table('warehouse_stock')->where('company_id', $company->id)->whereNotNull('catalogue_id')->count(),
-            'low_stock_items' => DB::table('warehouse_stock as s')->join('warehouses as w', 'w.id', '=', 's.warehouse_id')->where('s.company_id', $company->id)->where('s.reorder_level', '>', 0)->whereRaw('(s.on_hand - s.allocated) <= s.reorder_level')->orderByRaw('(s.on_hand - s.allocated) asc')->select('s.sku', 's.item_name', 's.bin_location', 's.on_hand', 's.allocated', 's.reorder_level', DB::raw('(s.on_hand - s.allocated) as available'), 'w.name as warehouse_name')->limit(100)->get(),
+            'low_stock_items' => DB::table('warehouse_stock as s')
+                ->join('warehouses as w', 'w.id', '=', 's.warehouse_id')
+                ->where('s.company_id', $company->id)
+                ->where('s.reorder_level', '>', 0)
+                ->whereRaw('(s.on_hand - s.allocated) <= s.reorder_level')
+                ->orderByRaw('(s.on_hand - s.allocated) asc')
+                ->select(
+                    's.id',
+                    's.warehouse_id',
+                    's.sku',
+                    's.item_name',
+                    's.uom',
+                    's.bin_location',
+                    's.on_hand',
+                    's.allocated',
+                    's.reorder_level',
+                    's.lead_time_days',
+                    DB::raw('(s.on_hand - s.allocated) as available'),
+                    'w.name as warehouse_name'
+                )
+                ->limit(100)
+                ->get()
+                ->map(function ($item) {
+                    $leadDays = (int) ($item->lead_time_days ?? 0);
+                    $item->estimated_arrival = $leadDays > 0 ? now()->addDays($leadDays)->format('Y-m-d') : null;
+                    $available = (float) $item->available;
+                    $reorderLevel = (float) $item->reorder_level;
+                    $item->suggested_qty = max(1.0, round(($reorderLevel * 2) - $available, 2));
+                    return $item;
+                }),
         ]);
     }
 }

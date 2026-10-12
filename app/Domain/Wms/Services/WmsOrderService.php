@@ -14,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class WmsOrderService
 {
-    public function __construct(private WmsContext $context) {}
+    public function __construct(
+        private WmsContext $context,
+        private WmsNotificationService $notificationService
+    ) {}
 
     public function allocate(AllocateStockRequest $request)
     {
@@ -71,6 +74,14 @@ class WmsOrderService
 
             return DB::table('warehouse_orders')->where('id', $id)->first();
         });
+
+        if ($order && ! empty($order->lines)) {
+            foreach ((array) json_decode($order->lines, true) as $line) {
+                if (! empty($line['stock_id'])) {
+                    $this->notificationService->checkAndNotifyLowStock($company, $line['stock_id']);
+                }
+            }
+        }
 
         return response()->json(['data' => $order], 201);
     }
