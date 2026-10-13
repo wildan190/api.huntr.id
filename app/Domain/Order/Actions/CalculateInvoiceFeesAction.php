@@ -38,14 +38,16 @@ class CalculateInvoiceFeesAction
             $platformFee     = $baseAmount * $platformFeeRate;
         }
 
-        // PPN Platform: 11% dari platform fee
-        $ppnPlatform = $platformFee * 0.11;
+        // PPN Platform: dynamic rate from AdminSetting or default 11%
+        $ppnRate     = ((float) \App\Domain\Admin\Models\AdminSetting::get('subscription_ppn_percent', 11)) / 100;
+        $ppnPlatform = $platformFee * $ppnRate;
 
         // Admin Bank (flat)
         $adminBank = 4400;
 
-        // PPH 23: 2% dari platform fee
-        $pph23 = $platformFee * 0.02;
+        // PPH 23: dynamic rate from AdminSetting or default 2%
+        $pph23Rate = ((float) \App\Domain\Admin\Models\AdminSetting::get('subscription_pph23_percent', 2)) / 100;
+        $pph23     = $platformFee * $pph23Rate;
 
         // Total biaya layanan: (platform fee + PPN platform) + admin bank - PPH 23
         $serviceTotal = ($platformFee + $ppnPlatform) + $adminBank - $pph23;

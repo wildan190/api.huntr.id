@@ -16,8 +16,10 @@ class ActivateCompanySubscriptionAction
         float $gmvLimit,
         string $overflowStrategy = CompanySubscription::OVERFLOW_TRANSACTION_FEE,
         ?Carbon $startsAt = null,
+        string $plan = 'gmv_subscription',
+        ?float $customUpfrontFee = null,
     ): CompanySubscription {
-        if ($gmvLimit <= 0) {
+        if ($plan !== 'per_po' && $gmvLimit <= 0) {
             throw new InvalidArgumentException('Kuota GMV harus lebih besar dari nol.');
         }
 
@@ -30,19 +32,23 @@ class ActivateCompanySubscriptionAction
 
         $startsAt ??= now();
 
-        return DB::transaction(function () use ($company, $gmvLimit, $overflowStrategy, $startsAt): CompanySubscription {
+        return DB::transaction(function () use ($company, $gmvLimit, $overflowStrategy, $startsAt, $plan, $customUpfrontFee): CompanySubscription {
             CompanySubscription::query()
                 ->where('company_id', $company->id)
                 ->where('status', 'active')
                 ->lockForUpdate()
                 ->update(['status' => 'superseded']);
 
+            $upfrontFee = $customUpfrontFee !== null
+                ? round($customUpfrontFee, 2)
+                : round($gmvLimit * CompanySubscription::UPFRONT_RATE, 2);
+
             return CompanySubscription::create([
                 'company_id' => $company->id,
-                'plan' => 'gmv_subscription',
+                'plan' => $plan,
                 'status' => 'active',
                 'overflow_strategy' => $overflowStrategy,
-                'upfront_fee' => round($gmvLimit * CompanySubscription::UPFRONT_RATE, 2),
+                'upfront_fee' => $upfrontFee,
                 'gmv_limit' => $gmvLimit,
                 'starts_at' => $startsAt,
                 'ends_at' => $startsAt->copy()->addYear(),
