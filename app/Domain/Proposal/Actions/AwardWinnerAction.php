@@ -58,15 +58,22 @@ class AwardWinnerAction
                 ->where('id', '!=', $proposal->id)
                 ->update(['winner_status' => 'rejected']);
 
-            // 2. Mark the selected proposal as awarded
+            // 2. Mark the selected proposal as awarded and all its items as awarded
             $proposal->update([
                 'winner_status' => 'awarded',
                 'awarded_at' => now(),
                 'awarded_by_user_id' => $buyerUserId,
+                'awarded_amount' => $proposal->price_offer,
             ]);
 
-            // 3. Update RFQ status to 'awarded'
-            $rfq->update(['status' => 'awarded']);
+            \App\Domain\Proposal\Models\ProposalItem::where('proposal_id', $proposal->id)
+                ->update(['is_awarded' => true]);
+
+            // 3. Update RFQ status to 'awarded' with single award mode
+            $rfq->update([
+                'status' => 'awarded',
+                'award_mode' => 'single',
+            ]);
 
             DB::afterCommit(function () use ($proposal, $rfq) {
                 $proposal->load(['company.users']);

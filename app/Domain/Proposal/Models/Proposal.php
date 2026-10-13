@@ -38,12 +38,20 @@ class Proposal extends Model
         'warranty_months',
         'document_path',
         'payment_term',
+        'awarded_amount',
         'status',
         'winner_status',
         'awarded_at',
         'awarded_by_user_id',
         'approved_at',
         'approved_by_user_id',
+    ];
+
+    protected $casts = [
+        'price_offer' => 'float',
+        'awarded_amount' => 'float',
+        'awarded_at' => 'datetime',
+        'approved_at' => 'datetime',
     ];
 
     protected $appends = ['document_url'];

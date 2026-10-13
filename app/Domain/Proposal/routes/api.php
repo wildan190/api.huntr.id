@@ -19,4 +19,7 @@ Route::prefix('api/proposals')->middleware(['api', 'auth:api'])->group(function 
 
 Route::prefix('api/rfqs')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('{rfq}/rankings', [ProposalController::class, 'calculateRankings']);
+    Route::middleware('manager.only')->group(function () {
+        Route::post('{rfq}/award-winners', [ProposalController::class, 'awardWinners']);
+    });
 });

@@ -155,12 +155,34 @@ class GetPurchaseOrdersAction
                 });
             } else if ($po->rfq) {
                 // Find the awarded proposal specifically
-                $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first()
-                    ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
-                    ?? $po->rfq->proposals->where('winner_status', 'awarded')->first()
-                    ?? $po->rfq->proposals->first();
+                $winningProposal = null;
+                if ($po->proposal_id) {
+                    $winningProposal = $po->proposal ?? ($po->rfq->proposals->where('id', $po->proposal_id)->first());
+                }
+                if (!$winningProposal && $po->vendor_id) {
+                    $winningProposal = $po->rfq->proposals->where('company_id', $po->vendor_id)->whereIn('winner_status', ['approved', 'awarded'])->first()
+                        ?? $po->rfq->proposals->where('company_id', $po->vendor_id)->first();
+                }
+                if (!$winningProposal) {
+                    $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first()
+                        ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
+                        ?? $po->rfq->proposals->where('winner_status', 'awarded')->first()
+                        ?? $po->rfq->proposals->first();
+                }
 
-                $mappedItems = $po->rfq->items->map(function ($item) use ($winningProposal) {
+                // If proposal items have is_awarded flags, ONLY map the checklisted/awarded items
+                $rfqItems = $po->rfq->items;
+                if ($winningProposal && $winningProposal->items && $winningProposal->items->isNotEmpty()) {
+                    $awardedProposalItems = $winningProposal->items->where('is_awarded', true);
+                    if ($awardedProposalItems->isNotEmpty()) {
+                        $awardedRfqItemIds = $awardedProposalItems->pluck('rfq_item_id')->all();
+                        $rfqItems = $rfqItems->filter(function ($item) use ($awardedRfqItemIds) {
+                            return in_array($item->id, $awardedRfqItemIds);
+                        });
+                    }
+                }
+
+                $mappedItems = $rfqItems->map(function ($item) use ($winningProposal) {
                     $cat = $item->catalogue;
                     $proposalItem = $winningProposal ? $winningProposal->items->where('rfq_item_id', $item->id)->first() : null;
 
@@ -191,7 +213,7 @@ class GetPurchaseOrdersAction
                         'tax_amount' => 0,
                         'total_amount' => $qty * $unitPrice,
                     ];
-                });
+                })->values();
 
                 $totalAmount = $mappedItems->sum('total_amount');
             }

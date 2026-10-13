@@ -3,6 +3,7 @@
 namespace App\Domain\Auth\Repositories;
 
 use App\Domain\Auth\Models\User;
+use App\Support\WhatsappNumber;
 use Illuminate\Support\Facades\Hash;
 
 class EloquentUserRepository implements UserRepositoryInterface
@@ -29,7 +30,12 @@ class EloquentUserRepository implements UserRepositoryInterface
      */
     public function findByEmailOrWhatsapp(string $login): ?User
     {
-        return User::where('email', $login)->orWhere('whatsapp', $login)->first();
+        $normalizedWhatsapp = WhatsappNumber::normalize($login);
+
+        return User::where('email', $login)
+            ->orWhere('whatsapp', $login)
+            ->when($normalizedWhatsapp, fn ($query) => $query->orWhere('whatsapp', $normalizedWhatsapp))
+            ->first();
     }
 
     /**
@@ -37,7 +43,11 @@ class EloquentUserRepository implements UserRepositoryInterface
      */
     public function findByWhatsapp(string $whatsapp): ?User
     {
-        return User::where('whatsapp', $whatsapp)->first();
+        $normalized = WhatsappNumber::normalize($whatsapp);
+
+        return User::where('whatsapp', $whatsapp)
+            ->when($normalized, fn ($query) => $query->orWhere('whatsapp', $normalized))
+            ->first();
     }
 
     /**

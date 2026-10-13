@@ -84,6 +84,11 @@ class PurchaseOrder extends Model
         return $this->belongsTo(Rfq::class);
     }
 
+    public function proposal()
+    {
+        return $this->belongsTo(\App\Domain\Proposal\Models\Proposal::class, 'proposal_id');
+    }
+
     public function buyer()
     {
         return $this->belongsTo(Company::class, 'buyer_company_id');

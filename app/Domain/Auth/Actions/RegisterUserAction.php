@@ -70,6 +70,7 @@ class RegisterUserAction
 
         $userData = $user->toArray();
         $userData['token'] = $token;
+        $userData['role']  = $role;
 
         return ['user' => $userData];
     }
