@@ -10,4 +10,5 @@ Route::prefix('api/admin')->middleware(['api', 'admin.session'])->group(function
     Route::post('admins', [AdminController::class, 'createAdmin']);
     Route::get('users', [AdminController::class, 'listUsers']);
     Route::delete('users/{userId}', [AdminController::class, 'deleteUser']);
+    Route::post('users/{userId}/change-password', [AdminController::class, 'changeUserPassword']);
 });

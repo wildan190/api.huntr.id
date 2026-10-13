@@ -181,10 +181,21 @@ class WmsGoodsReceiptImportService
         }
 
         if (! empty($po->proposal_id)) {
-            $proposalLines = DB::table('proposal_items as pi')
+            $hasAwardedFlags = DB::table('proposal_items')
+                ->where('proposal_id', $po->proposal_id)
+                ->where('is_awarded', true)
+                ->exists();
+
+            $query = DB::table('proposal_items as pi')
                 ->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')
                 ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
-                ->where('pi.proposal_id', $po->proposal_id)
+                ->where('pi.proposal_id', $po->proposal_id);
+
+            if ($hasAwardedFlags) {
+                $query->where('pi.is_awarded', true);
+            }
+
+            $proposalLines = $query
                 ->selectRaw("ri.id as po_item_id, c.id as catalogue_id, UPPER(COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(CAST(ri.id AS TEXT), 1, 8)))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as item_name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
                 ->get();
             if ($proposalLines->isNotEmpty()) {

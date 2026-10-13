@@ -6,6 +6,7 @@ use App\Domain\Proposal\Actions\SubmitProposalAction;
 use App\Domain\Proposal\Actions\CalculateVendorRankingAction;
 use App\Domain\Proposal\Actions\GetVendorMyRankAction;
 use App\Domain\Proposal\Actions\AwardWinnerAction;
+use App\Domain\Proposal\Actions\AwardMultiWinnersAction;
 use App\Domain\Proposal\Actions\ApproveWinnerAction;
 use App\Domain\Proposal\Actions\GetAwaitingApprovalsAction;
 use App\Domain\Proposal\Http\Requests\SubmitProposalRequest;
@@ -154,6 +155,49 @@ class ProposalController extends \App\Http\Controllers\Controller
             ]);
             return response()->json([
                 'message' => 'Error awarding proposal: ' . $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Buyer awards multiple proposals as winners (Split Award: 2-5 vendors).
+     */
+    public function awardWinners(Request $request, Rfq $rfq, AwardMultiWinnersAction $action): JsonResponse
+    {
+        try {
+            $userId = Auth::id() ?: $request->input('user_id');
+            if (!$userId) {
+                return response()->json(['message' => 'User ID is required for awarding.'], 401);
+            }
+
+            $awards = $request->input('awards', []);
+            $awardMode = $request->input('award_mode', 'multi_vendor');
+
+            if (!is_array($awards) || empty($awards)) {
+                return response()->json(['message' => 'Daftar pemenang (awards) wajib diisi.'], 422);
+            }
+
+            $awardedProposals = $action->execute($rfq, $userId, $awards, $awardMode);
+
+            return response()->json([
+                'message' => 'Pemenang tender berhasil ditetapkan.',
+                'rfq' => $rfq->fresh(['company']),
+                'proposals' => $awardedProposals,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $ve) {
+            return response()->json([
+                'message' => $ve->getMessage(),
+                'errors' => $ve->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error in awardWinners', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'rfq_id' => $rfq->id,
+                'request' => $request->all(),
+            ]);
+            return response()->json([
+                'message' => 'Error menetapkan pemenang tender: ' . $e->getMessage()
             ], 400);
         }
     }

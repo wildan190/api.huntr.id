@@ -117,6 +117,7 @@ class LoginUserAction
 
         $userData          = $user->toArray();
         $userData['token'] = $token;
+        $userData['role']  = $user->roles->first()?->name ?? $user->role ?? 'manager';
 
         return ['user' => $userData];
     }

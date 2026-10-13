@@ -7,8 +7,10 @@ use App\Domain\Admin\Actions\CreateAdminAction;
 use App\Domain\Admin\Actions\DeleteUserAction;
 use App\Domain\Admin\Actions\GetAdminUsersAction;
 use App\Domain\Admin\Models\Admin;
+use App\Domain\Auth\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class AdminController extends \App\Http\Controllers\Controller
 {
@@ -77,5 +79,29 @@ class AdminController extends \App\Http\Controllers\Controller
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Change a user's password (admin override — no current password required).
+     */
+    public function changeUserPassword(string $userId, Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'password'              => 'required|string|min:8|confirmed',
+            'password_confirmation' => 'required|string',
+        ]);
+
+        $user = User::findOrFail($userId);
+        $user->password = Hash::make($data['password']);
+        $user->save();
+
+        // Revoke all existing Sanctum tokens so the user must re-login
+        if (method_exists($user, 'tokens')) {
+            $user->tokens()->delete();
+        }
+
+        return response()->json([
+            'message' => "Password user '{$user->name}' berhasil diubah dan semua sesi aktif dicabut.",
+        ]);
     }
 }

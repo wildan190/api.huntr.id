@@ -41,12 +41,26 @@ class ApproveWinnerAction
         // Also check for duplicate po_number just in case
         $existingPoByNumber = \App\Domain\Order\Models\PurchaseOrder::whereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])->first();
 
+        // Calculate awarded total amount based on checked items
+        $awardedItems = $proposal->items()->where('is_awarded', true)->get();
+        if ($awardedItems->isNotEmpty()) {
+            $effectiveTotal = 0;
+            $rfqItems = $rfq->items()->get()->keyBy('id');
+            foreach ($awardedItems as $aItem) {
+                $rfqItem = $rfqItems->get($aItem->rfq_item_id);
+                $qty = $rfqItem?->qty ?? 1;
+                $effectiveTotal += ($aItem->price_offer * $qty);
+            }
+        } else {
+            $effectiveTotal = $proposal->awarded_amount ?? $proposal->price_offer;
+        }
+
         if ($existingPoForThisProposal) {
             // Only update existing PO if it's for THIS proposal
             $existingPoForThisProposal->update([
                 'vendor_id'        => $proposal->company_id,
                 'buyer_company_id' => $rfq->company_id,
-                'total_amount'     => $proposal->price_offer,
+                'total_amount'     => $effectiveTotal,
                 'purchase_type'    => $proposal->payment_term,
                 'status'           => 'issued',
             ]);
@@ -81,7 +95,7 @@ class ApproveWinnerAction
 
         $generatedPo = null;
 
-        DB::transaction(function () use ($proposal, $managerUserId, $rfq, $poNumber, &$generatedPo) {
+        DB::transaction(function () use ($proposal, $managerUserId, $rfq, $poNumber, $effectiveTotal, &$generatedPo) {
             // Re-check inside transaction with lock to prevent race conditions
             $existingPoInside = \App\Domain\Order\Models\PurchaseOrder::whereRaw('LOWER(po_number) = ?', [strtolower($poNumber)])
                 ->lockForUpdate()
@@ -92,7 +106,7 @@ class ApproveWinnerAction
                 $existingPoInside->update([
                     'vendor_id'        => $proposal->company_id,
                     'buyer_company_id' => $rfq->company_id,
-                    'total_amount'     => $proposal->price_offer,
+                    'total_amount'     => $effectiveTotal,
                     'purchase_type'    => $proposal->payment_term,
                     'status'           => 'issued',
                 ]);
@@ -130,7 +144,7 @@ class ApproveWinnerAction
                 'order_date'       => now(),
                 'created_by'       => $rfq->user_id,
                 'approved_by'      => $managerUserId,
-                'total_amount'     => $proposal->price_offer,
+                'total_amount'     => $effectiveTotal,
                 'purchase_type'    => $proposal->payment_term,
                 'department'       => $rfq->department ?? 'General Procurement',
             ]);

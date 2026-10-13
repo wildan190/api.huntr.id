@@ -182,7 +182,20 @@ class DemoBotService
             $totalPriceOffer = 0;
             $proposalItemsData = [];
 
-            foreach ($rfq->items as $item) {
+            // Untuk RFQ dengan banyak barang (> 1), simulasikan vendor spesialis yang hanya ikut tender untuk barang tertentu
+            $itemCount = $rfq->items->count();
+            $targetItems = $rfq->items;
+            if ($itemCount > 1) {
+                if ($index === 1) {
+                    // Bot 2: Spesialis barang kelompok awal
+                    $targetItems = $rfq->items->take((int) ceil($itemCount / 2));
+                } elseif ($index === 2) {
+                    // Bot 3: Spesialis barang kelompok akhir
+                    $targetItems = $rfq->items->skip((int) floor($itemCount / 2));
+                }
+            }
+
+            foreach ($targetItems as $item) {
                 $baseItemPrice = $item->estimated_price;
                 if (!$baseItemPrice || $baseItemPrice <= 0) {
                     $baseItemPrice = $item->catalogue?->price ?? 500000;

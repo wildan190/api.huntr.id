@@ -39,6 +39,7 @@ class Rfq extends Model
         'description',
         'document_path',
         'status',
+        'award_mode',
         'procurement_mode',
         'duration_days',
         'approved_by',
