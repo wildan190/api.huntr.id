@@ -25,9 +25,14 @@ class CatalogueController extends \App\Http\Controllers\Controller
     /**
      * Display list of catalogues with filters and pagination.
      */
-    public function index(Request $request, GetCataloguesAction $action): JsonResponse
+    public function index(Request $request, GetCataloguesAction $action, CatalogueCacheService $cacheService): JsonResponse
     {
-        return response()->json($action->execute($request->all()));
+        $result = $action->execute($request->all());
+        $isHit = $cacheService->isLastHit();
+
+        return response()->json($result)
+            ->header('X-Cache', $isHit ? 'HIT' : 'MISS')
+            ->header('X-Cache-Store', 'Dragonfly');
     }
 
     /**
@@ -127,7 +132,9 @@ class CatalogueController extends \App\Http\Controllers\Controller
         $cachedData = $cacheService->getDetails($catalogue);
         
         if ($cachedData) {
-            return response()->json(['data' => $cachedData], 200);
+            return response()->json(['data' => $cachedData], 200)
+                ->header('X-Cache', 'HIT')
+                ->header('X-Cache-Store', 'Dragonfly');
         }
         
         // If not in cache, load fresh data with company fields limited to public-safe columns
@@ -139,7 +146,9 @@ class CatalogueController extends \App\Http\Controllers\Controller
         // Store in cache for future requests
         $cacheService->storeDetails($catalogue, $data);
         
-        return response()->json(['data' => $data], 200);
+        return response()->json(['data' => $data], 200)
+            ->header('X-Cache', 'MISS')
+            ->header('X-Cache-Store', 'Dragonfly');
     }
 
     /**

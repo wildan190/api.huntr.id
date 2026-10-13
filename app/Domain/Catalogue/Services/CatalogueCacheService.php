@@ -8,19 +8,29 @@ use Illuminate\Support\Facades\Cache;
 class CatalogueCacheService
 {
     /**
-     * Cache duration for catalogue details (5 minutes)
+     * Cache duration for catalogue details (24 hours)
      */
-    const DETAIL_CACHE_DURATION = 300;
+    const DETAIL_CACHE_DURATION = 86400;
     
     /**
-     * Cache duration for catalogue listings (2 minutes)
+     * Cache duration for catalogue listings (24 hours)
      */
-    const LISTING_CACHE_DURATION = 120;
+    const LISTING_CACHE_DURATION = 86400;
     
     /**
-     * Cache duration for SEO data (10 minutes)
+     * Cache duration for SEO data (24 hours)
      */
-    const SEO_CACHE_DURATION = 600;
+    const SEO_CACHE_DURATION = 86400;
+
+    /**
+     * Track last cache hit status
+     */
+    private bool $lastHit = false;
+
+    public function isLastHit(): bool
+    {
+        return $this->lastHit;
+    }
     
     /**
      * Get catalogue details from cache or database
@@ -32,8 +42,10 @@ class CatalogueCacheService
     {
         $catalogueId = $catalogue instanceof Catalogue ? $catalogue->id : $catalogue;
         $cacheKey = $this->getDetailsCacheKey($catalogueId);
+        $data = Cache::get($cacheKey);
+        $this->lastHit = !empty($data);
         
-        return Cache::get($cacheKey);
+        return $data;
     }
     
     /**
@@ -47,8 +59,9 @@ class CatalogueCacheService
     {
         $catalogueId = $catalogue instanceof Catalogue ? $catalogue->id : $catalogue;
         $cacheKey = $this->getDetailsCacheKey($catalogueId);
+        $ttl = (int) env('CATALOGUE_DETAIL_CACHE_TTL', self::DETAIL_CACHE_DURATION);
         
-        Cache::put($cacheKey, $data, self::DETAIL_CACHE_DURATION);
+        Cache::put($cacheKey, $data, $ttl);
     }
     
     /**
@@ -74,8 +87,10 @@ class CatalogueCacheService
     public function getListing(array $params): ?array
     {
         $cacheKey = $this->getListingCacheKey($params);
+        $data = Cache::get($cacheKey);
+        $this->lastHit = !empty($data);
         
-        return Cache::get($cacheKey);
+        return $data;
     }
     
     /**
@@ -88,8 +103,9 @@ class CatalogueCacheService
     public function storeListing(array $params, array $data): void
     {
         $cacheKey = $this->getListingCacheKey($params);
+        $ttl = (int) env('CATALOGUE_LISTING_CACHE_TTL', self::LISTING_CACHE_DURATION);
         
-        Cache::put($cacheKey, $data, self::LISTING_CACHE_DURATION);
+        Cache::put($cacheKey, $data, $ttl);
         
         // Store cache key for later invalidation
         $this->storeListingCacheKey($cacheKey);
@@ -120,8 +136,9 @@ class CatalogueCacheService
     {
         $catalogueId = $catalogue instanceof Catalogue ? $catalogue->id : $catalogue;
         $cacheKey = $this->getSeoCacheKey($catalogueId);
+        $ttl = (int) env('CATALOGUE_SEO_CACHE_TTL', self::SEO_CACHE_DURATION);
         
-        Cache::put($cacheKey, $data, self::SEO_CACHE_DURATION);
+        Cache::put($cacheKey, $data, $ttl);
     }
     
     /**
@@ -149,7 +166,6 @@ class CatalogueCacheService
         $this->invalidateAllListings();
         
         // Note: Individual catalogue details will be invalidated on update
-        // We could also implement a tag-based system here if needed
     }
     
     /**
@@ -164,19 +180,29 @@ class CatalogueCacheService
     }
     
     /**
-     * Get listing cache key
+     * Get listing cache key with parameter normalization
      *
      * @param array $params
      * @return string
      */
-    private function getListingCacheKey(array $params): string
+    public function getListingCacheKey(array $params): string
     {
-        $cacheParams = $params;
-        
-        // Sort parameters for consistent cache keys
-        ksort($cacheParams);
-        
-        return "catalogue:listing:" . md5(json_encode($cacheParams));
+        $normalized = [];
+        if (!empty($params['company_id'])) {
+            $normalized['company_id'] = (string) $params['company_id'];
+        }
+        if (!empty($params['search']) && trim((string)$params['search']) !== '') {
+            $normalized['search'] = strtolower(trim((string)$params['search']));
+        }
+        if (!empty($params['category']) && !in_array(strtolower(trim((string)$params['category'])), ['all', ''], true)) {
+            $normalized['category'] = strtolower(trim((string)$params['category']));
+        }
+        $normalized['page'] = !empty($params['page']) ? (int) $params['page'] : 1;
+        $normalized['per_page'] = !empty($params['per_page']) ? (int) $params['per_page'] : 20;
+
+        ksort($normalized);
+
+        return "catalogue:listing:" . md5(json_encode($normalized));
     }
     
     /**
@@ -198,10 +224,17 @@ class CatalogueCacheService
      */
     private function storeListingCacheKey(string $cacheKey): void
     {
-        $keys = Cache::get('catalogue:listing:keys', []);
-        if (!in_array($cacheKey, $keys)) {
-            $keys[] = $cacheKey;
-            Cache::put('catalogue:listing:keys', $keys, 86400); // 24 hours
+        try {
+            $keys = Cache::get('catalogue:listing:keys', []);
+            if (!is_array($keys)) {
+                $keys = [];
+            }
+            if (!in_array($cacheKey, $keys, true)) {
+                $keys[] = $cacheKey;
+                Cache::put('catalogue:listing:keys', $keys, 86400 * 7); // 7 days
+            }
+        } catch (\Throwable $e) {
+            // Fail silently
         }
     }
     
@@ -212,10 +245,16 @@ class CatalogueCacheService
      */
     private function invalidateAllListings(): void
     {
-        $keys = Cache::get('catalogue:listing:keys', []);
-        foreach ($keys as $key) {
-            Cache::forget($key);
+        try {
+            $keys = Cache::get('catalogue:listing:keys', []);
+            if (is_array($keys)) {
+                foreach ($keys as $key) {
+                    Cache::forget($key);
+                }
+            }
+            Cache::forget('catalogue:listing:keys');
+        } catch (\Throwable $e) {
+            // Fail silently
         }
-        Cache::forget('catalogue:listing:keys');
     }
 }
