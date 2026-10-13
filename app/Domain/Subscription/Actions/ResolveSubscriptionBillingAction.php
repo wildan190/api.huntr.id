@@ -28,6 +28,24 @@ class ResolveSubscriptionBillingAction
             return $this->transactionFeeDecision();
         }
 
+        if ($subscription->plan === 'saas_subscription') {
+            return [
+                'billing_mode' => 'saas_subscription',
+                'subscription_id' => $subscription->id,
+                'gmv_credited_amount' => $transactionAmount,
+                'waive_platform_fee' => true,
+            ];
+        }
+
+        if ($subscription->plan === 'per_po') {
+            return [
+                'billing_mode' => 'per_po',
+                'subscription_id' => $subscription->id,
+                'gmv_credited_amount' => 0,
+                'waive_platform_fee' => false,
+            ];
+        }
+
         $usedOrReserved = (float) $subscription->current_realized_gmv + (float) $subscription->reserved_gmv;
         if ($usedOrReserved + $transactionAmount <= (float) $subscription->gmv_limit) {
             $subscription->increment('reserved_gmv', $transactionAmount);
