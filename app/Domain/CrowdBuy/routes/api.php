@@ -15,6 +15,9 @@ Route::prefix('api/crowd-buy')->middleware('api')->group(function () {
     Route::get('campaigns/{idOrCode}', [PublicCampaignController::class, 'show']);
     Route::get('invite/{inviteCode}', [BuyerCampaignController::class, 'resolveInvite']);
 
+    // Vendor/Supplier list is public catalog data (non-sensitive) — needed to populate form dropdown
+    Route::get('suppliers', [BuyerCampaignController::class, 'suppliers']);
+
     // Payment Webhook (Publicly reachable for Midtrans)
     Route::post('payments/webhook', [CrowdBuyPaymentController::class, 'webhook']);
 });
@@ -22,7 +25,6 @@ Route::prefix('api/crowd-buy')->middleware('api')->group(function () {
 // 2. Buyer Authenticated Endpoints
 Route::prefix('api/crowd-buy')->middleware(['api', 'auth:api'])->group(function () {
     // Buyer Initiatives (Opsi 1: Group Buy Katalog & Opsi 2: Collective RFQ)
-    Route::get('suppliers', [BuyerCampaignController::class, 'suppliers']);
     Route::get('initiatives', [BuyerCampaignController::class, 'index']);
     Route::post('initiatives', [BuyerCampaignController::class, 'store']);
     Route::post('initiatives/{campaignId}/accept-bid/{bidId}', [BuyerCampaignController::class, 'acceptBid']);
