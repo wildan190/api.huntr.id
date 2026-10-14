@@ -48,6 +48,7 @@ class DomainServiceProvider extends ServiceProvider
         $this->app->bind(ProposalRepositoryInterface::class, EloquentProposalRepository::class);
         $this->app->bind(OrderRepositoryInterface::class, EloquentOrderRepository::class);
         $this->app->bind(ReceiptRepositoryInterface::class, EloquentReceiptRepository::class);
+        $this->app->bind(\App\Domain\CrowdBuy\Repositories\CrowdBuyRepositoryInterface::class, \App\Domain\CrowdBuy\Repositories\EloquentCrowdBuyRepository::class);
         
         // Register catalogue cache service as singleton for better performance
         $this->app->singleton(CatalogueCacheService::class);
@@ -58,13 +59,18 @@ class DomainServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription', 'Wms'];
+        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription', 'Wms', 'CrowdBuy'];
         foreach ($domains as $domain) {
             $routePath = app_path("Domain/{$domain}/routes/api.php");
             if (file_exists($routePath)) {
                 $this->loadRoutesFrom($routePath);
             }
+        }
 
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \App\Domain\CrowdBuy\Console\Commands\EvaluateCrowdBuyDeadlinesCommand::class,
+            ]);
         }
     }
 }

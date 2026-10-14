@@ -10,7 +10,9 @@ return new class extends Migration
         // Restored PostgreSQL databases can retain a stale sequence even when
         // the roles table already contains records. Synchronize it before the
         // insert so the generated primary key cannot collide with existing data.
-        DB::statement("SELECT setval(pg_get_serial_sequence('roles', 'id'), COALESCE((SELECT MAX(id) FROM roles), 1), (SELECT COUNT(*) > 0 FROM roles))");
+        if (DB::getDriverName() === 'pgsql') {
+            DB::statement("SELECT setval(pg_get_serial_sequence('roles', 'id'), COALESCE((SELECT MAX(id) FROM roles), 1), (SELECT COUNT(*) > 0 FROM roles))");
+        }
 
         DB::table('roles')->updateOrInsert(
             ['slug' => 'warehouse_admin'],
