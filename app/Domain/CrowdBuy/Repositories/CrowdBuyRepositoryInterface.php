@@ -12,10 +12,12 @@ interface CrowdBuyRepositoryInterface
     public function getPublicCampaigns(array $filters = [], int $perPage = 12): LengthAwarePaginator;
     public function findCampaignByIdOrCode(string $idOrCode): ?CrowdBuyCampaign;
     public function getBuyerOrders(string $buyerCompanyId, array $filters = [], int $perPage = 10): LengthAwarePaginator;
+    public function getBuyerInitiatives(string $buyerCompanyId, array $filters = [], int $perPage = 10): LengthAwarePaginator;
     public function findOrderById(string $orderId): ?CrowdBuyOrder;
 
     // Supplier
     public function getSupplierCampaigns(string $supplierCompanyId, array $filters = [], int $perPage = 10): LengthAwarePaginator;
+    public function getCollectiveRfqs(array $filters = [], int $perPage = 10): LengthAwarePaginator;
     public function getSupplierOrders(string $supplierCompanyId, array $filters = [], int $perPage = 15): LengthAwarePaginator;
 
     // Admin

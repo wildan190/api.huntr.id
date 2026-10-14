@@ -47,6 +47,10 @@ class CrowdBuyCampaign extends Model
 
     protected $fillable = [
         'code',
+        'creator_type',
+        'campaign_type',
+        'initiator_company_id',
+        'invite_code',
         'supplier_company_id',
         'created_by',
         'catalogue_id',
@@ -55,6 +59,7 @@ class CrowdBuyCampaign extends Model
         'category',
         'unit',
         'base_price',
+        'target_price',
         'target_quantity',
         'max_quantity',
         'min_order_qty',
@@ -74,6 +79,7 @@ class CrowdBuyCampaign extends Model
 
     protected $casts = [
         'base_price' => 'decimal:2',
+        'target_price' => 'decimal:2',
         'target_quantity' => 'integer',
         'max_quantity' => 'integer',
         'min_order_qty' => 'integer',
@@ -91,7 +97,13 @@ class CrowdBuyCampaign extends Model
         'is_target_reached',
         'days_remaining',
         'is_active',
+        'is_buyer_initiated',
     ];
+
+    public function getIsBuyerInitiatedAttribute(): bool
+    {
+        return $this->creator_type === 'buyer';
+    }
 
     public function getImageUrlAttribute(): ?string
     {
@@ -134,7 +146,7 @@ class CrowdBuyCampaign extends Model
 
     public function getIsActiveAttribute(): bool
     {
-        return $this->status === 'active' && now()->between($this->starts_at, $this->ends_at);
+        return in_array($this->status, ['active', 'bidding']) && now()->between($this->starts_at, $this->ends_at);
     }
 
     /**
@@ -157,6 +169,11 @@ class CrowdBuyCampaign extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Company::class, 'supplier_company_id');
+    }
+
+    public function initiatorCompany(): BelongsTo
+    {
+        return $this->belongsTo(Company::class, 'initiator_company_id');
     }
 
     public function creator(): BelongsTo
@@ -182,6 +199,11 @@ class CrowdBuyCampaign extends Model
     public function orders(): HasMany
     {
         return $this->hasMany(CrowdBuyOrder::class, 'campaign_id');
+    }
+
+    public function bids(): HasMany
+    {
+        return $this->hasMany(CrowdBuyBid::class, 'campaign_id')->orderBy('offered_unit_price', 'asc');
     }
 
     public function histories(): HasMany
