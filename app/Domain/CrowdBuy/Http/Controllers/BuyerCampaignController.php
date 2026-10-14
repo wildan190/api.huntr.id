@@ -2,6 +2,7 @@
 
 namespace App\Domain\CrowdBuy\Http\Controllers;
 
+use App\Domain\Company\Models\Company;
 use App\Domain\CrowdBuy\Actions\AcceptSupplierBidAction;
 use App\Domain\CrowdBuy\Actions\CreateBuyerCampaignAction;
 use App\Domain\CrowdBuy\Models\CrowdBuyCampaign;
@@ -29,6 +30,17 @@ class BuyerCampaignController extends Controller
         $initiatives = $this->repository->getBuyerInitiatives($user->company_id, $filters, $perPage);
 
         return response()->json($initiatives);
+    }
+
+    public function suppliers(): JsonResponse
+    {
+        $suppliers = Company::where('type', 'vendor')
+            ->whereIn('status', ['approved', 'pending'])
+            ->select('id', 'name', 'email', 'industry_type', 'logo_path')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json($suppliers);
     }
 
     public function store(Request $request, CreateBuyerCampaignAction $action): JsonResponse
@@ -65,6 +77,9 @@ class BuyerCampaignController extends Controller
             // Initial participation by the initiator
             'initial_quantity' => 'nullable|integer|min:0',
             'initial_shipping_address' => 'nullable|array',
+        ], [
+            'supplier_company_id.required_if' => 'The supplier company id field is required when campaign type is buyer_catalog.',
+            'base_price.required_if' => 'Harga normal produk (base price) wajib diisi untuk inisiasi dari katalog.',
         ]);
 
         try {
