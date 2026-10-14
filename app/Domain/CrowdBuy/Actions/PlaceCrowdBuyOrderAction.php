@@ -39,7 +39,12 @@ class PlaceCrowdBuyOrderAction
                 throw new \DomainException('Batas waktu campaign ini telah berakhir.');
             }
 
-            // 2. Validate quantity limits
+            // 2. Prevent initiator from joining their own campaign (self-dealing prevention)
+            if ($campaign->initiator_company_id && $user->company_id === $campaign->initiator_company_id) {
+                throw new \DomainException('Anda adalah inisiator campaign ini dan tidak dapat bergabung sebagai pembeli. Initial quantity Anda sudah terhitung dalam progress campaign.');
+            }
+
+            // 3. Validate quantity limits
             if ($quantity <= 0) {
                 throw new \DomainException('Kuantitas order harus lebih besar dari 0.');
             }
@@ -52,7 +57,7 @@ class PlaceCrowdBuyOrderAction
                 throw new \DomainException("Kuantitas maksimum per pemesan adalah {$campaign->max_order_qty} {$campaign->unit}.");
             }
 
-            // 3. Concurrency-safe capacity check
+            // 4. Concurrency-safe capacity check
             if ($campaign->max_quantity !== null) {
                 $availableCapacity = $campaign->max_quantity - $campaign->current_quantity;
                 if ($quantity > $availableCapacity) {
@@ -60,14 +65,14 @@ class PlaceCrowdBuyOrderAction
                 }
             }
 
-            // 4. Calculate authoritative price snapshot
+            // 5. Calculate authoritative price snapshot
             $unitPrice = $campaign->getEffectiveUnitPrice($quantity);
             $subtotal = round($unitPrice * $quantity, 2);
             $taxAmount = 0.0; // PPN can be configured or 0
             $shippingCost = 0.0;
             $totalAmount = $subtotal + $taxAmount + $shippingCost;
 
-            // 5. Unique Order Number
+            // 6. Unique Order Number
             $dateStr = now()->format('Ymd');
             $random = strtoupper(Str::random(5));
             $orderNumber = "CBO-{$dateStr}-{$random}";
@@ -75,6 +80,7 @@ class PlaceCrowdBuyOrderAction
             // Payment deadline: 24h from now or campaign ends_at, whichever is earlier
             $paymentDeadline = min(now()->addHours(24), $campaign->ends_at);
 
+            // 7. Persist order
             $orderData = [
                 'order_number' => $orderNumber,
                 'campaign_id' => $campaign->id,
