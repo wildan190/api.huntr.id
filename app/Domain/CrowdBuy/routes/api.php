@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\CrowdBuy\Http\Controllers\AdminCampaignController;
+use App\Domain\CrowdBuy\Http\Controllers\BuyerCampaignController;
 use App\Domain\CrowdBuy\Http\Controllers\BuyerOrderController;
 use App\Domain\CrowdBuy\Http\Controllers\CrowdBuyPaymentController;
 use App\Domain\CrowdBuy\Http\Controllers\PublicCampaignController;
@@ -12,6 +13,7 @@ Route::prefix('api/crowd-buy')->middleware('api')->group(function () {
     Route::get('campaigns', [PublicCampaignController::class, 'index']);
     Route::get('campaigns/categories', [PublicCampaignController::class, 'categories']);
     Route::get('campaigns/{idOrCode}', [PublicCampaignController::class, 'show']);
+    Route::get('invite/{inviteCode}', [BuyerCampaignController::class, 'resolveInvite']);
 
     // Payment Webhook (Publicly reachable for Midtrans)
     Route::post('payments/webhook', [CrowdBuyPaymentController::class, 'webhook']);
@@ -19,6 +21,11 @@ Route::prefix('api/crowd-buy')->middleware('api')->group(function () {
 
 // 2. Buyer Authenticated Endpoints
 Route::prefix('api/crowd-buy')->middleware(['api', 'auth:api'])->group(function () {
+    // Buyer Initiatives (Opsi 1: Group Buy Katalog & Opsi 2: Collective RFQ)
+    Route::get('initiatives', [BuyerCampaignController::class, 'index']);
+    Route::post('initiatives', [BuyerCampaignController::class, 'store']);
+    Route::post('initiatives/{campaignId}/accept-bid/{bidId}', [BuyerCampaignController::class, 'acceptBid']);
+
     // Orders
     Route::get('orders', [BuyerOrderController::class, 'index']);
     Route::get('orders/{orderId}', [BuyerOrderController::class, 'show']);
@@ -37,6 +44,10 @@ Route::prefix('api/crowd-buy/supplier')->middleware(['api', 'auth:api'])->group(
     Route::get('campaigns/{campaignId}', [SupplierCampaignController::class, 'show']);
     Route::match(['put', 'patch'], 'campaigns/{campaignId}', [SupplierCampaignController::class, 'update']);
     Route::post('campaigns/{campaignId}/submit', [SupplierCampaignController::class, 'submit']);
+
+    // Collective RFQ & Bidding (Supplier offers for buyer pools)
+    Route::get('collective-rfqs', [SupplierCampaignController::class, 'collectiveRfqs']);
+    Route::post('collective-rfqs/{campaignId}/bids', [SupplierCampaignController::class, 'submitBid']);
 
     Route::get('orders', [SupplierCampaignController::class, 'orders']);
     Route::post('orders/{orderId}/fulfill', [SupplierCampaignController::class, 'fulfillOrder']);

@@ -134,4 +134,35 @@ class SupplierCampaignController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }
+
+    public function collectiveRfqs(Request $request): JsonResponse
+    {
+        $perPage = (int) $request->query('per_page', 10);
+        $filters = $request->only(['category', 'search']);
+
+        $rfqs = $this->repository->getCollectiveRfqs($filters, $perPage);
+
+        return response()->json($rfqs);
+    }
+
+    public function submitBid(Request $request, string $campaignId, \App\Domain\CrowdBuy\Actions\SubmitSupplierBidAction $action): JsonResponse
+    {
+        $validated = $request->validate([
+            'offered_unit_price' => 'required|numeric|min:0',
+            'min_order_qty' => 'nullable|integer|min:1',
+            'lead_time_days' => 'nullable|integer|min:1',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        try {
+            $bid = $action->execute($request->user(), $campaignId, $validated);
+
+            return response()->json([
+                'message' => 'Penawaran harga berhasil diajukan ke Collective RFQ!',
+                'bid' => $bid,
+            ], 201);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
 }

@@ -13,8 +13,12 @@ class EloquentCrowdBuyRepository implements CrowdBuyRepositoryInterface
     public function getPublicCampaigns(array $filters = [], int $perPage = 12): LengthAwarePaginator
     {
         $query = CrowdBuyCampaign::query()
-            ->with(['supplier:id,name,logo_path,country,region', 'priceTiers'])
-            ->whereIn('status', ['active', 'successful', 'processing'])
+            ->with([
+                'supplier:id,name,logo_path,country,region',
+                'initiatorCompany:id,name,logo_path,country,region',
+                'priceTiers',
+            ])
+            ->whereIn('status', ['active', 'successful', 'processing', 'bidding'])
             ->where('starts_at', '<=', now());
 
         if (!empty($filters['search'])) {
@@ -28,6 +32,14 @@ class EloquentCrowdBuyRepository implements CrowdBuyRepositoryInterface
 
         if (!empty($filters['category']) && $filters['category'] !== 'all') {
             $query->where('category', $filters['category']);
+        }
+
+        if (!empty($filters['campaign_type']) && $filters['campaign_type'] !== 'all') {
+            $query->where('campaign_type', $filters['campaign_type']);
+        }
+
+        if (!empty($filters['creator_type']) && $filters['creator_type'] !== 'all') {
+            $query->where('creator_type', $filters['creator_type']);
         }
 
         if (isset($filters['min_price'])) {
@@ -61,13 +73,22 @@ class EloquentCrowdBuyRepository implements CrowdBuyRepositoryInterface
         return CrowdBuyCampaign::query()
             ->with([
                 'supplier:id,name,logo_path,country,region,city,industry_type,status',
+                'initiatorCompany:id,name,logo_path,country,region,city',
                 'catalogue',
                 'priceTiers',
+                'bids.supplierCompany:id,name,logo_path',
+                'bids.supplierUser:id,name',
                 'histories.actor:id,name',
             ])
             ->where(function ($q) use ($idOrCode) {
-                $q->where('id', $idOrCode)
-                  ->orWhere('code', $idOrCode);
+                if (\Illuminate\Support\Str::isUuid($idOrCode)) {
+                    $q->where('id', $idOrCode)
+                      ->orWhere('code', $idOrCode)
+                      ->orWhere('invite_code', $idOrCode);
+                } else {
+                    $q->where('code', $idOrCode)
+                      ->orWhere('invite_code', $idOrCode);
+                }
             })
             ->first();
     }
@@ -109,6 +130,70 @@ class EloquentCrowdBuyRepository implements CrowdBuyRepositoryInterface
                 'payments',
             ])
             ->find($orderId);
+    }
+
+    public function getBuyerInitiatives(string $buyerCompanyId, array $filters = [], int $perPage = 10): LengthAwarePaginator
+    {
+        $query = CrowdBuyCampaign::query()
+            ->with([
+                'supplier:id,name,logo_path',
+                'priceTiers',
+                'bids.supplierCompany:id,name,logo_path',
+            ])
+            ->withCount(['orders', 'bids'])
+            ->where(function ($q) use ($buyerCompanyId) {
+                $q->where('initiator_company_id', $buyerCompanyId)
+                  ->orWhere(function ($sub) use ($buyerCompanyId) {
+                      $sub->where('creator_type', 'buyer')
+                          ->whereHas('creator', function ($uq) use ($buyerCompanyId) {
+                              $uq->where('company_id', $buyerCompanyId);
+                          });
+                  });
+            });
+
+        if (!empty($filters['status']) && $filters['status'] !== 'all') {
+            $query->where('status', $filters['status']);
+        }
+
+        if (!empty($filters['campaign_type']) && $filters['campaign_type'] !== 'all') {
+            $query->where('campaign_type', $filters['campaign_type']);
+        }
+
+        if (!empty($filters['search'])) {
+            $search = '%' . strtolower($filters['search']) . '%';
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(title) LIKE ?', [$search])
+                  ->orWhereRaw('LOWER(code) LIKE ?', [$search]);
+            });
+        }
+
+        return $query->latest('created_at')->paginate($perPage);
+    }
+
+    public function getCollectiveRfqs(array $filters = [], int $perPage = 10): LengthAwarePaginator
+    {
+        $query = CrowdBuyCampaign::query()
+            ->with([
+                'initiatorCompany:id,name,logo_path,country,region',
+                'bids.supplierCompany:id,name,logo_path',
+            ])
+            ->withCount(['bids'])
+            ->where('campaign_type', 'collective_rfq')
+            ->whereIn('status', ['bidding', 'active']);
+
+        if (!empty($filters['category']) && $filters['category'] !== 'all') {
+            $query->where('category', $filters['category']);
+        }
+
+        if (!empty($filters['search'])) {
+            $search = '%' . strtolower($filters['search']) . '%';
+            $query->where(function ($q) use ($search) {
+                $q->whereRaw('LOWER(title) LIKE ?', [$search])
+                  ->orWhereRaw('LOWER(description) LIKE ?', [$search]);
+            });
+        }
+
+        return $query->latest('created_at')->paginate($perPage);
     }
 
     public function getSupplierCampaigns(string $supplierCompanyId, array $filters = [], int $perPage = 10): LengthAwarePaginator
