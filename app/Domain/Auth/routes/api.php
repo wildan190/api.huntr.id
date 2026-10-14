@@ -8,12 +8,14 @@ use App\Domain\Auth\Http\Controllers\RoleSwitchController;
 use Illuminate\Support\Facades\DB;
 
 Route::prefix('api/auth')->middleware(['api'])->group(function () {
-    Route::post('login', [AuthController::class, 'login']);
-    Route::post('register', [AuthController::class, 'register']);
-    Route::post('otp/send', [AuthController::class, 'sendOtp']);
-    Route::post('otp/verify', [AuthController::class, 'verifyOtp']);
-    Route::post('password/reset-whatsapp', [AuthController::class, 'resetPassword']);
-    Route::post('two-factor/verify', [AuthController::class, 'verifyTwoFactor']);
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+
+    Route::post('otp/send', [AuthController::class, 'sendOtp'])->middleware('throttle:3,1');
+    Route::post('otp/verify', [AuthController::class, 'verifyOtp'])->middleware('throttle:5,1');
+    Route::post('password/reset-whatsapp', [AuthController::class, 'resetPassword'])->middleware('throttle:3,1');
+
+    Route::post('two-factor/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:5,1');
 
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
@@ -21,8 +23,8 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
 });
 
 Route::prefix('api/account')->middleware(['api', 'auth:api'])->group(function () {
-    Route::put('password', [AccountController::class, 'updatePassword']);
-    Route::put('whatsapp', [AccountController::class, 'updateWhatsapp']);
+    Route::put('password', [AccountController::class, 'updatePassword'])->middleware('throttle:5,1');
+    Route::put('whatsapp', [AccountController::class, 'updateWhatsapp'])->middleware('throttle:5,1');
     Route::get('sessions', [AccountController::class, 'getSessions']);
     Route::delete('sessions/{sessionId}', [AccountController::class, 'logoutSession']);
 
@@ -30,15 +32,15 @@ Route::prefix('api/account')->middleware(['api', 'auth:api'])->group(function ()
     Route::prefix('two-factor-authentication')->group(function () {
         Route::post('/', [TwoFactorController::class, 'enable']);
         Route::delete('/', [TwoFactorController::class, 'disable']);
-        Route::post('/confirm', [TwoFactorController::class, 'confirm']);
+        Route::post('/confirm', [TwoFactorController::class, 'confirm'])->middleware('throttle:5,1');
     });
     Route::get('two-factor-qr-code', [TwoFactorController::class, 'qrCode']);
     Route::get('two-factor-recovery-codes', [TwoFactorController::class, 'recoveryCodes']);
-    Route::post('two-factor-recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes']);
+    Route::post('two-factor-recovery-codes', [TwoFactorController::class, 'regenerateRecoveryCodes'])->middleware('throttle:5,1');
 });
 
 Route::middleware(['api', 'auth:api'])->group(function () {
-    Route::post('/role-switch', [RoleSwitchController::class, 'switch']);
+    Route::post('/role-switch', [RoleSwitchController::class, 'switch'])->middleware('throttle:10,1');
 
     Route::get('/debug-roles', function (\Illuminate\Http\Request $request) {
         $user = $request->user();
