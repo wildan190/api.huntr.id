@@ -159,4 +159,37 @@ class BuyerInitiativeCrowdBuyTest extends TestCase
         $bid = CrowdBuyBid::find($bidId);
         $this->assertEquals('accepted', $bid->status);
     }
+
+    public function test_buyer_can_fetch_registered_suppliers(): void
+    {
+        $res = $this->actingAs($this->buyerUserA, 'api')
+            ->getJson('/api/crowd-buy/suppliers');
+
+        $res->assertStatus(200);
+        $res->assertJsonFragment([
+            'id' => $this->supplierCompany->id,
+            'name' => $this->supplierCompany->name,
+        ]);
+    }
+
+    public function test_validation_requires_supplier_company_id_for_buyer_catalog(): void
+    {
+        $payload = [
+            'campaign_type' => 'buyer_catalog',
+            // Missing supplier_company_id
+            'title' => 'Catalog Group Buy Without Supplier',
+            'category' => 'Packaging',
+            'unit' => 'pcs',
+            'base_price' => 25000,
+            'target_quantity' => 100,
+            'ends_at' => now()->addDays(7)->toDateTimeString(),
+        ];
+
+        $res = $this->actingAs($this->buyerUserA, 'api')
+            ->postJson('/api/crowd-buy/initiatives', $payload);
+
+        $res->assertStatus(422);
+        $res->assertJsonValidationErrors(['supplier_company_id']);
+    }
 }
+
