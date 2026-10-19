@@ -192,8 +192,8 @@ class CompanyController extends \App\Http\Controllers\Controller
     {
         $data = $request->validate([
             'company_id' => 'required|exists:companies,id',
-            'whatsapp' => 'required|string',
-            'email' => 'nullable|email',
+            'email' => 'required|email',
+            'whatsapp' => 'nullable|string',
             'role' => 'required|string',
         ]);
 
@@ -483,6 +483,7 @@ class CompanyController extends \App\Http\Controllers\Controller
 
         return response()->json([
             'company' => $invitation->company->name,
+            'email' => $invitation->email,
             'whatsapp' => $invitation->whatsapp,
             'role' => $invitation->role,
         ]);

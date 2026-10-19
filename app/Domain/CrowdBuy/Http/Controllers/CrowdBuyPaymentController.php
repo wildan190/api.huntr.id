@@ -75,6 +75,7 @@ class CrowdBuyPaymentController extends Controller
             return response()->json(['message' => 'Invalid payload: order_id is missing'], 400);
         }
 
+        /** @var CrowdBuyPayment|null $payment */
         $payment = CrowdBuyPayment::where('external_id', $orderId)->first();
         if (!$payment) {
             // Might be standard invoice payment, not crowd buy
