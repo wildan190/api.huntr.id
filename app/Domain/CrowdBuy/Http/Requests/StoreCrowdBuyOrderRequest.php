@@ -15,6 +15,9 @@ class StoreCrowdBuyOrderRequest extends FormRequest
     {
         return [
             'quantity' => 'required|integer|min:1',
+            'is_monthly_commitment' => 'nullable|boolean',
+            'monthly_commitment_qty' => 'nullable|integer|min:1',
+            'delivery_point' => 'nullable|string|max:255',
             'shipping_address' => 'required|array',
             'shipping_address.recipient_name' => 'required|string|max:150',
             'shipping_address.phone' => 'required|string|max:50',

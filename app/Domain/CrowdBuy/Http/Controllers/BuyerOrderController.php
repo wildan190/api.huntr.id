@@ -58,12 +58,21 @@ class BuyerOrderController extends Controller
         $validated = $request->validated();
 
         try {
+            $isMonthlyCommitment = (bool) ($validated['is_monthly_commitment'] ?? false);
+            $monthlyCommitmentQty = isset($validated['monthly_commitment_qty'])
+                ? (int) $validated['monthly_commitment_qty']
+                : ($isMonthlyCommitment ? (int) $validated['quantity'] : null);
+            $deliveryPoint = $validated['delivery_point'] ?? null;
+
             $order = $action->execute(
                 $user,
                 $campaignId,
                 $validated['quantity'],
                 $validated['shipping_address'],
-                $validated['notes'] ?? null
+                $validated['notes'] ?? null,
+                $isMonthlyCommitment,
+                $monthlyCommitmentQty,
+                $deliveryPoint
             );
 
             return response()->json([

@@ -49,6 +49,9 @@ class CrowdBuyCampaign extends Model
         'code',
         'creator_type',
         'campaign_type',
+        'is_monthly_recurring',
+        'monthly_delivery_day',
+        'historical_metrics',
         'initiator_company_id',
         'invite_code',
         'supplier_company_id',
@@ -89,6 +92,9 @@ class CrowdBuyCampaign extends Model
         'ends_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'lead_time_days' => 'integer',
+        'is_monthly_recurring' => 'boolean',
+        'monthly_delivery_day' => 'integer',
+        'historical_metrics' => 'array',
     ];
 
     protected $appends = [
@@ -98,7 +104,20 @@ class CrowdBuyCampaign extends Model
         'days_remaining',
         'is_active',
         'is_buyer_initiated',
+        'is_auto_demand',
+        'monthly_delivery_schedule',
     ];
+
+    public function getIsAutoDemandAttribute(): bool
+    {
+        return $this->campaign_type === 'auto_demand_aggregation' || (bool) $this->is_monthly_recurring;
+    }
+
+    public function getMonthlyDeliveryScheduleAttribute(): string
+    {
+        $day = $this->monthly_delivery_day ?: 27;
+        return "Barang akan dikirim setiap tanggal {$day} setiap bulannya ke lokasi sesuai delivery point.";
+    }
 
     public function getIsBuyerInitiatedAttribute(): bool
     {
