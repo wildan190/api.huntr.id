@@ -7,12 +7,14 @@ use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\Company;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
+use App\Domain\Communication\Actions\SendEmailNotificationAction;
 
 class NotifyRelevantVendorsAction
 {
     public function __construct(
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly SendWhatsAppNotificationAction $whatsAppAction
+        private readonly SendWhatsAppNotificationAction $whatsAppAction,
+        private readonly SendEmailNotificationAction $emailNotificationAction
     ) {}
 
     /**
@@ -103,6 +105,9 @@ class NotifyRelevantVendorsAction
                 "Opportunity baru tersedia: {$rfq->title}. Produk Anda cocok dengan kebutuhan buyer. Silakan cek dan ikut serta.",
                 false
             );
+
+            // Send email notification to relevant vendor company & users
+            $this->emailNotificationAction->sendNewRequestAlertToCompany($vendor, $rfq);
         }
     }
 }

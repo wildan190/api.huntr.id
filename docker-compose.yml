@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: huntr_app
+    restart: unless-stopped
     volumes:
       - .:/var/www
     env_file:
@@ -66,6 +67,7 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: huntr_horizon
+    restart: unless-stopped
     command: php artisan horizon
     volumes:
       - .:/var/www
