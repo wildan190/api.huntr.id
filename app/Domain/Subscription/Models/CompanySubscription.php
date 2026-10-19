@@ -18,6 +18,7 @@ class CompanySubscription extends Model
     protected $fillable = [
         'company_id', 'plan', 'status', 'overflow_strategy', 'upfront_fee', 'gmv_limit',
         'current_realized_gmv', 'reserved_gmv', 'starts_at', 'ends_at',
+        'enterprise_plan', 'billing_cycle', 'plan_snapshot',
     ];
 
     protected $casts = [
@@ -27,6 +28,7 @@ class CompanySubscription extends Model
         'reserved_gmv' => 'decimal:2',
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
+        'plan_snapshot' => 'array',
     ];
 
     protected static function booted(): void

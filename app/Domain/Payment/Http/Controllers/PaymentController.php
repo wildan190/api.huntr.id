@@ -64,13 +64,18 @@ class PaymentController extends \App\Http\Controllers\Controller
     /**
      * Midtrans Webhook Handler.
      */
-    public function webhook(Request $request): JsonResponse
+    public function webhook(Request $request, \App\Domain\Subscription\Services\SubscriptionPaymentService $subscriptionPayments): JsonResponse
     {
         $payload = $request->all();
         Log::info('Midtrans Webhook Received', $payload);
 
         $orderId = $payload['order_id'] ?? null;
         if (!$orderId) return response()->json(['message' => 'Invalid payload'], 400);
+
+        if (str_starts_with((string) $orderId, 'SUB-')) {
+            $subscriptionPayments->acceptWebhook($payload);
+            return response()->json(['message' => 'Subscription payment received']);
+        }
 
         $payment = Payment::where('external_id', $orderId)->first();
         if (!$payment) return response()->json(['message' => 'Payment not found'], 404);

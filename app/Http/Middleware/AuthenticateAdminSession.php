@@ -19,6 +19,7 @@ class AuthenticateAdminSession
             return response()->json(['message' => 'Admin authentication required.'], 401);
         }
 
+        $request->attributes->set('admin_id', $adminId);
         return $next($request);
     }
 }

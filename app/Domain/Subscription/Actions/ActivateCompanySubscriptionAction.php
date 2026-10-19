@@ -7,6 +7,7 @@ use App\Domain\Subscription\Models\CompanySubscription;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Illuminate\Validation\ValidationException;
 
 /** Activates a paid annual GMV contract from a trusted backoffice workflow. */
 class ActivateCompanySubscriptionAction
@@ -33,6 +34,11 @@ class ActivateCompanySubscriptionAction
         $startsAt ??= now();
 
         return DB::transaction(function () use ($company, $gmvLimit, $overflowStrategy, $startsAt, $plan, $customUpfrontFee): CompanySubscription {
+            Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
+            if (CompanySubscription::query()->where('company_id', $company->id)->whereNotNull('enterprise_plan')
+                ->where('status', 'active')->where('ends_at', '>', now())->exists()) {
+                throw ValidationException::withMessages(['subscription' => 'Paket Enterprise yang masih aktif atau terjadwal tidak dapat diganti dengan skema lama.']);
+            }
             CompanySubscription::query()
                 ->where('company_id', $company->id)
                 ->where('status', 'active')

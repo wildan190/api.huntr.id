@@ -4,12 +4,15 @@ namespace App\Domain\Wms\Support;
 
 use App\Domain\Catalogue\Models\Catalogue;
 use App\Domain\Company\Models\Company;
+use App\Domain\Subscription\Services\SubscriptionAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class WmsContext
 {
+    public function __construct(private SubscriptionAccessService $subscriptionAccess) {}
+
     public function tenant(Request $request, bool $requireInstalled = true): Company
     {
         $user = $request->user();
@@ -18,6 +21,7 @@ class WmsContext
         $company = Company::query()->whereKey($companyId)->first();
         abort_unless($company && ((string) $company->owner_id === (string) $user->id || $company->users()->whereKey($user->id)->exists()), 403, 'Anda tidak memiliki akses ke perusahaan ini.');
         if ($requireInstalled) {
+            $this->subscriptionAccess->assertAvailable($company);
             abort_unless(DB::table('company_apps')->where('company_id', $company->id)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists(), 403, 'Install WMS & Inventory dari App Market terlebih dahulu.');
             $canAccessWms = $user->hasAnyRole(['warehouse_admin', 'manager'])
                 || (string) $company->owner_id === (string) $user->id;

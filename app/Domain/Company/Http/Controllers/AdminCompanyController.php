@@ -309,7 +309,11 @@ class AdminCompanyController extends Controller
         $pph23Percent = isset($payload['pph23_percent']) ? (float) $payload['pph23_percent'] : (float) AdminSetting::get('subscription_pph23_percent', 2);
         $overflow     = $payload['overflow_strategy'] ?? CompanySubscription::OVERFLOW_TRANSACTION_FEE;
 
-        $companies = Company::where('type', 'buyer')->get();
+        $companies = Company::where('type', 'buyer')->whereNotExists(function ($query) {
+            $query->selectRaw('1')->from('company_subscriptions')
+                ->whereColumn('company_subscriptions.company_id', 'companies.id')
+                ->whereNotNull('enterprise_plan')->where('status', 'active')->where('ends_at', '>', now());
+        })->get();
         $count = 0;
 
         foreach ($companies as $comp) {
@@ -317,15 +321,20 @@ class AdminCompanyController extends Controller
                 ->where('is_historical', true)
                 ->sum('total_amount');
 
-            if ($plan === 'annual_upfront_po') {
-                $gmvLimit     = $histTotal > 0 ? $histTotal : 1_000_000_000;
-                $grossUpfront = round($gmvLimit * ($feePercent / 100), 2);
-                $action->execute($comp, $gmvLimit, $overflow, now(), 'annual_upfront_po', $grossUpfront);
-            } elseif ($plan === 'saas_subscription') {
-                $saasFee = isset($payload['saas_fee']) ? (float) $payload['saas_fee'] : (float) AdminSetting::get('subscription_saas_fee', 2500000);
-                $action->execute($comp, 999_999_999_999, CompanySubscription::OVERFLOW_RENEWAL_REQUIRED, now(), 'saas_subscription', $saasFee);
-            } elseif ($plan === 'per_po') {
-                $action->execute($comp, 0, CompanySubscription::OVERFLOW_TRANSACTION_FEE, now(), 'per_po', 0);
+            try {
+                if ($plan === 'annual_upfront_po') {
+                    $gmvLimit     = $histTotal > 0 ? $histTotal : 1_000_000_000;
+                    $grossUpfront = round($gmvLimit * ($feePercent / 100), 2);
+                    $action->execute($comp, $gmvLimit, $overflow, now(), 'annual_upfront_po', $grossUpfront);
+                } elseif ($plan === 'saas_subscription') {
+                    $saasFee = isset($payload['saas_fee']) ? (float) $payload['saas_fee'] : (float) AdminSetting::get('subscription_saas_fee', 2500000);
+                    $action->execute($comp, 999_999_999_999, CompanySubscription::OVERFLOW_RENEWAL_REQUIRED, now(), 'saas_subscription', $saasFee);
+                } elseif ($plan === 'per_po') {
+                    $action->execute($comp, 0, CompanySubscription::OVERFLOW_TRANSACTION_FEE, now(), 'per_po', 0);
+                }
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                // A paid Enterprise plan may have become active after the list was loaded.
+                continue;
             }
 
             AdminSetting::set('company_plan_' . $comp->id, json_encode([

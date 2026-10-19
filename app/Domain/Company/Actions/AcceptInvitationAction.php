@@ -4,38 +4,39 @@ namespace App\Domain\Company\Actions;
 
 use App\Domain\Company\Models\CompanyInvitation;
 use App\Domain\Auth\Models\User;
+use App\Domain\Company\Models\Company;
+use App\Domain\Subscription\Services\EnterpriseEntitlementService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class AcceptInvitationAction
 {
+    public function __construct(private EnterpriseEntitlementService $entitlements) {}
+
     /**
      * Accept a company invitation and associate the user with the company and role.
      */
     public function execute(User $user, string $token): array
     {
-        $invitation = CompanyInvitation::where('token', $token)
-            ->where('status', 'pending')
-            ->where('expires_at', '>', now())
-            ->with('company')
-            ->firstOrFail();
+        return DB::transaction(function () use ($user, $token) {
+            $invitation = CompanyInvitation::where('token', $token)
+                ->where('status', 'pending')
+                ->where('expires_at', '>', now())
+                ->lockForUpdate()
+                ->firstOrFail();
+            $company = Company::query()->whereKey($invitation->company_id)->lockForUpdate()->firstOrFail();
+            $this->validateRoleForCompanyType($invitation->role, $company->type, $invitation->company_id);
 
-        // Validate role matches company type before accepting
-        $this->validateRoleForCompanyType($invitation->role, $invitation->company->type, $invitation->company_id);
+            if ((string) $user->company_id !== (string) $company->id && (string) $user->id !== (string) $company->owner_id) {
+                $this->entitlements->assertUserCapacity($company);
+            }
 
-        // Update user's company and assign role via Access domain
-        $user->update([
-            'company_id' => $invitation->company_id,
-        ]);
-        $user->assignRole($invitation->role);
+            $user->update(['company_id' => $invitation->company_id]);
+            $user->assignRole($invitation->role);
+            $invitation->update(['status' => 'accepted']);
 
-        // Mark invitation as accepted
-        $invitation->update(['status' => 'accepted']);
-
-        return [
-            'user' => $user->fresh(),
-            'company' => $invitation->company,
-        ];
+            return ['user' => $user->fresh(), 'company' => $company];
+        });
     }
 
     /**

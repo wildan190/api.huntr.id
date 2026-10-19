@@ -2,7 +2,7 @@
 
 namespace App\Domain\EFaktur\Http\Controllers;
 
-use App\Domain\EFaktur\Actions\CreateEFakturAction;
+use App\Domain\EFaktur\Actions\IssueEFakturWithQuotaAction;
 use App\Domain\EFaktur\Http\Requests\StoreEFakturRequest;
 use App\Domain\EFaktur\Http\Requests\UploadEFakturRequest;
 use App\Domain\EFaktur\Http\Requests\VatInPrepopulatedRequest;
@@ -109,7 +109,7 @@ class EFakturController extends \App\Http\Controllers\Controller
      * Terbitkan e-Faktur baru dari sebuah BAST yang sudah completed.
      * POST /api/efaktur
      */
-    public function store(StoreEFakturRequest $request, CreateEFakturAction $action): JsonResponse
+    public function store(StoreEFakturRequest $request, IssueEFakturWithQuotaAction $action): JsonResponse
     {
         $bast = Bast::with(['purchaseOrder', 'vendorCompany', 'buyerCompany'])->findOrFail($request->bast_id);
         $po   = $bast->purchaseOrder;

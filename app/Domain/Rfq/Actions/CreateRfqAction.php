@@ -6,6 +6,7 @@ use App\Domain\AI\Services\DemoBotService;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use App\Domain\Company\Models\Company;
+use App\Domain\Subscription\Services\SubscriptionAccessService;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,8 @@ class CreateRfqAction
     public function __construct(
         private readonly RfqRepositoryInterface $rfqRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly NotifyRelevantVendorsAction $notifyVendorsAction
+        private readonly NotifyRelevantVendorsAction $notifyVendorsAction,
+        private readonly SubscriptionAccessService $subscriptionAccess
     ) {}
 
     /**
@@ -29,6 +31,8 @@ class CreateRfqAction
      */
     public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null, string $procurementMode = 'tender'): Rfq
     {
+        $this->subscriptionAccess->assertAvailable($buyerCompany);
+
         // Debug: Log jumlah item yang akan diproses
         Log::info('DEBUG: CreateRfqAction - Cart items processing', [
             'total_cart_items' => count($cartItems),
