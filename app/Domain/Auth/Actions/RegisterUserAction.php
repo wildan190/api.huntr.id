@@ -7,6 +7,7 @@ use App\Domain\Access\Actions\AssignRoleAction;
 use Illuminate\Support\Facades\Log;
 use App\Support\WhatsappNumber;
 use App\Support\OtpStore;
+use App\Domain\Communication\Actions\SendEmailNotificationAction;
 use Illuminate\Validation\ValidationException;
 
 class RegisterUserAction
@@ -14,7 +15,8 @@ class RegisterUserAction
     public function __construct(
         private readonly UserRepositoryInterface $userRepository,
         private readonly CreateUserTokenAction $tokenAction,
-        private readonly AssignRoleAction $assignRoleAction
+        private readonly AssignRoleAction $assignRoleAction,
+        private readonly SendEmailNotificationAction $emailNotificationAction
     ) {}
 
     /**
@@ -61,6 +63,9 @@ class RegisterUserAction
         if ($whatsapp) {
             OtpStore::consumeVerified($whatsapp);
         }
+
+        // Send registration welcome notification email
+        $this->emailNotificationAction->sendRegistrationEmail($user, $role);
 
         $token = $this->tokenAction->execute(
             $user, 

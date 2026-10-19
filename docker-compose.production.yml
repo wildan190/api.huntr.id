@@ -6,6 +6,7 @@ services:
       dockerfile: Dockerfile
       target: production
     container_name: huntr_app_prod
+    restart: unless-stopped
     volumes:
       - .:/var/www
       - /var/www/vendor

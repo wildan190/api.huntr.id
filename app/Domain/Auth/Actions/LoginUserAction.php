@@ -7,6 +7,7 @@ use App\Domain\Auth\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Domain\Communication\Actions\SendEmailNotificationAction;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Auth;
 
@@ -14,7 +15,8 @@ class LoginUserAction
 {
     public function __construct(
         private readonly UserRepositoryInterface $userRepository,
-        private readonly CreateUserTokenAction $tokenAction
+        private readonly CreateUserTokenAction $tokenAction,
+        private readonly SendEmailNotificationAction $emailNotificationAction
     ) {}
 
     /**
@@ -118,6 +120,14 @@ class LoginUserAction
         $userData          = $user->toArray();
         $userData['token'] = $token;
         $userData['role']  = $user->roles->first()?->name ?? $user->role ?? 'manager';
+
+        // Send login security alert email notification
+        $loginDetails = [
+            'device_name' => $credentials['device_name'] ?? (request()?->userAgent() ?? 'Web Browser'),
+            'ip_address'  => request()?->ip() ?? 'N/A',
+            'login_time'  => now()->timezone('Asia/Jakarta')->format('d M Y, H:i') . ' WIB',
+        ];
+        $this->emailNotificationAction->sendLoginAlertEmail($user, $loginDetails);
 
         return ['user' => $userData];
     }
