@@ -46,6 +46,9 @@ class CrowdBuyOrder extends Model
         'buyer_company_id',
         'user_id',
         'quantity',
+        'is_monthly_commitment',
+        'monthly_commitment_qty',
+        'delivery_point',
         'unit_price',
         'subtotal',
         'tax_amount',
@@ -65,6 +68,8 @@ class CrowdBuyOrder extends Model
 
     protected $casts = [
         'quantity' => 'integer',
+        'is_monthly_commitment' => 'boolean',
+        'monthly_commitment_qty' => 'integer',
         'unit_price' => 'decimal:2',
         'subtotal' => 'decimal:2',
         'tax_amount' => 'decimal:2',

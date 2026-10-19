@@ -38,6 +38,10 @@ class EloquentCrowdBuyRepository implements CrowdBuyRepositoryInterface
             $query->where('campaign_type', $filters['campaign_type']);
         }
 
+        if (isset($filters['is_monthly_recurring'])) {
+            $query->where('is_monthly_recurring', filter_var($filters['is_monthly_recurring'], FILTER_VALIDATE_BOOLEAN));
+        }
+
         if (!empty($filters['creator_type']) && $filters['creator_type'] !== 'all') {
             $query->where('creator_type', $filters['creator_type']);
         }

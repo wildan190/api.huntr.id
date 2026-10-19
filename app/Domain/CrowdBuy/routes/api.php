@@ -50,6 +50,8 @@ Route::prefix('api/crowd-buy/supplier')->middleware(['api', 'auth:api'])->group(
 Route::prefix('api/admin/crowd-buy')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('campaigns', [AdminCampaignController::class, 'index']);
     Route::get('dashboard', [AdminCampaignController::class, 'dashboard']);
+    Route::get('historical-demands', [AdminCampaignController::class, 'historicalDemands']);
+    Route::post('auto-aggregate', [AdminCampaignController::class, 'autoAggregate']);
     Route::post('campaigns/{campaignId}/review', [AdminCampaignController::class, 'review']);
     Route::post('campaigns/{campaignId}/suspend', [AdminCampaignController::class, 'suspend']);
     Route::post('evaluate', [AdminCampaignController::class, 'evaluate']);

@@ -70,6 +70,7 @@ class DomainServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \App\Domain\CrowdBuy\Console\Commands\EvaluateCrowdBuyDeadlinesCommand::class,
+                \App\Domain\CrowdBuy\Console\Commands\AggregateHistoricalDemandsCommand::class,
             ]);
         }
     }

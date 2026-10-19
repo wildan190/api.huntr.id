@@ -15,13 +15,22 @@ class PlaceCrowdBuyOrderAction
         protected CrowdBuyRepositoryInterface $repository
     ) {}
 
-    public function execute(User $user, string $campaignId, int $quantity, array $shippingAddress, ?string $notes = null): CrowdBuyOrder
+    public function execute(
+        User $user,
+        string $campaignId,
+        int $quantity,
+        array $shippingAddress,
+        ?string $notes = null,
+        bool $isMonthlyCommitment = false,
+        ?int $monthlyCommitmentQty = null,
+        ?string $deliveryPoint = null
+    ): CrowdBuyOrder
     {
         if (empty($user->company_id)) {
             throw new \DomainException('Pengguna harus terasosiasi dengan perusahaan pembeli (buyer company) untuk membuat order.');
         }
 
-        return DB::transaction(function () use ($user, $campaignId, $quantity, $shippingAddress, $notes) {
+        return DB::transaction(function () use ($user, $campaignId, $quantity, $shippingAddress, $notes, $isMonthlyCommitment, $monthlyCommitmentQty, $deliveryPoint) {
             // Lock campaign record for concurrency protection
             /** @var CrowdBuyCampaign $campaign */
             $campaign = CrowdBuyCampaign::where('id', $campaignId)->lockForUpdate()->firstOrFail();
@@ -80,6 +89,8 @@ class PlaceCrowdBuyOrderAction
             // Payment deadline: 24h from now or campaign ends_at, whichever is earlier
             $paymentDeadline = min(now()->addHours(24), $campaign->ends_at);
 
+            $resolvedDeliveryPoint = $deliveryPoint ?: ($shippingAddress['address'] ?? null);
+
             // 7. Persist order
             $orderData = [
                 'order_number' => $orderNumber,
@@ -87,6 +98,9 @@ class PlaceCrowdBuyOrderAction
                 'buyer_company_id' => $user->company_id,
                 'user_id' => $user->id,
                 'quantity' => $quantity,
+                'is_monthly_commitment' => $isMonthlyCommitment || (bool) $campaign->is_monthly_recurring,
+                'monthly_commitment_qty' => $monthlyCommitmentQty ?? ($isMonthlyCommitment || $campaign->is_monthly_recurring ? $quantity : null),
+                'delivery_point' => $resolvedDeliveryPoint,
                 'unit_price' => $unitPrice,
                 'subtotal' => $subtotal,
                 'tax_amount' => $taxAmount,

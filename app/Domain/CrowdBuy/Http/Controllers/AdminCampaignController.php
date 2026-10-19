@@ -99,4 +99,36 @@ class AdminCampaignController extends Controller
             'results' => $results,
         ]);
     }
+
+    public function historicalDemands(Request $request, \App\Domain\CrowdBuy\Services\AutoDemandAggregationService $service): JsonResponse
+    {
+        $minFrequency = (int) $request->query('min_freq', 1);
+        $limit = (int) $request->query('limit', 20);
+
+        $demands = $service->analyzeDemands([
+            'min_frequency' => $minFrequency,
+            'limit' => $limit,
+        ]);
+
+        return response()->json([
+            'total' => $demands->count(),
+            'demands' => $demands,
+        ]);
+    }
+
+    public function autoAggregate(Request $request, \App\Domain\CrowdBuy\Services\AutoDemandAggregationService $service): JsonResponse
+    {
+        $minFrequency = (int) $request->input('min_freq', 1);
+        $limit = (int) $request->input('limit', 20);
+
+        $result = $service->generateCampaigns([
+            'min_frequency' => $minFrequency,
+            'limit' => $limit,
+        ], $request->user());
+
+        return response()->json([
+            'message' => 'Agregasi permintaan historis berhasil diproses.',
+            'data' => $result,
+        ]);
+    }
 }
