@@ -7,12 +7,14 @@ use App\Domain\Company\Models\CompanyInvitation;
 use App\Domain\Auth\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use App\Domain\Communication\Mail\CompanyInvitationMail;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\DB;
 
 class InviteUserAction
 {
     /**
-     * Create a new company invitation and return the WhatsApp link.
+     * Create a new company invitation and dispatch invitation email.
      */
     public function execute(User $inviter, array $data): array
     {
@@ -28,8 +30,8 @@ class InviteUserAction
 
         $invitation = CompanyInvitation::create([
             'company_id' => $company->id,
-            'whatsapp' => $data['whatsapp'],
-            'email' => $data['email'] ?? null,
+            'email' => $data['email'],
+            'whatsapp' => $data['whatsapp'] ?? null,
             'role' => $data['role'],
             'token' => $token,
             'status' => 'pending',
@@ -37,16 +39,20 @@ class InviteUserAction
             'created_by' => $inviter->id,
         ]);
 
-        $inviteUrl = config('app.frontend_url', 'http://localhost:5173') . "/invite/accept?token=" . $token;
+        $inviteUrl = rtrim(config('app.frontend_url', 'http://localhost:5173'), '/') . "/invite/accept?token=" . $token;
 
-        $message = "Hello! You are invited to join {$company->name} on Huntr.id as a {$data['role']}.\n\nPlease click the following link to accept the invitation:\n{$inviteUrl}";
-
-        $whatsappLink = "https://wa.me/" . preg_replace('/[^0-9]/', '', $data['whatsapp']) . "?text=" . urlencode($message);
+        try {
+            Mail::to($invitation->email)->send(new CompanyInvitationMail($company, $inviter, $invitation));
+            Log::info("Company invitation email dispatched to {$invitation->email} for company {$company->name}");
+        } catch (\Throwable $e) {
+            Log::error("Failed to dispatch invitation email to {$invitation->email}: " . $e->getMessage());
+        }
 
         return [
             'invitation' => $invitation,
-            'whatsapp_link' => $whatsappLink,
-            'message' => $message,
+            'invite_url' => $inviteUrl,
+            'email' => $invitation->email,
+            'message' => "Undangan berhasil dikirim ke email {$invitation->email}.",
         ];
     }
 

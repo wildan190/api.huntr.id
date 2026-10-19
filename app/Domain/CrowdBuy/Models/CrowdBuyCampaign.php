@@ -40,6 +40,7 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null $review_notes
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @mixin \Illuminate\Database\Eloquent\Builder
  */
 class CrowdBuyCampaign extends Model
 {

@@ -173,6 +173,7 @@ class AutoDemandAggregationService
             }
 
             // Check if active recurring campaign for this item already exists
+            /** @var CrowdBuyCampaign|null $existing */
             $existing = CrowdBuyCampaign::where('title', $demand['item_name'])
                 ->where('is_monthly_recurring', true)
                 ->whereIn('status', ['active', 'bidding', 'scheduled'])
