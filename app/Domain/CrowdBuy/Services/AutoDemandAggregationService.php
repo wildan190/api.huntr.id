@@ -150,7 +150,7 @@ class AutoDemandAggregationService
 
         // Fallback user ID for system actions
         $creatorId = $actor?->id
-            ?? User::whereHas('roles', fn($q) => $q->where('name', 'admin'))->value('id')
+            ?? User::whereRaw("id::text in (select model_id from model_roles join roles on roles.id = model_roles.role_id where roles.slug = 'admin')")->value('id')
             ?? User::first()?->id
             ?? Str::uuid()->toString();
 

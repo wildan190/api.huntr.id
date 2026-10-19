@@ -17,7 +17,7 @@ class PublicCampaignController extends Controller
     public function index(Request $request): JsonResponse
     {
         $perPage = (int) $request->query('per_page', 12);
-        $filters = $request->only(['search', 'category', 'min_price', 'max_price', 'sort', 'supplier_id']);
+        $filters = $request->only(['search', 'category', 'min_price', 'max_price', 'sort', 'supplier_id', 'campaign_type', 'creator_type', 'is_monthly_recurring']);
 
         $campaigns = $this->repository->getPublicCampaigns($filters, $perPage);
 
