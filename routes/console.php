@@ -10,4 +10,7 @@ Artisan::command('inspire', function () {
 
 Schedule::command('seo:generate-sitemaps')->daily()->at('00:00');
 Schedule::command('crowd-buy:evaluate-deadlines')->everyTenMinutes();
+// Auto-aggregate historical PO demands on the 1st of every month at 01:00 WIB
+// This generates/refreshes the automated CrowdBuy campaigns for the new month
+Schedule::command('crowd-buy:aggregate-demands', ['--limit=30'])->monthlyOn(1, '01:00');
 
