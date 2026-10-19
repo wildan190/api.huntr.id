@@ -14,6 +14,8 @@ use App\Domain\Wms\Http\Requests\TransferStockRequest;
 use App\Domain\Wms\Http\Requests\UpdateWarehouseBinRequest;
 use App\Domain\Wms\Http\Requests\UpdateWarehouseRequest;
 use App\Domain\Wms\Support\WmsContext;
+use App\Domain\Subscription\Services\EnterpriseEntitlementService;
+use App\Domain\Company\Models\Company;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +25,8 @@ class WmsInventoryService
 {
     public function __construct(
         private WmsContext $context,
-        private WmsNotificationService $notificationService
+        private WmsNotificationService $notificationService,
+        private EnterpriseEntitlementService $entitlements,
     ) {}
 
     public function warehouses(Request $request)
@@ -45,6 +48,10 @@ class WmsInventoryService
         unset($data['company_id']);
         $id = (string) Str::uuid();
         DB::transaction(function () use ($data, $id, $company) {
+            Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
+            if (($data['status'] ?? 'active') === 'active') {
+                $this->entitlements->assertWarehouseCapacity($company);
+            }
             DB::table('warehouses')->insert($data + ['id' => $id, 'company_id' => $company->id, 'created_at' => now(), 'updated_at' => now()]);
             $this->createSystemBins($company->id, $id);
         });
@@ -243,7 +250,15 @@ class WmsInventoryService
         $data = $request->validated();
         unset($data['company_id']);
         abort_if($data === [], 422, 'Tidak ada perubahan warehouse.');
-        DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->update($data + ['updated_at' => now()]);
+        DB::transaction(function () use ($company, $warehouseId, $data) {
+            Company::query()->whereKey($company->id)->lockForUpdate()->firstOrFail();
+            $current = DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->lockForUpdate()->first();
+            abort_unless($current, 404, 'Warehouse tidak ditemukan.');
+            if (($data['status'] ?? null) === 'active' && $current->status !== 'active') {
+                $this->entitlements->assertWarehouseCapacity($company);
+            }
+            DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->update($data + ['updated_at' => now()]);
+        });
 
         return response()->json(['data' => DB::table('warehouses')->where('id', $warehouseId)->first()]);
     }

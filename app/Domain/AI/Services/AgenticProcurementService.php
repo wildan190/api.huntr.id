@@ -7,6 +7,7 @@ use App\Domain\Company\Models\Company;
 use App\Domain\Order\Models\HistoricalPoItem;
 use App\Domain\Rfq\Actions\CreateRfqAction;
 use App\Domain\Rfq\Models\Rfq;
+use App\Domain\Subscription\Services\SubscriptionAccessService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -87,7 +88,8 @@ class AgenticProcurementService
     public function __construct(
         private readonly OpenAiService $openAi,
         private readonly BraveSearchService $webSearch,
-        private readonly CreateRfqAction $createRfqAction
+        private readonly CreateRfqAction $createRfqAction,
+        private readonly SubscriptionAccessService $subscriptionAccess
     ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1194,6 +1196,7 @@ INSTRUCTION;
      */
     public function createPrFromDraft(Company $buyerCompany, array $prDraft, ?string $userId = null): Rfq
     {
+        $this->subscriptionAccess->assertAvailable($buyerCompany);
         $title = $prDraft['title'] ?? ('Purchase Requisition - '.date('Y-m-d H:i'));
         $description = (string) ($prDraft['description'] ?? '');
 

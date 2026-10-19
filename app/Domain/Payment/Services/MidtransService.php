@@ -2,6 +2,7 @@
 
 namespace App\Domain\Payment\Services;
 
+use App\Domain\Payment\Exceptions\MidtransChargeRejectedException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -42,7 +43,7 @@ class MidtransService
     public function charge(array $payload): array
     {
         if (empty($this->serverKey)) {
-            throw new \Exception('Midtrans Server Key is not configured. Please check your .env.local file.');
+            throw new MidtransChargeRejectedException('Midtrans Server Key is not configured. Please check your .env.local file.');
         }
 
         // Basic Auth for Midtrans requires the Server Key followed by a colon, then base64 encoded.
@@ -78,6 +79,9 @@ class MidtransService
                 $msg .= ' | Validation: ' . json_encode($validation);
             }
 
+            if ($status >= 400 && $status < 500 && $status !== 409) {
+                throw new MidtransChargeRejectedException('Payment initiation failed: ' . $msg);
+            }
             throw new \Exception('Payment initiation failed: ' . $msg);
         }
 

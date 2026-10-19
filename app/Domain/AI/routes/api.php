@@ -13,7 +13,7 @@ Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
     // Agentic Procurement Endpoints
     Route::post('agentic-procurement/run', [AiController::class, 'agenticRun']);
     Route::post('agentic-procurement/chat', [AiController::class, 'agenticChat']);
-    Route::post('agentic-procurement/create-pr', [AiController::class, 'agenticCreatePr'])->middleware('auth:api');
+    Route::post('agentic-procurement/create-pr', [AiController::class, 'agenticCreatePr'])->middleware(['auth:api', \App\Domain\Subscription\Http\Middleware\EnsureSubscriptionCurrent::class]);
 
     // Public: AI search katalog (buyer maupun guest bisa search)
     Route::post('search', [AiController::class, 'search']);
