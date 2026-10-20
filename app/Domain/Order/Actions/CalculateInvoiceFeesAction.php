@@ -2,84 +2,31 @@
 
 namespace App\Domain\Order\Actions;
 
-use App\Domain\Company\Models\Company;
+use App\Domain\Admin\Models\AdminSetting;
 
 class CalculateInvoiceFeesAction
 {
     /**
-     * Hitung biaya layanan dan PPN sesuai struktur baru:
-     *
-     * - Platform fee : tier-based dari base amount (gratis jika dalam masa trial 30 hari)
-     *     0 - 100.000.000           → 5%
-     *     100.000.001 - 250.000.000 → 3%
-     *     250.000.001 ke atas       → 2%
-     * - PPN Platform  : 11% dari platform fee
-     * - Admin Bank    : Rp 4.400 (flat)
-     * - PPH 23        : 2% dari platform fee
-     * - Biaya Layanan : (platform fee + PPN platform) + admin bank - PPH 23
-     * - PPN Barang    : 11% dari base amount (DPP)
-     * - Total         : base amount + biaya layanan + PPN barang
+     * Calculate the PO payment components after platform and service fees
+     * have been removed from the subscription model.
      */
-    public function execute(
-        float $baseAmount,
-        ?Company $buyerCompany = null,
-        bool $waivePlatformFee = false,
-    ): array
+    public function execute(float $baseAmount): array
     {
-        $isTrial = false;
-        if ($buyerCompany && $buyerCompany->created_at) {
-            $isTrial = $buyerCompany->created_at->addDays(30)->isAfter(now());
-        }
-
-        // Platform fee: tier-based dari total pembelian sebelum PPN (gratis jika trial)
-        $platformFee = 0;
-        if (!$isTrial && !$waivePlatformFee) {
-            $platformFeeRate = $this->getPlatformFeeRate($baseAmount);
-            $platformFee     = $baseAmount * $platformFeeRate;
-        }
-
-        // PPN Platform: dynamic rate from AdminSetting or default 11%
-        $ppnRate     = ((float) \App\Domain\Admin\Models\AdminSetting::get('subscription_ppn_percent', 11)) / 100;
-        $ppnPlatform = $platformFee * $ppnRate;
-
-        // Admin Bank (flat)
-        $adminBank = 4400;
-
-        // PPH 23: dynamic rate from AdminSetting or default 2%
-        $pph23Rate = ((float) \App\Domain\Admin\Models\AdminSetting::get('subscription_pph23_percent', 2)) / 100;
-        $pph23     = $platformFee * $pph23Rate;
-
-        // Total biaya layanan: (platform fee + PPN platform) + admin bank - PPH 23
-        $serviceTotal = ($platformFee + $ppnPlatform) + $adminBank - $pph23;
-
-        // PPN 11% dari base amount (DPP)
-        $ppnFee = $baseAmount * 0.11;
-
-        $totalAmount = $baseAmount + $serviceTotal + $ppnFee;
+        $adminBank = 4_400;
+        $ppnRate = (float) AdminSetting::get('subscription_ppn_percent', 11) / 100;
+        $pph23Rate = (float) AdminSetting::get('subscription_pph23_percent', 2) / 100;
+        $ppnFee = round($baseAmount * $ppnRate, 2);
+        $pph23 = round($baseAmount * $pph23Rate, 2);
 
         return [
-            'base_amount'   => $baseAmount,
-            'platform_fee'  => $platformFee,
-            'ppn_platform'  => $ppnPlatform,
-            'midtrans_fee'  => $adminBank,
-            'pph23'         => $pph23,
-            'service_total' => $serviceTotal,
-            'ppn_fee'       => $ppnFee,
-            'total_amount'  => $totalAmount,
+            'base_amount' => $baseAmount,
+            'platform_fee' => 0,
+            'ppn_platform' => 0,
+            'midtrans_fee' => $adminBank,
+            'pph23' => $pph23,
+            'service_total' => 0,
+            'ppn_fee' => $ppnFee,
+            'total_amount' => round($baseAmount + $adminBank + $ppnFee - $pph23, 2),
         ];
-    }
-
-    /**
-     * Tentukan rate platform fee berdasarkan tier nilai transaksi.
-     */
-    private function getPlatformFeeRate(float $amount): float
-    {
-        if ($amount <= 100_000_000) {
-            return 0.05; // 5%
-        } elseif ($amount <= 250_000_000) {
-            return 0.03; // 3%
-        } else {
-            return 0.02; // 2%
-        }
     }
 }

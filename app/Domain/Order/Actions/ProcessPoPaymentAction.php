@@ -15,6 +15,7 @@ class ProcessPoPaymentAction
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
         private readonly RecordRealizedGmvAction $recordRealizedGmvAction,
+        private readonly BuildInvoicePaymentBreakdownAction $buildInvoicePaymentBreakdownAction,
     ) {}
 
     /**
@@ -31,6 +32,9 @@ class ProcessPoPaymentAction
         if (!$invoice) {
             return false;
         }
+
+        $paymentBreakdown = $this->buildInvoicePaymentBreakdownAction->execute($invoice);
+        $grossAmount = max(1, (int) round($paymentBreakdown['total_amount']));
 
         $serverKey    = env('MIDTRANS_SERVER_KEY');
         $isProduction = env('MIDTRANS_IS_PRODUCTION', false);
@@ -50,7 +54,7 @@ class ProcessPoPaymentAction
                 'payment_type'        => $paymentType,
                 'transaction_details' => [
                     'order_id'     => $po->po_number . '-' . uniqid(),
-                    'gross_amount' => (int) $invoice->amount,
+                    'gross_amount' => $grossAmount,
                 ],
                 'bank_transfer' => ['bank' => 'bca'],
             ]);

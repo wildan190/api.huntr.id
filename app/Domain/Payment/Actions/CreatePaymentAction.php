@@ -3,6 +3,7 @@
 namespace App\Domain\Payment\Actions;
 
 use App\Domain\Order\Models\Invoice;
+use App\Domain\Order\Actions\BuildInvoicePaymentBreakdownAction;
 use App\Domain\Payment\Models\Payment;
 use App\Domain\Payment\Services\MidtransService;
 use Illuminate\Support\Str;
@@ -10,7 +11,8 @@ use Illuminate\Support\Str;
 class CreatePaymentAction
 {
     public function __construct(
-        private readonly MidtransService $midtrans
+        private readonly MidtransService $midtrans,
+        private readonly BuildInvoicePaymentBreakdownAction $buildInvoicePaymentBreakdownAction,
     ) {}
 
     public function execute(Invoice $invoice, string $method): Payment
@@ -22,43 +24,14 @@ class CreatePaymentAction
 
         $externalId = 'PAY-' . strtoupper(Str::random(10));
         
-        // Use total_amount (includes platform_fee + midtrans_fee + ppn_fee) as the final charge
-        $totalAmount   = (int) ($invoice->total_amount ?: $invoice->amount);
-        $baseAmount    = (int) ($invoice->base_amount ?: $invoice->amount);
-        $platformFee   = (int) ($invoice->platform_fee ?? 0);
-        $midtransFee   = (int) ($invoice->midtrans_fee ?? 0);
-        $ppnFee        = (int) ($invoice->ppn_fee ?? 0);
-
-        $itemDetails = array_values(array_filter([
-            [
-                'id'       => $invoice->id . '-base',
-                'price'    => $baseAmount,
-                'quantity' => 1,
-                'name'     => 'Payment for PO ' . $invoice->purchaseOrder->po_number,
-            ],
-            $platformFee > 0 ? [
-                'id'       => $invoice->id . '-platform-fee',
-                'price'    => $platformFee,
-                'quantity' => 1,
-                'name'     => 'Biaya Layanan Platform',
-            ] : null,
-            $midtransFee > 0 ? [
-                'id'       => $invoice->id . '-midtrans-fee',
-                'price'    => $midtransFee,
-                'quantity' => 1,
-                'name'     => 'Biaya Midtrans',
-            ] : null,
-            $ppnFee > 0 ? [
-                'id'       => $invoice->id . '-ppn',
-                'price'    => $ppnFee,
-                'quantity' => 1,
-                'name'     => 'PPN 11%',
-            ] : null,
-        ]));
-
-        $grossAmount = collect($itemDetails)->sum(function (array $item) {
-            return ((int) ($item['price'] ?? 0)) * ((int) ($item['quantity'] ?? 0));
-        });
+        $breakdown = $this->buildInvoicePaymentBreakdownAction->execute($invoice);
+        $grossAmount = max(1, (int) round($breakdown['total_amount']));
+        $itemDetails = [[
+            'id' => $invoice->id . '-po',
+            'price' => $grossAmount,
+            'quantity' => 1,
+            'name' => 'Pembayaran PO ' . $invoice->purchaseOrder->po_number,
+        ]];
 
         $payload = [
             'transaction_details' => [

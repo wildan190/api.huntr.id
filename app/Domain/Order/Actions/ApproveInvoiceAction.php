@@ -4,6 +4,7 @@ namespace App\Domain\Order\Actions;
 
 use App\Domain\Company\Models\Company;
 use App\Domain\Order\Models\Invoice;
+use App\Domain\Order\Actions\BuildInvoicePaymentBreakdownAction;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use Illuminate\Validation\ValidationException;
 
@@ -13,7 +14,8 @@ class ApproveInvoiceAction
 {
     public function __construct(
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly MidtransIrisService $irisService
+        private readonly MidtransIrisService $irisService,
+        private readonly BuildInvoicePaymentBreakdownAction $buildInvoicePaymentBreakdownAction,
     ) {}
 
     /**
@@ -84,12 +86,13 @@ class ApproveInvoiceAction
         // 2. Prepare payload and dispatch job to Horizon
         $safePoNumber = preg_replace('/[^a-zA-Z0-9\s]/', '', $po->po_number);
         
+        $paymentBreakdown = $this->buildInvoicePaymentBreakdownAction->execute($invoice);
         $payoutPayload = [
             'beneficiary_name' => $vendor->bank_account_name ?? $vendor->name,
             'beneficiary_account' => $vendor->bank_account,
             'beneficiary_bank' => strtolower($vendor->bank_name),
             'beneficiary_email' => $vendor->email,
-            'amount' => number_format($invoice->base_amount ?: $invoice->amount, 2, '.', ''),
+            'amount' => number_format($paymentBreakdown['base_amount'], 2, '.', ''),
             'notes' => "Payout for PO {$safePoNumber}"
         ];
 

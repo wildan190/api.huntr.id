@@ -3,6 +3,7 @@
 namespace App\Domain\Order\Actions;
 
 use App\Domain\Order\Models\PurchaseOrder;
+use App\Domain\Order\Actions\BuildInvoicePaymentBreakdownAction;
 use App\Domain\Company\Models\Company;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Storage;
@@ -13,6 +14,10 @@ use Illuminate\Filesystem\FilesystemAdapter;
  */
 class GetPurchaseOrdersAction
 {
+    public function __construct(
+        private readonly BuildInvoicePaymentBreakdownAction $buildInvoicePaymentBreakdownAction,
+    ) {}
+
     /**
      * Execute the action.
      *
@@ -136,6 +141,7 @@ class GetPurchaseOrdersAction
     {
         return array_map(function ($po) {
             $mappedItems = collect();
+            $totalAmount = null;
             $isHistorical = $this->isHistoricalPo($po);
 
             if ($isHistorical) {
@@ -309,11 +315,19 @@ class GetPurchaseOrdersAction
                         ];
                     })->toArray() : [],
                 'invoices' => $po->relationLoaded('invoices')
-                    ? $po->invoices->map(function ($inv) {
+                    ? $po->invoices->map(function ($inv) use ($po, $totalAmount) {
+                        $inv->setRelation('purchaseOrder', $po);
+                        $paymentBreakdown = $this->buildInvoicePaymentBreakdownAction->execute($inv, (float) ($totalAmount ?? $po->total_amount));
+
                         return [
                             'id' => $inv->id,
                             'type' => $inv->type,
-                            'amount' => $inv->amount,
+                            'amount' => $paymentBreakdown['total_amount'],
+                            'base_amount' => $paymentBreakdown['base_amount'],
+                            'midtrans_fee' => $paymentBreakdown['admin_bank'],
+                            'pph23' => $paymentBreakdown['pph23'],
+                            'ppn_fee' => $paymentBreakdown['ppn'],
+                            'total_amount' => $paymentBreakdown['total_amount'],
                             'status' => $inv->status,
                             'date' => $inv->created_at->format('Y-m-d'),
                         ];
