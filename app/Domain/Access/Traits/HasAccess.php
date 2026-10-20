@@ -49,7 +49,25 @@ trait HasAccess
     {
         $role = Role::where('slug', $roleSlug)->first();
         if (!$role) {
-            throw new \Exception("Role '{$roleSlug}' not found.");
+            $knownRoles = [
+                'super-admin'     => 'Super Administrator',
+                'admin'           => 'Administrator',
+                'manager'         => 'Manager',
+                'staff'           => 'Staff',
+                'vendor'          => 'Vendor Representative',
+                'buyer'           => 'Buyer Representative',
+                'finance'         => 'Finance',
+                'warehouse_admin' => 'Warehouse Admin',
+            ];
+
+            if (isset($knownRoles[$roleSlug])) {
+                $role = Role::firstOrCreate(
+                    ['slug' => $roleSlug],
+                    ['name' => $knownRoles[$roleSlug]]
+                );
+            } else {
+                throw new \Exception("Role '{$roleSlug}' not found.");
+            }
         }
         
         // Remove all existing roles first to ensure clean assignment

@@ -67,10 +67,13 @@ class RegisterCompanyAction
             })
             ->first();
 
+        $hasVerificationDocs = !empty($data['tax_id']) && !empty($data['documents']);
+        $targetStatus = $hasVerificationDocs ? 'pending' : 'starter';
+
         if ($existingCompany) {
-            // Re-submission / update: update details and reset status to pending for approval
+            // Re-submission / update: update details and set appropriate status
             $updateData = array_merge($data, [
-                'status' => 'pending',
+                'status' => $targetStatus,
                 'verification_notes' => null,
             ]);
             $existingCompany->update($updateData);
@@ -84,7 +87,7 @@ class RegisterCompanyAction
 
             // Create a completely new company
             $companyData = array_merge($data, [
-                'status'   => 'pending',
+                'status'   => $targetStatus,
                 'owner_id' => $user->id,
             ]);
             $company = $this->companyRepository->create($companyData);

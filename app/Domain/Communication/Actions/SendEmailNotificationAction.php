@@ -8,6 +8,7 @@ use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Communication\Mail\UserRegisteredMail;
 use App\Domain\Communication\Mail\UserLoggedInMail;
 use App\Domain\Communication\Mail\NewRelevantRequestMail;
+use App\Domain\Communication\Mail\CompanyAuditMail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -123,6 +124,64 @@ class SendEmailNotificationAction
         }
 
         Log::info("Dispatched {$sentCount} RFQ alert email(s) for company '{$company->name}' (RFQ: {$rfq->title})");
+        return $sentCount;
+    }
+
+    /**
+     * Send audit / document request notification email to company owner, official email, and users.
+     *
+     * @param Company $company
+     * @param string $action 'request_docs', 'approve', or 'decline'
+     * @param string|null $notes
+     * @return int Number of distinct recipients queued
+     */
+    public function sendAuditNotificationToCompany(Company $company, string $action, ?string $notes = null): int
+    {
+        $company->loadMissing(['users', 'owner']);
+
+        $recipients = collect();
+
+        // 1. Company official email
+        if (!empty($company->email)) {
+            $recipients->push($company->email);
+        }
+
+        // 2. Company owner email
+        if ($company->owner && !empty($company->owner->email)) {
+            $recipients->push($company->owner->email);
+        }
+
+        // 3. Company member users
+        if ($company->users) {
+            foreach ($company->users as $member) {
+                if (!empty($member->email)) {
+                    $recipients->push($member->email);
+                }
+            }
+        }
+
+        $validEmails = $recipients
+            ->map(fn($e) => trim((string) $e))
+            ->filter(fn($e) => $e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL))
+            ->unique()
+            ->values();
+
+        if ($validEmails->isEmpty()) {
+            Log::info("No valid email addresses found for audit notification to company {$company->name} ({$company->id})");
+            return 0;
+        }
+
+        $sentCount = 0;
+        foreach ($validEmails as $email) {
+            try {
+                Mail::to($email)->send(new CompanyAuditMail($company, $action, $notes));
+                $sentCount++;
+            } catch (\Throwable $e) {
+                Log::error("Failed to send audit notification email to {$email} for company {$company->name}: " . $e->getMessage());
+            }
+        }
+
+        Log::info("Dispatched {$sentCount} audit notification email(s) for company '{$company->name}' (Action: {$action})");
         return $sentCount;
     }
 }

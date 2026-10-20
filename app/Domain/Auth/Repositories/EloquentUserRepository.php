@@ -20,7 +20,7 @@ class EloquentUserRepository implements UserRepositoryInterface
             'password' => Hash::make($data['password']),
         ]);
 
-        $user->assignRole($data['role'] ?? 'buyer');
+        $user->assignRole($data['role'] ?? 'manager');
 
         return $user;
     }

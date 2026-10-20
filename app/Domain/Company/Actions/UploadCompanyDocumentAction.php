@@ -27,19 +27,30 @@ class UploadCompanyDocumentAction
         $storage = \Illuminate\Support\Facades\Storage::disk($diskName);
         $url = $storage->url($path);
 
+        $companyDoc = null;
         if ($companyId) {
-            CompanyDocument::create([
+            $companyDoc = CompanyDocument::create([
                 'company_id' => $companyId,
                 'name' => $file->getClientOriginalName(),
                 'type' => $type,
                 'file_path' => $path,
             ]);
+
+            // Promote starter company to pending so admin can review
+            $comp = \App\Domain\Company\Models\Company::find($companyId);
+            if ($comp && $comp->status === 'starter') {
+                $comp->update([
+                    'status' => 'pending',
+                    'verification_tier' => 'standard',
+                ]);
+            }
         }
 
         return [
-            'file_path' => $path,
-            'url' => $url,
-            'localName' => $file->getClientOriginalName(),
+            'document'   => $companyDoc,
+            'file_path'  => $path,
+            'url'        => $url,
+            'localName'  => $file->getClientOriginalName(),
         ];
     }
 }

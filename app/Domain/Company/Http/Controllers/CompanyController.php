@@ -168,6 +168,27 @@ class CompanyController extends \App\Http\Controllers\Controller
     }
 
     /**
+     * Delete a company document.
+     */
+    public function deleteDocument(\Illuminate\Http\Request $request, Company $company, \App\Domain\Company\Models\CompanyDocument $document): JsonResponse
+    {
+        if ($document->company_id !== $company->id) {
+            return response()->json(['message' => 'Document not found for this company.'], 404);
+        }
+
+        if ($document->file_path) {
+            Storage::disk(config('filesystems.default'))->delete($document->file_path);
+        }
+
+        $document->delete();
+
+        return response()->json([
+            'message' => 'Document deleted successfully.',
+            'company' => $company->fresh(['documents']),
+        ]);
+    }
+
+    /**
      * Upload company logo.
      */
     public function uploadLogo(UploadCompanyLogoRequest $request, UploadCompanyLogoAction $action): JsonResponse

@@ -21,6 +21,7 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:api'])->group(f
     Route::put('{company}', [CompanyController::class, 'update']);
     Route::get('my', [CompanyController::class, 'myCompanies']);
     Route::post('documents/upload', [CompanyController::class, 'uploadDocument']);
+    Route::delete('{company}/documents/{document}', [CompanyController::class, 'deleteDocument']);
     Route::post('logo/upload', [CompanyController::class, 'uploadLogo']);
     Route::post('invite', [CompanyController::class, 'invite']);
     Route::post('accept-invitation', [CompanyController::class, 'acceptInvitation']);

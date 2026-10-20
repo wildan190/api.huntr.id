@@ -45,13 +45,8 @@ class UpdateCompanyRequest extends FormRequest
             'hq_addresses.*'    => ['string'],
         ];
 
-        // TIN/NPWP is required only for Indonesia
-        $country = $this->input('country');
-        if ($this->isIndonesia($country)) {
-            $rules['tax_id'] = ['required', 'string', 'min:15', 'max:16'];
-        } else {
-            $rules['tax_id'] = ['nullable', 'string'];
-        }
+        // TIN/NPWP is optional for starter companies
+        $rules['tax_id'] = ['nullable', 'string'];
 
         return $rules;
     }

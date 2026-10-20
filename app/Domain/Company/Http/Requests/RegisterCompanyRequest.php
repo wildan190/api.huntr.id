@@ -50,15 +50,15 @@ class RegisterCompanyRequest extends FormRequest
             'keywords' => ['nullable', 'array'],
             'keywords.*' => ['string', 'max:100'],
             'industry_type' => ['nullable', 'string'],
-            'documents' => ['required', 'array', 'min:1'],
-            'documents.*.name' => ['required', 'string'],
-            'documents.*.type' => ['required', 'string'],
-            'documents.*.file_path' => ['required', 'string'],
+            'documents' => ['nullable', 'array'],
+            'documents.*.name' => ['required_with:documents', 'string'],
+            'documents.*.type' => ['required_with:documents', 'string'],
+            'documents.*.file_path' => ['required_with:documents', 'string'],
         ];
 
-        // TIN/NPWP is required only for Indonesia
+        // TIN/NPWP validation when provided (applicable for Indonesia or when entered)
         $country = $this->input('country');
-        if ($this->isIndonesia($country)) {
+        if ($this->isIndonesia($country) && $this->filled('tax_id')) {
             $user = $this->user();
             $uniqueRule = Rule::unique('companies', 'tax_id')
                 ->where('type', $this->input('type'))
@@ -79,7 +79,7 @@ class RegisterCompanyRequest extends FormRequest
             }
 
             $rules['tax_id'] = [
-                'required',
+                'nullable',
                 'string',
                 'min:15',
                 'max:16',

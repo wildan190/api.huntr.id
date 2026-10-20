@@ -14,8 +14,8 @@ class AuditCompanyRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'action' => ['required', 'in:approve,decline'],
-            'notes' => ['nullable', 'string'],
+            'action' => ['required', 'in:approve,decline,request_docs'],
+            'notes'  => ['nullable', 'string'],
         ];
     }
 }
