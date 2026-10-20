@@ -23,6 +23,14 @@ class EnterprisePlanCatalog
         return null;
     }
 
+    public function rank(string $key): ?int
+    {
+        $keys = array_column($this->plans(), 'key');
+        $rank = array_search($key, $keys, true);
+
+        return $rank === false ? null : $rank;
+    }
+
     public function plans(?array $configuration = null): array
     {
         $plans = [
@@ -32,6 +40,7 @@ class EnterprisePlanCatalog
                 'monthly_price' => 3800000,
                 'annual_price' => $this->annualPrice(3800000),
                 'users' => 15,
+                'companies' => 1,
                 'tax_documents_per_year' => 1000,
                 'support' => 'Business Hours',
                 'warehouses' => 1,
@@ -42,6 +51,7 @@ class EnterprisePlanCatalog
                 'monthly_price' => 6200000,
                 'annual_price' => $this->annualPrice(6200000),
                 'users' => 35,
+                'companies' => 4,
                 'tax_documents_per_year' => 3000,
                 'support' => 'Priority',
                 'warehouses' => 2,
@@ -51,10 +61,11 @@ class EnterprisePlanCatalog
                 'name' => 'Enterprise Pro',
                 'monthly_price' => 9500000,
                 'annual_price' => $this->annualPrice(9500000),
-                'users' => 70,
+                'users' => 200,
+                'companies' => 10,
                 'tax_documents_per_year' => 5000,
                 'support' => 'Priority',
-                'warehouses' => 10,
+                'warehouses' => 100,
             ],
         ];
         $overrides = collect(($configuration ?? $this->overrides())['plans'] ?? [])->keyBy('key');

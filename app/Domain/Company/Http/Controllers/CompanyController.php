@@ -34,7 +34,7 @@ class CompanyController extends \App\Http\Controllers\Controller
     /**
      * Display list of companies owned by the currently logged-in user.
      */
-    public function myCompanies(Request $request, GetMyCompaniesAction $action): JsonResponse
+    public function myCompanies(Request $request, GetMyCompaniesAction $action, \App\Domain\Subscription\Services\CompanyCapacityService $companyCapacity): JsonResponse
     {
         $user = $request->user();
 
@@ -58,7 +58,8 @@ class CompanyController extends \App\Http\Controllers\Controller
         }
 
         return response()->json([
-            'companies' => $action->execute($user)
+            'companies' => $action->execute($user),
+            'company_capacity' => $companyCapacity->summary($user),
         ], 200);
     }
 
