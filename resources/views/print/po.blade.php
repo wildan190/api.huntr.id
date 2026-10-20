@@ -73,64 +73,28 @@
             </tr>
             @endforeach
             @php
-                $baseAmt = $po['total_amount'];
-                // Platform fee: tier-based
-                if ($baseAmt <= 100000000) {
-                    $platFeeRate = 0.05;
-                } elseif ($baseAmt <= 250000000) {
-                    $platFeeRate = 0.03;
-                } else {
-                    $platFeeRate = 0.02;
-                }
-                $platFee      = $baseAmt * $platFeeRate;
-                $ppnPlatform  = $platFee * 0.11;     // PPN atas platform fee
-                $adminBank    = 4400;                  // Admin Bank flat
-                $pph23        = $platFee * 0.02;      // PPH 23: 2% dari platform fee
-                $biayaLayanan = ($platFee + $ppnPlatform) + $adminBank - $pph23;
-                $ppn          = $baseAmt * 0.11;      // PPN 11% dari DPP
-                $grandTotal   = $baseAmt + $biayaLayanan + $ppn;
+                $baseAmt = $paymentBreakdown['base_amount'];
+                $adminBank = $paymentBreakdown['admin_bank'];
+                $pph23 = $paymentBreakdown['pph23'];
+                $ppn = $paymentBreakdown['ppn'];
+                $grandTotal = $paymentBreakdown['total_amount'];
             @endphp
-
-            {{-- Total Pembelian sebelum PPN --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="5" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
+                <td colspan="5" style="text-align: right; color: #78350f;">Total Pembelian Barang</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($baseAmt) }}</td>
             </tr>
-
-            {{-- Platform Fee + PPN --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">{{ number_format($platFeeRate * 100, 0) }}% + 11%</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($platFee + $ppnPlatform) }}</td>
-            </tr>
-
-            {{-- Admin Bank --}}
             <tr style="background: #fffde7; font-weight: 700;">
                 <td colspan="5" style="text-align: right; color: #78350f;">Admin Bank</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($adminBank) }}</td>
             </tr>
-
-            {{-- PPH 23 --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">PPH 23</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">2%</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($pph23) }}</td>
+                <td colspan="5" style="text-align: right; color: #78350f;">PPh 23</td>
+                <td style="text-align: right; color: #78350f;">- {{ number_format($pph23) }}</td>
             </tr>
-
-            {{-- Biaya Layanan --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="5" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($biayaLayanan) }}</td>
-            </tr>
-
-            {{-- PPN 11% --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">PPN</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">11%</td>
+                <td colspan="5" style="text-align: right; color: #78350f;">PPN</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($ppn) }}</td>
             </tr>
-
-            {{-- Grand Total --}}
             <tr class="total-row">
                 <td colspan="5" style="text-align: right;">TOTAL Amount ({{ $po['currency'] }})</td>
                 <td style="text-align: right;">{{ number_format($grandTotal) }}</td>

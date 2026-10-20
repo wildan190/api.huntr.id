@@ -44,11 +44,7 @@ class ConfirmPurchaseOrderAction
             $poAmount = $winningProposal ? $winningProposal->price_offer : ($po->total_amount ?? 0);
 
             $billing = $this->resolveSubscriptionBillingAction->execute($po->buyer, (float) $poAmount);
-            $fees = $this->calculateInvoiceFeesAction->execute(
-                (float) $poAmount,
-                $po->buyer,
-                $billing['waive_platform_fee'],
-            );
+            $fees = $this->calculateInvoiceFeesAction->execute((float) $poAmount);
 
             if ($winningProposal && !$po->purchase_type) {
                 $updateData['purchase_type'] = $winningProposal->payment_term;

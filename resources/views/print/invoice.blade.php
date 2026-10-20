@@ -69,54 +69,31 @@
             </tr>
             @endforeach
             @php
-                $baseAmt     = $invoice->base_amount ?? $invoice->amount;
-                $platFee     = $invoice->platform_fee ?? 0;
-                $ppnPlatform = $invoice->ppn_platform ?? 0;
-                $adminBank   = $invoice->midtrans_fee ?? 0;
-                $pph23       = $invoice->pph23 ?? 0;
-                $biayaLayanan = ($platFee + $ppnPlatform) + $adminBank - $pph23;
-                $ppn         = $invoice->ppn_fee ?? 0;
+                $baseAmt = $paymentBreakdown['base_amount'];
+                $adminBank = $paymentBreakdown['admin_bank'];
+                $pph23 = $paymentBreakdown['pph23'];
+                $ppn = $paymentBreakdown['ppn'];
+                $totalAmount = $paymentBreakdown['total_amount'];
             @endphp
-            {{-- Subtotal (DPP) --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">Total Pembelian Barang sebelum PPN</td>
+                <td colspan="4" style="text-align: right; color: #78350f;">Total Pembelian Barang</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($baseAmt) }}</td>
             </tr>
-            @if($biayaLayanan > 0)
-            {{-- Platform Fee + PPN --}}
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">Platform Fee + PPN</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">—</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($platFee + $ppnPlatform) }}</td>
-            </tr>
-            {{-- Admin Bank --}}
             <tr style="background: #fffde7; font-weight: 700;">
                 <td colspan="4" style="text-align: right; color: #78350f;">Admin Bank</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($adminBank) }}</td>
             </tr>
-            {{-- PPH 23 --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">PPH 23</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">2%</td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($pph23) }}</td>
+                <td colspan="4" style="text-align: right; color: #78350f;">PPh 23</td>
+                <td style="text-align: right; color: #78350f;">- {{ number_format($pph23) }}</td>
             </tr>
-            {{-- Biaya Layanan --}}
             <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="4" style="text-align: right; color: #78350f;">Biaya Layanan <span style="font-size: 10px; font-weight: 400;">(Platform Fee + Admin Bank + PPH 23)</span></td>
-                <td style="text-align: right; color: #78350f;">{{ number_format($biayaLayanan) }}</td>
-            </tr>
-            @endif
-            {{-- PPN 11% dari DPP --}}
-            @if($ppn > 0)
-            <tr style="background: #fffde7; font-weight: 700;">
-                <td colspan="3" style="text-align: right; color: #78350f;">PPN</td>
-                <td style="text-align: right; color: #78350f; font-size: 12px;">11%</td>
+                <td colspan="4" style="text-align: right; color: #78350f;">PPN</td>
                 <td style="text-align: right; color: #78350f;">{{ number_format($ppn) }}</td>
             </tr>
-            @endif
             <tr class="total-row">
                 <td colspan="4" style="text-align: right;">TOTAL Amount ({{ $po['currency'] }})</td>
-                <td style="text-align: right;">{{ number_format($invoice->total_amount ?? $invoice->amount) }}</td>
+                <td style="text-align: right;">{{ number_format($totalAmount) }}</td>
             </tr>
         </tbody>
     </table>

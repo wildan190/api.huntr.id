@@ -6,6 +6,7 @@ use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Order\Models\DeliveryOrder;
 use App\Domain\Order\Models\GoodsReturn;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
+use App\Domain\Order\Actions\CalculateInvoiceFeesAction;
 use App\Domain\Receipt\Models\GoodsReceipt;
 use App\Domain\Receipt\Repositories\ReceiptRepositoryInterface;
 use App\Domain\Wms\Services\WmsGoodsReceiptImportService;
@@ -19,6 +20,7 @@ class CreateGoodsReceiptAction
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
         private readonly WmsGoodsReceiptImportService $wmsGoodsReceiptImportService,
+        private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction,
     ) {}
 
     /**
@@ -121,26 +123,34 @@ class CreateGoodsReceiptAction
         $this->orderRepository->updateDeliveryOrder($do, ['status' => 'received']);
         $this->orderRepository->updatePurchaseOrder($po, ['status' => 'delivered']);
 
-        // 3. Derive amount from accepted proposal or negotiation and release Final Invoice
-        $winningProposal = $this->orderRepository->findAcceptedProposal($po);
-        $poAmount = $winningProposal ? $winningProposal->price_offer : 0;
-
-        // Check for accepted negotiation
-        if ($winningProposal && $winningProposal->acceptedNegotiation) {
-            $negotiation = $winningProposal->acceptedNegotiation;
-            $negotiatedTotal = 0;
-            foreach ($negotiation->items as $nItem) {
-                $negotiatedTotal += $nItem->negotiated_price * $nItem->negotiated_qty;
-            }
-            if ($negotiatedTotal > 0) {
-                $poAmount = $negotiatedTotal;
-            }
-        }
+        // 3. Create a final invoice from the proforma amount whenever available.
+        // The proforma is the agreed PO price and prevents direct/manual POs
+        // from issuing a zero-value final invoice.
+        $proformaInvoice = $po->invoices()
+            ->where('type', 'proforma')
+            ->latest()
+            ->first();
+        $baseAmount = (float) ($proformaInvoice?->base_amount ?: $proformaInvoice?->amount ?: $po->total_amount);
+        $fees = $this->calculateInvoiceFeesAction->execute($baseAmount);
+        $adminBank = (float) ($proformaInvoice?->midtrans_fee ?: $fees['midtrans_fee']);
+        $pph23 = (float) ($proformaInvoice?->pph23 ?: $fees['pph23']);
+        $ppnFee = (float) ($proformaInvoice?->ppn_fee ?: $fees['ppn_fee']);
+        $totalAmount = round($baseAmount + $adminBank + $ppnFee - $pph23, 2);
 
         $this->orderRepository->createInvoice([
             'purchase_order_id' => $po->id,
+            'company_subscription_id' => $proformaInvoice?->company_subscription_id,
             'type' => 'final',
-            'amount' => $poAmount,
+            'amount' => $totalAmount,
+            'base_amount' => $baseAmount,
+            'billing_mode' => $proformaInvoice?->billing_mode,
+            'gmv_credited_amount' => 0,
+            'platform_fee' => 0,
+            'ppn_platform' => 0,
+            'midtrans_fee' => $adminBank,
+            'pph23' => $pph23,
+            'ppn_fee' => $ppnFee,
+            'total_amount' => $totalAmount,
             'status' => 'draft',
         ]);
 

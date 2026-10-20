@@ -3,6 +3,7 @@
 namespace App\Domain\Order\Http\Controllers;
 
 use App\Domain\Order\Actions\CreateBastAction;
+use App\Domain\Order\Actions\BuildPurchaseOrderPaymentBreakdownAction;
 use App\Domain\Order\Events\BastIssuedEvent;
 use App\Domain\Order\Models\Bast;
 use App\Domain\Order\Models\PurchaseOrder;
@@ -303,7 +304,7 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Generate and display BAST PDF in browser (for printing)
      */
-    public function showPdf(string $id)
+    public function showPdf(string $id, BuildPurchaseOrderPaymentBreakdownAction $buildPurchaseOrderPaymentBreakdownAction)
     {
         $bast = Bast::with('purchaseOrder', 'buyerCompany', 'vendorCompany')
             ->findOrFail($id);
@@ -325,6 +326,9 @@ class BastController extends \App\Http\Controllers\Controller
             'bast' => $bast,
             'buyer_logo_url' => $buyerLogoUrl,
             'vendor_logo_url' => $vendorLogoUrl,
+            'paymentBreakdown' => $buildPurchaseOrderPaymentBreakdownAction->execute(
+                (float) collect($bast->items ?? [])->sum(fn ($item) => $item['total_amount'] ?? 0),
+            ),
         ]);
     }
 

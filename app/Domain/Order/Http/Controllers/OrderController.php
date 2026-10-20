@@ -4,6 +4,8 @@ namespace App\Domain\Order\Http\Controllers;
 
 use App\Domain\Order\Actions\AwardVendorAction;
 use App\Domain\Order\Actions\GetPurchaseOrdersAction;
+use App\Domain\Order\Actions\BuildInvoicePaymentBreakdownAction;
+use App\Domain\Order\Actions\BuildPurchaseOrderPaymentBreakdownAction;
 use App\Domain\Order\Actions\ConfirmPurchaseOrderAction;
 use App\Domain\Order\Actions\UpdatePoTrackingStatusAction;
 use App\Domain\Order\Http\Requests\AwardVendorRequest;
@@ -97,7 +99,11 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Print Purchase Order (HTML for Ctrl+P).
      */
-    public function printPo(PurchaseOrder $po, GetPurchaseOrdersAction $action)
+    public function printPo(
+        PurchaseOrder $po,
+        GetPurchaseOrdersAction $action,
+        BuildPurchaseOrderPaymentBreakdownAction $buildPurchaseOrderPaymentBreakdownAction,
+    )
     {
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
@@ -105,13 +111,20 @@ class OrderController extends \App\Http\Controllers\Controller
         if (!$poData)
             abort(404);
 
-        return view('print.po', ['po' => $poData]);
+        return view('print.po', [
+            'po' => $poData,
+            'paymentBreakdown' => $buildPurchaseOrderPaymentBreakdownAction->execute((float) $poData['total_amount']),
+        ]);
     }
 
     /**
      * Print Invoice/Proforma (HTML for Ctrl+P).
      */
-    public function printInvoice(\App\Domain\Order\Models\Invoice $invoice, GetPurchaseOrdersAction $action)
+    public function printInvoice(
+        \App\Domain\Order\Models\Invoice $invoice,
+        GetPurchaseOrdersAction $action,
+        BuildInvoicePaymentBreakdownAction $buildInvoicePaymentBreakdownAction,
+    )
     {
         $po = $invoice->purchaseOrder;
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
@@ -120,7 +133,11 @@ class OrderController extends \App\Http\Controllers\Controller
         if (!$poData)
             abort(404);
 
-        return view('print.invoice', ['invoice' => $invoice, 'po' => $poData]);
+        return view('print.invoice', [
+            'invoice' => $invoice,
+            'po' => $poData,
+            'paymentBreakdown' => $buildInvoicePaymentBreakdownAction->execute($invoice),
+        ]);
     }
 
     /**
