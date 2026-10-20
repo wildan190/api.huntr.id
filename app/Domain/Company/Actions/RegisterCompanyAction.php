@@ -6,6 +6,7 @@ use App\Domain\Auth\Repositories\UserRepositoryInterface;
 use App\Domain\Company\Repositories\CompanyRepositoryInterface;
 use App\Domain\Company\Models\Company;
 use App\Domain\Auth\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class RegisterCompanyAction
@@ -13,6 +14,8 @@ class RegisterCompanyAction
     public function __construct(
         private readonly CompanyRepositoryInterface $companyRepository,
         private readonly \App\Domain\Access\Actions\AssignRoleAction $assignRoleAction,
+        private readonly \App\Domain\Subscription\Services\CompanyCapacityService $companyCapacity,
+        private readonly \App\Domain\Subscription\Actions\StartEnterpriseTrialAction $startEnterpriseTrial,
     ) {}
 
     /**
@@ -24,6 +27,15 @@ class RegisterCompanyAction
      * @return Company
      */
     public function execute(User $user, array $data): Company
+    {
+        return DB::transaction(function () use ($user, $data): Company {
+            $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+
+            return $this->register($lockedUser, $data);
+        });
+    }
+
+    private function register(User $user, array $data): Company
     {
         Log::info('RegisterCompanyAction data:', $data);
 
@@ -70,6 +82,8 @@ class RegisterCompanyAction
         $hasVerificationDocs = !empty($data['tax_id']) && !empty($data['documents']);
         $targetStatus = $hasVerificationDocs ? 'pending' : 'starter';
 
+        $createdCompany = false;
+
         if ($existingCompany) {
             // Re-submission / update: update details and set appropriate status
             $updateData = array_merge($data, [
@@ -86,12 +100,15 @@ class RegisterCompanyAction
         } else {
 
             // Create a completely new company
+            $this->companyCapacity->assertCanCreate($user);
+
             $companyData = array_merge($data, [
                 'status'   => $targetStatus,
                 'owner_id' => $user->id,
             ]);
             $company = $this->companyRepository->create($companyData);
-            
+            $createdCompany = true;
+
             // NOTE: We do NOT update $user->company_id here.
             // A user can own multiple companies. $user->company_id should represent
             // their currently active or primary company context, which should be 
@@ -138,6 +155,10 @@ class RegisterCompanyAction
                     'file_path' => $doc['file_path'] ?? null,
                 ]);
             }
+        }
+
+        if ($createdCompany) {
+            $this->startEnterpriseTrial->execute($user, $company);
         }
 
         return $company;

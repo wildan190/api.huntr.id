@@ -11,22 +11,30 @@ class SubscriptionAccessService
     public function status(Company $company): array
     {
         if ($company->type !== 'buyer') {
-            return ['overdue' => false, 'overdue_since' => null, 'active_enterprise' => false];
+            return $this->statusPayload();
         }
 
         $base = CompanySubscription::query()->where('company_id', $company->id)->where('starts_at', '<=', now());
         $active = (clone $base)->where('status', 'active')->where('ends_at', '>', now())->latest('starts_at')->first();
         if ($active) {
-            return ['overdue' => false, 'overdue_since' => null, 'active_enterprise' => (bool) $active->enterprise_plan];
+            return $this->statusPayload($active);
         }
 
         $latest = (clone $base)->latest('starts_at')->first();
         $overdue = $latest && $latest->enterprise_plan && $latest->ends_at && $latest->ends_at->lessThanOrEqualTo(now());
 
+        return $this->statusPayload(null, (bool) $overdue, $overdue ? $latest->ends_at->toIso8601String() : null);
+    }
+
+    private function statusPayload(?CompanySubscription $subscription = null, bool $overdue = false, ?string $overdueSince = null): array
+    {
         return [
-            'overdue' => (bool) $overdue,
-            'overdue_since' => $overdue ? $latest->ends_at->toIso8601String() : null,
-            'active_enterprise' => false,
+            'overdue' => $overdue,
+            'overdue_since' => $overdueSince,
+            'active_enterprise' => (bool) $subscription?->enterprise_plan,
+            'enterprise_plan' => $subscription?->enterprise_plan,
+            'is_trial' => (bool) $subscription?->is_trial,
+            'ends_at' => $subscription?->ends_at?->toIso8601String(),
         ];
     }
 

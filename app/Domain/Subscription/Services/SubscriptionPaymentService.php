@@ -60,9 +60,20 @@ class SubscriptionPaymentService
             }
 
             $active = CompanySubscription::query()->where('company_id', $company->id)
-                ->where('status', 'active')->where('starts_at', '<=', now())->where('ends_at', '>', now())->first();
+                ->where('status', 'active')->where('starts_at', '<=', now())->where('ends_at', '>', now())
+                ->latest('starts_at')->first();
             if (! $isAddonPurchase && $active) {
-                throw ValidationException::withMessages(['plan' => 'Perusahaan masih memiliki subscription aktif. Hubungi tim Huntr untuk perubahan paket.']);
+                $currentRank = $active->enterprise_plan ? $this->catalog->rank($active->enterprise_plan) : null;
+                $targetRank = $this->catalog->rank($data['plan']);
+                if ($active->is_trial || $currentRank === null || $targetRank === null || $targetRank <= $currentRank) {
+                    throw ValidationException::withMessages(['plan' => 'Pilih paket Enterprise yang lebih tinggi dari paket aktif.']);
+                }
+
+                $hasScheduledChange = CompanySubscription::query()->where('company_id', $company->id)
+                    ->where('status', 'active')->whereNotNull('enterprise_plan')->where('starts_at', '>', now())->exists();
+                if ($hasScheduledChange) {
+                    throw ValidationException::withMessages(['plan' => 'Perubahan paket sudah dijadwalkan. Tunggu periode paket saat ini berakhir.']);
+                }
             }
             if ($isAddonPurchase && (! $active || ! $active->enterprise_plan)) {
                 throw ValidationException::withMessages(['addon_key' => 'Add-on memerlukan paket Enterprise yang aktif.']);
@@ -201,7 +212,8 @@ class SubscriptionPaymentService
                     return;
                 }
                 $existing = CompanySubscription::query()->where('company_id', $checkout->company_id)
-                    ->where('status', 'active')->where('ends_at', '>', now())->orderByDesc('ends_at')->lockForUpdate()->first();
+                    ->where('status', 'active')->where('starts_at', '<=', now())->where('ends_at', '>', now())
+                    ->latest('starts_at')->lockForUpdate()->first();
                 $start = $existing ? $existing->ends_at->copy() : now();
                 $subscription = CompanySubscription::create([
                     'company_id' => $checkout->company_id,
