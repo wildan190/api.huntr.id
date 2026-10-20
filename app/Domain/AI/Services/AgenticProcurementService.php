@@ -88,6 +88,7 @@ class AgenticProcurementService
     public function __construct(
         private readonly OpenAiService $openAi,
         private readonly BraveSearchService $webSearch,
+        private readonly MarketPriceIntelligenceService $priceIntelligence,
         private readonly CreateRfqAction $createRfqAction,
         private readonly SubscriptionAccessService $subscriptionAccess
     ) {}
@@ -105,7 +106,7 @@ class AgenticProcurementService
         $steps = [];
 
         // Step 1: Analisis kebutuhan
-        $intent = $this->openAi->extractSearchIntent($query);
+        $intent = $this->openAi->extractSearchIntent($query, $options['company_id'] ?? null);
         $steps[] = [
             'step' => 'intent_analysis',
             'title' => 'Analisis Kebutuhan & Spesifikasi',
@@ -167,7 +168,9 @@ class AgenticProcurementService
         ];
 
         // Step 5: Komparasi
-        [$comparison, $comparisonStep] = $this->runComparison($query, $foundCatalogues, $brandComparisons, $webSearchResults);
+        [$comparison, $comparisonStep] = $this->runComparison(
+            $query, $foundCatalogues, $brandComparisons, $webSearchResults, $options['company_id'] ?? null
+        );
         $steps[] = $comparisonStep;
 
         // Step 6: Susun PR
@@ -185,33 +188,37 @@ class AgenticProcurementService
         $prDraft = $this->openAi->generatePrDraft($query, $items, $context);
 
         $enrichedItems = $this->enrichPrItems($items, $webSearchResults, $historicalPrices);
-        $prDraft['suggested_items'] = $enrichedItems;
-
-        // Total HANYA dari item yang punya harga bersumber. Item rfq_required tidak dihitung.
-        $priced = array_values(array_filter($enrichedItems, fn ($i) => ($i['estimated_price'] ?? 0) > 0));
-        $calculatedTotal = array_sum(array_map(fn ($i) => $i['qty'] * $i['estimated_price'], $priced));
+        // Tabel draft dan PR hanya menerima item yang memiliki harga dari sumber yang dapat ditelusuri.
+        $priced = array_values(array_filter($enrichedItems, fn ($item) => (float) ($item['estimated_price'] ?? 0) > 0));
+        $excludedUnpricedCount = count($enrichedItems) - count($priced);
+        $prDraft['suggested_items'] = $priced;
+        $calculatedTotal = array_sum(array_map(fn ($item) => $item['qty'] * $item['estimated_price'], $priced));
 
         $buyerBudget = (float) ($intent['estimated_total_budget_idr'] ?? 0);
 
         $prDraft['estimated_total_budget'] = $calculatedTotal;
         $prDraft['priced_item_count'] = count($priced);
-        $prDraft['has_unpriced_items'] = count($priced) < count($enrichedItems);
+        $prDraft['excluded_unpriced_count'] = $excludedUnpricedCount;
+        $prDraft['has_unpriced_items'] = false;
         $prDraft['buyer_budget_limit'] = $buyerBudget > 0 ? $buyerBudget : null;
 
         $steps[] = [
             'step' => 'pr_formulation',
             'title' => 'Penyusunan Purchase Requisition (PR)',
             'status' => 'completed',
-            'summary' => count($enrichedItems) > 0
-                ? 'Draft PR disusun dari kebutuhan buyer. Harga hanya terisi bila ada sumber yang bisa ditelusuri.'
-                : 'Tidak ada item yang dapat disusun dari permintaan ini.',
+            'summary' => count($priced) > 0
+                ? ($excludedUnpricedCount > 0
+                    ? 'Draft PR memuat '.count($priced).' item berharga; '.$excludedUnpricedCount.' item tanpa referensi harga tidak dimasukkan.'
+                    : 'Draft PR memuat item dengan harga dari sumber yang bisa ditelusuri.')
+                : 'Tidak ada item dengan referensi harga yang dapat dimasukkan ke draft PR.',
             'pr_title' => $prDraft['title'] ?? '',
-            'price_sources_used' => collect($enrichedItems)->groupBy('price_status')->map->count()->toArray(),
+            'price_sources_used' => collect($priced)->groupBy('price_status')->map->count()->toArray(),
+            'excluded_unpriced_count' => $excludedUnpricedCount,
         ];
 
         // Step 7: Eksekusi otomatis
         $createdRfq = null;
-        if (! empty($options['auto_create_pr']) && $company && $company->type === 'buyer') {
+        if (! empty($options['auto_create_pr']) && count($priced) > 0 && $company && $company->type === 'buyer') {
             try {
                 $createdRfq = $this->createPrFromDraft($company, $prDraft, $options['user_id'] ?? null);
                 $steps[] = [
@@ -386,14 +393,14 @@ INSTRUCTION;
     /**
      * @return array [$comparison|null, $stepArray]
      */
-    private function runComparison(string $query, array $catalogues, array $brandComparisons, array $webSearchResults): array
+    private function runComparison(string $query, array $catalogues, array $brandComparisons, array $webSearchResults, ?string $companyId = null): array
     {
         $matched = array_values(array_filter($catalogues, fn ($c) => ($c['ai_match'] ?? false) === true));
 
         // Skenario A: >= 2 produk katalog yang dinyatakan cocok
         if (count($matched) >= 2) {
             $candidates = array_slice($matched, 0, 5);
-            $comparison = $this->openAi->compareProducts($candidates, $query);
+            $comparison = $this->openAi->compareProducts($candidates, $query, $companyId);
 
             if (! empty($comparison['comparison_matrix'])) {
                 $byId = collect($candidates)->keyBy('id');
@@ -445,7 +452,7 @@ INSTRUCTION;
                 ];
             }
 
-            $comparison = $this->openAi->compareProducts($synthetic, $query);
+            $comparison = $this->openAi->compareProducts($synthetic, $query, $companyId);
 
             if (! empty($comparison['comparison_matrix'])) {
                 $comparison['comparison_matrix'] = array_map(function ($row) use ($byId) {
@@ -640,22 +647,17 @@ INSTRUCTION;
                 ->get();
 
             foreach ($rows->groupBy('inventory_name') as $itemName => $group) {
-                $prices = $group->pluck('unit_price')->map(fn ($p) => (float) $p)->filter(fn ($p) => $p > 0);
-                if ($prices->isEmpty()) {
+                $stats = $this->summarizeHistoricalPrices($group, 'unit_price', 'order_date');
+                if ($stats === null) {
                     continue;
                 }
 
                 $results[$this->normalizeKey($itemName)] = [
                     'item_name' => $itemName,
                     'specifications' => $group->first()?->specifications,
-                    'avg_price' => round($prices->average()),
-                    'min_price' => $prices->min(),
-                    'max_price' => $prices->max(),
-                    'last_price' => (float) ($group->first()?->unit_price ?? 0),
+                    ...$stats,
                     'uom' => $group->first()?->uom ?? 'unit',
-                    'sample_count' => $prices->count(),
                     'source' => 'historical_po',
-                    'last_date' => $group->first()?->order_date?->toDateString(),
                 ];
             }
         } catch (\Throwable $e) {
@@ -688,22 +690,17 @@ INSTRUCTION;
                     continue; // PO historis diprioritaskan
                 }
 
-                $prices = $group->pluck('price_offer')->map(fn ($p) => (float) $p)->filter(fn ($p) => $p > 0);
-                if ($prices->isEmpty()) {
+                $stats = $this->summarizeHistoricalPrices($group, 'price_offer', 'awarded_at');
+                if ($stats === null) {
                     continue;
                 }
 
                 $results[$key] = [
                     'item_name' => $itemName,
                     'specifications' => $group->first()?->specifications,
-                    'avg_price' => round($prices->average()),
-                    'min_price' => $prices->min(),
-                    'max_price' => $prices->max(),
-                    'last_price' => (float) ($group->first()?->price_offer ?? 0),
+                    ...$stats,
                     'uom' => $group->first()?->uom ?? 'unit',
-                    'sample_count' => $prices->count(),
                     'source' => 'proposal_winner',
-                    'last_date' => $group->first()?->awarded_at,
                 ];
             }
         } catch (\Throwable $e) {
@@ -711,6 +708,48 @@ INSTRUCTION;
         }
 
         return $results;
+    }
+
+    /**
+     * Historical records can contain exceptional negotiated prices. Use the same
+     * robust median/IQR treatment as market listings before they influence a PR.
+     */
+    private function summarizeHistoricalPrices(\Illuminate\Support\Collection $rows, string $priceColumn, string $dateColumn): ?array
+    {
+        $samples = $rows->map(fn ($row) => [
+            'price' => (float) data_get($row, $priceColumn, 0),
+            'date' => data_get($row, $dateColumn),
+        ])->filter(fn (array $sample) => $sample['price'] > 0)->sortBy('price')->values();
+        if ($samples->isEmpty()) {
+            return null;
+        }
+
+        $prices = $samples->pluck('price')->all();
+        $count = count($prices);
+        $kept = $samples;
+        if ($count >= 4) {
+            $q1 = $prices[(int) floor(($count - 1) * 0.25)];
+            $q3 = $prices[(int) floor(($count - 1) * 0.75)];
+            $iqr = $q3 - $q1;
+            $candidate = $samples->filter(fn (array $sample) => $sample['price'] >= $q1 - 1.5 * $iqr && $sample['price'] <= $q3 + 1.5 * $iqr)->values();
+            if ($candidate->isNotEmpty()) {
+                $kept = $candidate;
+            }
+        }
+
+        $values = $kept->pluck('price')->sort()->values()->all();
+        $size = count($values);
+        $median = $size % 2 === 1 ? $values[intdiv($size, 2)] : ($values[$size / 2 - 1] + $values[$size / 2]) / 2;
+        $latest = $kept->sortByDesc('date')->first();
+
+        return [
+            'avg_price' => round($median),
+            'min_price' => min($values),
+            'max_price' => max($values),
+            'last_price' => (float) ($latest['price'] ?? 0),
+            'sample_count' => $size,
+            'last_date' => $latest['date'] instanceof \DateTimeInterface ? $latest['date']->format('Y-m-d') : $latest['date'],
+        ];
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -978,58 +1017,43 @@ INSTRUCTION;
             $qty = max(1, (int) ($item['qty'] ?? 1));
             $name = (string) ($item['name'] ?? '');
             $brand = (string) ($item['brand'] ?? '');
-            $price = 0.0;
-            $status = 'rfq_required';
-            $note = null;
             $webEntry = $this->bestWebEntry($name, $brand, $webSearchResults, false);
+            $webPrices = $webEntry['web_prices'] ?? [];
 
-            // 1) Histori
-            $hist = $this->matchHistorical($item, $historicalPrices);
-            if ($hist) {
-                $price = (float) $hist['avg_price'];
-                $status = 'historical_reference';
-                $note = sprintf(
-                    'Referensi %s: Rp %s - Rp %s dari %d transaksi%s',
-                    $hist['source'] === 'historical_po' ? 'PO historis' : 'penawaran tender menang',
-                    number_format((float) $hist['min_price'], 0, ',', '.'),
-                    number_format((float) $hist['max_price'], 0, ',', '.'),
-                    (int) $hist['sample_count'],
-                    ! empty($hist['last_date']) ? ' (terakhir '.$hist['last_date'].')' : ''
-                );
-            }
-
-            // 2a) Web (hasil riset Step 3)
-            if ($price <= 0) {
-                $pricedEntry = $this->bestWebEntry($name, $brand, $webSearchResults, true);
-                $wp = $pricedEntry['web_prices'] ?? [];
-                if ($pricedEntry && (float) ($wp['avg_price'] ?? 0) > 0) {
-                    $price = (float) $wp['avg_price'];
-                    $status = 'web_market_reference';
-                    $note = $this->webPriceNote('Median harga web', $wp);
-                }
-            }
-
-            // 2b) Web on-demand (item di luar riset Step 3). Memakai fungsi yang sama: min. 3 sampel relevan.
-            if ($price <= 0 && $this->webSearch->isEnabled() && trim($name) !== '') {
+            // Refresh only when the initial research did not produce a valid market median.
+            if ((float) ($webPrices['avg_price'] ?? 0) <= 0 && $this->webSearch->isEnabled() && trim($name) !== '') {
                 try {
-                    $live = $this->webSearch->searchMarketPrice($name, $brand);
+                    $live = $this->webSearch->searchMarketPrice($name, $brand, (string) ($item['detailed_specs'] ?? ''));
                     if (! empty($live['raw_results'])) {
-                        $webEntry = [
-                            'web_prices' => $live,
-                            'results' => $live['raw_results'],
-                        ];
-                    }
-                    if ((float) ($live['avg_price'] ?? 0) > 0) {
-                        $price = (float) $live['avg_price'];
-                        $status = 'web_market_reference';
-                        $note = $this->webPriceNote('Median harga web (riset on-demand)', $live);
+                        $webEntry = ['web_prices' => $live, 'results' => $live['raw_results']];
+                        $webPrices = $live;
                     }
                 } catch (\Throwable $e) {
                     Log::warning('AgenticProcurementService: on-demand price search failed', ['error' => $e->getMessage()]);
                 }
             }
 
-            $webPrices = $webEntry['web_prices'] ?? [];
+            $historical = $this->matchHistorical($item, $historicalPrices);
+            $resolution = $this->priceIntelligence->resolve($historical, $webPrices);
+            $price = (float) $resolution['price'];
+            $status = $resolution['status'];
+            $note = $resolution['note'];
+
+            if ($price <= 0 && ! empty($item['_budget_hint_idr'])) {
+                $hint = (float) $item['_budget_hint_idr'];
+                if ($hint > 0) {
+                    $price = round($hint / $qty);
+                    $status = 'buyer_budget';
+                    $note = 'Berdasarkan anggaran yang disebutkan buyer untuk item ini.';
+                    $resolution['confidence'] = 'buyer_provided';
+                }
+            }
+
+            if ($price <= 0) {
+                $status = 'rfq_required';
+                $note = 'Tidak ada referensi harga yang cukup. Harga ditentukan melalui RFQ.';
+            }
+
             $webAverage = (float) ($webPrices['avg_price'] ?? 0);
             $webSources = array_map(fn ($source) => [
                 'title' => $source['title'] ?? '',
@@ -1037,22 +1061,6 @@ INSTRUCTION;
                 'source' => $source['source'] ?? '',
                 'price' => (float) ($source['price'] ?? 0) > 0 ? (float) $source['price'] : null,
             ], array_slice($webEntry['results'] ?? [], 0, 10));
-
-            // 3) Anggaran per-item yang disebut buyer (sudah diverifikasi terhadap teks buyer di OpenAiService)
-            if ($price <= 0 && ! empty($item['_budget_hint_idr'])) {
-                $hint = (float) $item['_budget_hint_idr'];
-                if ($hint > 0) {
-                    $price = round($hint / $qty);
-                    $status = 'buyer_budget';
-                    $note = 'Berdasarkan anggaran yang disebutkan buyer untuk item ini.';
-                }
-            }
-
-            if ($price <= 0) {
-                $price = 0.0;
-                $status = 'rfq_required';
-                $note = 'Tidak ada referensi harga. Harga ditentukan melalui RFQ.';
-            }
 
             return [
                 'catalogue_id' => $item['catalogue_id'] ?? null,
@@ -1065,6 +1073,7 @@ INSTRUCTION;
                 'uom' => $item['uom'] ?? 'unit',
                 'estimated_price' => $price,
                 'price_status' => $status,
+                'price_confidence' => $resolution['confidence'],
                 'price_note' => $note,
                 'web_price_min' => $webAverage > 0 ? ($webPrices['min_price'] ?? null) : null,
                 'web_price_max' => $webAverage > 0 ? ($webPrices['max_price'] ?? null) : null,
@@ -1079,17 +1088,6 @@ INSTRUCTION;
         }, $items);
     }
 
-    private function webPriceNote(string $label, array $wp): string
-    {
-        return sprintf(
-            '%s: Rp %s (rentang Rp %s - Rp %s, %d sampel)',
-            $label,
-            number_format((float) $wp['avg_price'], 0, ',', '.'),
-            number_format((float) ($wp['min_price'] ?? $wp['avg_price']), 0, ',', '.'),
-            number_format((float) ($wp['max_price'] ?? $wp['avg_price']), 0, ',', '.'),
-            (int) ($wp['sample_count'] ?? count($wp['sources'] ?? []))
-        );
-    }
 
     /**
      * Cocokkan item dengan histori: nama sama persis, atau salah satu memuat yang lain
@@ -1112,6 +1110,12 @@ INSTRUCTION;
             if ($brand !== '' && ! str_contains($key, $brand)) {
                 continue;
             }
+            if (! $this->unitsCompatible((string) ($item['uom'] ?? ''), (string) ($h['uom'] ?? ''))) {
+                continue;
+            }
+            if ($this->hasConflictingModelNumber((string) ($item['detailed_specs'] ?? ''), (string) ($h['specifications'] ?? ''))) {
+                continue;
+            }
 
             if ($name === $key) {
                 return $h;
@@ -1125,6 +1129,42 @@ INSTRUCTION;
         }
 
         return null;
+    }
+
+    private function unitsCompatible(string $requested, string $historical): bool
+    {
+        $normalize = static function (string $unit): string {
+            $unit = mb_strtolower(trim($unit));
+            return match ($unit) {
+                'unit', 'pc', 'pcs', 'piece', 'pieces', 'buah', 'ea' => 'piece',
+                'set' => 'set',
+                'box', 'dus', 'karton', 'pack', 'pak' => 'pack',
+                'kg', 'kilogram' => 'kg',
+                'liter', 'litre', 'l' => 'liter',
+                'meter', 'm' => 'meter',
+                default => $unit,
+            };
+        };
+
+        $requested = $normalize($requested);
+        $historical = $normalize($historical);
+
+        return $requested === '' || $historical === '' || $requested === $historical;
+    }
+
+    private function hasConflictingModelNumber(string $requestedSpecs, string $historicalSpecs): bool
+    {
+        if (trim($requestedSpecs) === '' || trim($historicalSpecs) === '') {
+            return false;
+        }
+        $extract = static fn (string $value) => array_values(array_unique(array_filter(
+            preg_split('/[^a-z0-9]+/i', mb_strtolower($value)) ?: [],
+            fn (string $token) => preg_match('/\d/', $token) === 1 && mb_strlen($token) >= 2,
+        )));
+        $requested = $extract($requestedSpecs);
+        $historical = $extract($historicalSpecs);
+
+        return ! empty($requested) && ! empty($historical) && empty(array_intersect($requested, $historical));
     }
 
     /**
@@ -1207,7 +1247,10 @@ INSTRUCTION;
             $description .= "\n\n**Catatan Manager:**\n".$prDraft['manager_notes'];
         }
 
-        $suggested = $prDraft['suggested_items'] ?? [];
+        $suggested = array_values(array_filter(
+            $prDraft['suggested_items'] ?? [],
+            fn (array $item) => (float) ($item['estimated_price'] ?? 0) > 0,
+        ));
 
         // Hanya terima catalogue_id yang benar-benar ada di database.
         $claimedIds = array_values(array_filter(array_column($suggested, 'catalogue_id')));

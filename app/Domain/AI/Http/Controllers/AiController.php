@@ -13,6 +13,7 @@ use App\Domain\AI\Services\OpenAiService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
  * AiController
@@ -128,6 +129,7 @@ class AiController extends Controller
     {
         $request->validate([
             'query' => 'required|string|min:3|max:500',
+            'company_id' => 'nullable|string|exists:companies,id',
         ]);
 
         try {
@@ -165,10 +167,11 @@ class AiController extends Controller
     {
         $request->validate([
             'query' => 'required|string|min:5|max:500',
+            'company_id' => 'nullable|string|exists:companies,id',
         ]);
 
         try {
-            $text = $openAi->generateComparisonText($request->input('query'));
+            $text = $openAi->generateComparisonText($request->input('query'), $request->input('company_id'));
 
             return response()->json([
                 'success' => true,
@@ -193,10 +196,11 @@ class AiController extends Controller
         $request->validate([
             'catalogue_ids' => 'required|array|min:2|max:5',
             'catalogue_ids.*' => 'required|string',
+            'company_id' => 'nullable|string|exists:companies,id',
         ]);
 
         try {
-            $result = $action->execute($request->input('catalogue_ids'));
+            $result = $action->execute($request->input('catalogue_ids'), $request->input('company_id'));
 
             return response()->json([
                 'success' => true,
@@ -231,6 +235,12 @@ class AiController extends Controller
                 'success' => true,
                 'data' => $result,
             ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

@@ -31,12 +31,12 @@ class AiSearchCatalogueAction
         SearchLog::record($query, 'ai', $params['company_id'] ?? null);
 
         // 2. Extract intent dari natural language menggunakan OpenAI
-        $intent = $this->openAi->extractSearchIntent($query);
+        $intent = $this->openAi->extractSearchIntent($query, $params['company_id'] ?? null);
 
         $comparisonAnalysis = null;
         if (!empty($intent['is_comparison'])) {
             try {
-                $comparisonAnalysis = $this->openAi->generateComparisonText($query);
+                $comparisonAnalysis = $this->openAi->generateComparisonText($query, $params['company_id'] ?? null);
             } catch (\Exception $e) {
                 Log::error('generateComparisonText failed', ['error' => $e->getMessage()]);
             }

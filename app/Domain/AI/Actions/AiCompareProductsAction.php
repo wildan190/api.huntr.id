@@ -20,7 +20,7 @@ class AiCompareProductsAction
      * @param array $catalogueIds Array of catalogue UUIDs
      * @return array Hasil perbandingan AI
      */
-    public function execute(array $catalogueIds): array
+    public function execute(array $catalogueIds, ?string $companyId = null): array
     {
         if (count($catalogueIds) < 2) {
             throw new \InvalidArgumentException('Minimal 2 produk diperlukan untuk perbandingan.');
@@ -51,7 +51,7 @@ class AiCompareProductsAction
             throw new \RuntimeException('Produk tidak ditemukan.');
         }
 
-        $aiResult = $this->openAi->compareProducts($catalogues);
+        $aiResult = $this->openAi->compareProducts($catalogues, null, $companyId);
 
         return [
             'catalogues'  => $catalogues,

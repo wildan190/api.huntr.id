@@ -54,7 +54,10 @@ class EnterpriseEntitlementService
             ->where('status', 'active')->whereNotNull('enterprise_plan')
             ->where('starts_at', '<=', now())->where('ends_at', '>', now())
             ->latest('starts_at')->first();
-        $plan = $subscription ? ($subscription->plan_snapshot ?: $this->catalog->find($subscription->enterprise_plan)) : null;
+        $plan = $subscription ? array_replace(
+            $this->catalog->find($subscription->enterprise_plan) ?? [],
+            $subscription->plan_snapshot ?: [],
+        ) : null;
         if (! $plan) {
             return null;
         }
@@ -68,6 +71,7 @@ class EnterpriseEntitlementService
             'users' => (int) $plan['users'] + (int) ($extras['extra_user'] ?? 0),
             'warehouses' => (int) $plan['warehouses'] + (int) ($extras['extra_warehouse'] ?? 0),
             'tax_documents_per_year' => (int) $plan['tax_documents_per_year'],
+            'ai_requests_per_month' => (int) ($plan['ai_requests_per_month'] ?? 0),
         ];
     }
 

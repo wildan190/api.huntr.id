@@ -3,7 +3,9 @@
 namespace App\Domain\AI\Actions;
 
 use App\Domain\AI\Services\GenkitService;
+use App\Domain\AI\Services\AiQuotaService;
 use App\Domain\Rfq\Models\Rfq;
+use Illuminate\Validation\ValidationException;
 
 /**
  * AiRankProposalsAction
@@ -14,7 +16,8 @@ use App\Domain\Rfq\Models\Rfq;
 class AiRankProposalsAction
 {
     public function __construct(
-        private readonly GenkitService $genkit
+        private readonly GenkitService $genkit,
+        private readonly AiQuotaService $quota
     ) {}
 
     /**
@@ -69,11 +72,17 @@ class AiRankProposalsAction
         ])->toArray();
 
         try {
+            $this->quota->assertAvailable($rfq->company_id);
             $aiResult = $this->genkit->rankProposals($proposals, $rfqContext);
-            
+            if (($aiResult['overall_analysis'] ?? '') !== 'AI analysis tidak tersedia.') {
+                $this->quota->recordExternalRequest($rfq->company_id, 'rankProposals');
+            }
+
             if (empty($aiResult['rankings'])) {
                 $aiResult = $this->calculateFallbackRankings($proposals);
             }
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::warning('AiRankProposalsAction: Using fallback ranking', ['error' => $e->getMessage()]);
             $aiResult = $this->calculateFallbackRankings($proposals);
