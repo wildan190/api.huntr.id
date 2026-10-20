@@ -40,11 +40,12 @@ class EloquentCompanyRepository implements CompanyRepositoryInterface
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'ilike', "%{$search}%")
-                  ->orWhere('email', 'ilike', "%{$search}%");
+                  ->orWhere('email', 'ilike', "%{$search}%")
+                  ->orWhere('tax_id', 'ilike', "%{$search}%");
             });
         }
 
-        return $query->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+        return $query->orderByRaw("CASE WHEN status = 'starter' THEN 0 WHEN status = 'pending' THEN 1 ELSE 2 END")
             ->orderBy('id', 'desc')
             ->paginate($perPage);
     }
@@ -56,6 +57,7 @@ class EloquentCompanyRepository implements CompanyRepositoryInterface
     {
         return [
             'total'    => Company::count(),
+            'starter'  => Company::where('status', 'starter')->count(),
             'pending'  => Company::where('status', 'pending')->count(),
             'approved' => Company::where('status', 'approved')->count(),
             'rejected' => Company::where('status', 'rejected')->count(),

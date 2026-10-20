@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property string $name
  * @property string $type
  * @property string $status
+ * @property string $verification_tier
  * @property string $verification_notes
  * @property string $tax_id
  * @property string $country
@@ -46,7 +47,8 @@ class Company extends Model
         'owner_id',
         'name',
         'type', // buyer, vendor
-        'status', // pending, approved, rejected
+        'status', // starter, pending, approved, rejected
+        'verification_tier', // basic, standard, verified
         'verification_notes',
         'tax_id',
         'country', // ID, MY, SG
@@ -73,7 +75,7 @@ class Company extends Model
         'hq_addresses' => 'array',
     ];
 
-    protected $appends = ['logo_url'];
+    protected $appends = ['logo_url', 'profile_completeness'];
 
     /**
      * Get the formatted tax ID.
@@ -143,5 +145,45 @@ class Company extends Model
     public function subscriptions()
     {
         return $this->hasMany(\App\Domain\Subscription\Models\CompanySubscription::class);
+    }
+
+    /**
+     * Check whether this company has been approved by admin and can transact.
+     * 'starter' and 'pending' companies can browse but not publish RFQs / submit bids.
+     */
+    public function isVerified(): bool
+    {
+        return $this->status === 'approved';
+    }
+
+    /**
+     * Alias: can this company perform state-changing procurement actions?
+     */
+    public function canTransact(): bool
+    {
+        return $this->isVerified();
+    }
+
+    /**
+     * Check if the company is at starter tier (registered without docs).
+     */
+    public function isStarter(): bool
+    {
+        return $this->status === 'starter';
+    }
+
+    /**
+     * Calculate profile completeness percentage (0-100).
+     */
+    public function getProfileCompletenessAttribute(): int
+    {
+        $fields = [
+            'tax_id', 'email', 'phone', 'address',
+            'bank_name', 'bank_account', 'industry_type',
+        ];
+        $filled = collect($fields)->filter(fn ($f) => ! empty($this->$f))->count();
+        $docScore = $this->documents()->count() > 0 ? 1 : 0;
+        $total = count($fields) + 1;
+        return (int) round((($filled + $docScore) / $total) * 100);
     }
 }
