@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property string $country
  * @property string $email
  * @property string $phone
+ * @property string|null $website
  * @property string $region
  * @property string $provincy_country
  * @property string $regency
@@ -54,6 +55,7 @@ class Company extends Model
         'country', // ID, MY, SG
         'email',
         'phone',
+        'website',
         'region',
         'provincy_country',
         'regency',

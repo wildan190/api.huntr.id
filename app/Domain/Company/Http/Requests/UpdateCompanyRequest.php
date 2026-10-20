@@ -28,6 +28,7 @@ class UpdateCompanyRequest extends FormRequest
             'country'           => ['nullable', 'string', 'max:10'],
             'email'             => ['nullable', 'email'],
             'phone'             => ['nullable', 'string'],
+            'website'           => ['nullable', 'url', 'max:2048'],
             'region'            => ['nullable', 'string'],
             'provincy_country'  => ['nullable', 'string'],
             'regency'           => ['nullable', 'string'],
