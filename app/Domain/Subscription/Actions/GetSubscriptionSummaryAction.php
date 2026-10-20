@@ -5,10 +5,14 @@ namespace App\Domain\Subscription\Actions;
 use App\Domain\Company\Models\Company;
 use App\Domain\Subscription\Models\CompanySubscription;
 use App\Domain\Subscription\Services\TaxQuotaService;
+use App\Domain\AI\Services\AiQuotaService;
 
 class GetSubscriptionSummaryAction
 {
-    public function __construct(private TaxQuotaService $taxQuota) {}
+    public function __construct(
+        private TaxQuotaService $taxQuota,
+        private AiQuotaService $aiQuota,
+    ) {}
 
     public function execute(Company $company): ?array
     {
@@ -42,6 +46,7 @@ class GetSubscriptionSummaryAction
                 'starts_at' => $scheduled->starts_at?->toIso8601String(),
             ] : null,
             'tax_quota' => $subscription->enterprise_plan ? $this->taxQuota->summary($company) : null,
+            'ai_quota' => $subscription->enterprise_plan ? $this->aiQuota->summary($company) : null,
             'overflow_strategy' => $subscription->overflow_strategy,
             'upfront_fee' => (float) $subscription->upfront_fee,
             'gmv_limit' => (float) $subscription->gmv_limit,

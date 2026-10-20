@@ -87,7 +87,7 @@ TXT;
     private string $model;
     private int $timeout;
 
-    public function __construct()
+    public function __construct(private AiQuotaService $quota)
     {
         $rawKey = config('ai.openai_api_key') ?: env('OPENAI_API_KEY');
         $this->apiKey = is_string($rawKey) ? $rawKey : '';
@@ -263,6 +263,10 @@ TXT;
             throw new \RuntimeException('OpenAI API Key belum terkonfigurasi.');
         }
 
+        if ($companyId !== null) {
+            $this->quota->assertAvailable($companyId);
+        }
+
         $payload = [
             'model' => $this->model,
             'messages' => $messages,
@@ -306,7 +310,7 @@ TXT;
     /**
      * Ekstrak kebutuhan pengadaan. Hasil AI dinormalisasi & diverifikasi terhadap teks user.
      */
-    public function extractSearchIntent(string $userQuery): array
+    public function extractSearchIntent(string $userQuery, ?string $companyId = null): array
     {
         $categories = implode(' | ', self::INTENT_CATEGORIES);
         $departments = implode(' | ', self::DEPARTMENTS);
@@ -344,7 +348,7 @@ PROMPT;
             $raw = $this->askJson(
                 $prompt,
                 'Kamu adalah ekstraktor kebutuhan pengadaan. Tugasmu hanya menyalin dan merapikan informasi dari teks user.' . "\n\n" . self::GROUNDING_RULES,
-                null,
+                $companyId,
                 'extractSearchIntent',
                 0.0
             );
@@ -636,7 +640,7 @@ PROMPT;
      * Bandingkan kandidat secara teknis, HANYA berdasarkan data kandidat.
      * Tidak ada harga, skor, atau rating. id dan nama produk dipulihkan dari server.
      */
-    public function compareProducts(array $catalogues, ?string $userNeed = null): array
+    public function compareProducts(array $catalogues, ?string $userNeed = null, ?string $companyId = null): array
     {
         $candidates = [];
         foreach ($catalogues as $c) {
@@ -704,7 +708,7 @@ PROMPT;
             $res = $this->askJson(
                 $prompt,
                 'Kamu adalah analis produk pengadaan. Kamu hanya merangkum data yang diberikan dan tidak menambah fakta.' . "\n\n" . self::GROUNDING_RULES,
-                null,
+                $companyId,
                 'compareProducts',
                 0.1
             );
@@ -956,7 +960,7 @@ PROMPT;
     /**
      * Teks perbandingan umum (markdown). Tidak memuat harga; berisi penafian.
      */
-    public function generateComparisonText(string $userQuery): string
+    public function generateComparisonText(string $userQuery, ?string $companyId = null): string
     {
         $prompt = <<<PROMPT
 User meminta perbandingan produk berikut:
@@ -974,7 +978,7 @@ PROMPT;
             return $this->ask(
                 $prompt,
                 'Kamu adalah asisten pengadaan yang objektif dan jujur terhadap batas pengetahuannya.' . "\n\n" . self::GROUNDING_RULES,
-                null,
+                $companyId,
                 'generateComparisonText',
                 0.2
             );
@@ -1010,9 +1014,9 @@ PROMPT;
         }
     }
 
-    public function getUsageSummary(string $companyId): array
+    public function getUsageSummary(string $companyId): ?array
     {
-        return AiUsageLog::getMonthlySummary($companyId);
+        return $this->quota->summaryById($companyId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

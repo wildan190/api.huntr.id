@@ -44,6 +44,7 @@ class EnterprisePlanCatalog
                 'tax_documents_per_year' => 1000,
                 'support' => 'Business Hours',
                 'warehouses' => 1,
+                'ai_requests_per_month' => 500,
             ],
             [
                 'key' => 'enterprise_growth',
@@ -55,6 +56,7 @@ class EnterprisePlanCatalog
                 'tax_documents_per_year' => 3000,
                 'support' => 'Priority',
                 'warehouses' => 2,
+                'ai_requests_per_month' => 2000,
             ],
             [
                 'key' => 'enterprise_pro',
@@ -66,6 +68,7 @@ class EnterprisePlanCatalog
                 'tax_documents_per_year' => 5000,
                 'support' => 'Priority',
                 'warehouses' => 100,
+                'ai_requests_per_month' => 10000,
             ],
         ];
         $overrides = collect(($configuration ?? $this->overrides())['plans'] ?? [])->keyBy('key');

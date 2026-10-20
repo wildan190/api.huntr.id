@@ -14,7 +14,7 @@ class UpdateEnterprisePricingRequest extends FormRequest
         return [
             'version' => ['required', 'string', 'size:64'],
             'plans' => ['required', 'array', 'size:3'],
-            'plans.*' => ['required', 'array:key,monthly_price,annual_price,users,companies,tax_documents_per_year,support,warehouses'],
+            'plans.*' => ['required', 'array:key,monthly_price,annual_price,users,companies,tax_documents_per_year,support,warehouses,ai_requests_per_month'],
             'plans.*.key' => ['required', 'distinct', Rule::in(['enterprise_starter', 'enterprise_growth', 'enterprise_pro'])],
             'plans.*.monthly_price' => ['required', 'integer', 'min:1', 'max:1000000000'],
             'plans.*.annual_price' => ['required', 'integer', 'min:1', 'max:12000000000'],
@@ -23,6 +23,7 @@ class UpdateEnterprisePricingRequest extends FormRequest
             'plans.*.tax_documents_per_year' => ['required', 'integer', 'min:0', 'max:10000000'],
             'plans.*.support' => ['required', 'string', 'max:100'],
             'plans.*.warehouses' => ['required', 'integer', 'min:0', 'max:100000'],
+            'plans.*.ai_requests_per_month' => ['required', 'integer', 'min:0', 'max:10000000'],
             'addons' => ['required', 'array', 'size:3'],
             'addons.*' => ['required', 'array:key,price'],
             'addons.*.key' => ['required', 'distinct', Rule::in(['tax_documents', 'extra_user', 'extra_warehouse'])],
