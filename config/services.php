@@ -54,6 +54,7 @@ return [
         'email'    => env('PAJAK_EXPRESS_EMAIL', 'dummy@ortax.org'),
         'password' => env('PAJAK_EXPRESS_PASSWORD', 'Ortax123#'),
         'npwp'     => env('PAJAK_EXPRESS_NPWP'),
+        'local_simulation' => env('PAJAK_EXPRESS_LOCAL_SIMULATION', true),
     ],
 
 ];

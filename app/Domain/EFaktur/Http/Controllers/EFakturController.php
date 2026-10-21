@@ -10,6 +10,7 @@ use App\Domain\EFaktur\Http\Requests\VatInUploadRequest;
 use App\Domain\EFaktur\Http\Requests\VatInVerifyRequest;
 use App\Domain\EFaktur\Models\EFaktur;
 use App\Domain\EFaktur\Services\PajakExpressService;
+use App\Domain\EFaktur\Services\LocalEfakturSimulationService;
 use App\Domain\Order\Models\Bast;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,8 @@ use Illuminate\Support\Facades\Log;
 class EFakturController extends \App\Http\Controllers\Controller
 {
     public function __construct(
-        private readonly PajakExpressService $pajakExpress
+        private readonly PajakExpressService $pajakExpress,
+        private readonly LocalEfakturSimulationService $localSimulation,
     ) {}
 
     /* ═══════════════════════════════════════════════════════════════ */
@@ -211,12 +213,22 @@ class EFakturController extends \App\Http\Controllers\Controller
     {
         $efaktur = EFaktur::findOrFail($id);
 
-        if (!$efaktur->pajak_express_id) {
-            return response()->json(['message' => 'pajak_express_id tidak tersedia.'], 422);
-        }
-
         if (!$efaktur->isDraft()) {
             return response()->json(['message' => "Hanya faktur berstatus DRAFT yang bisa diupload. Status saat ini: {$efaktur->status}"], 422);
+        }
+
+        if ($this->localSimulation->enabled()) {
+            $efaktur = $this->localSimulation->approve($efaktur);
+
+            return response()->json([
+                'message' => 'Faktur berhasil disetujui melalui simulasi lokal.',
+                'efaktur' => $efaktur,
+                'simulated' => true,
+            ]);
+        }
+
+        if (!$efaktur->pajak_express_id) {
+            return response()->json(['message' => 'pajak_express_id tidak tersedia.'], 422);
         }
 
         try {
@@ -349,6 +361,10 @@ class EFakturController extends \App\Http\Controllers\Controller
     {
         $efaktur = EFaktur::findOrFail($id);
 
+        if ($this->localSimulation->enabled() && $efaktur->isApproved()) {
+            return response()->json(['pdf' => $this->localSimulation->pdf($efaktur)]);
+        }
+
         $raw          = $efaktur->raw_response ?? [];
         $approvalSign = $raw['upload']['data']['approvalSign']
             ?? $raw['upload']['data']['approvalsign']
@@ -385,6 +401,12 @@ class EFakturController extends \App\Http\Controllers\Controller
 
         if (!$efaktur->nofa) {
             return response()->json(['message' => 'Nomor faktur belum tersedia.'], 422);
+        }
+
+        if ($this->localSimulation->enabled()) {
+            $result = $this->localSimulation->verify($efaktur, 'verify');
+
+            return response()->json(['message' => $result['message'], 'result' => $result]);
         }
 
         $npwpPenjual = $efaktur->npwp_penjual
@@ -430,6 +452,12 @@ class EFakturController extends \App\Http\Controllers\Controller
 
         if (!$efaktur->nofa) {
             return response()->json(['message' => 'Nomor faktur belum tersedia.'], 422);
+        }
+
+        if ($this->localSimulation->enabled()) {
+            $result = $this->localSimulation->verify($efaktur, 'verify-prepop');
+
+            return response()->json(['message' => $result['message'], 'result' => $result]);
         }
 
         $npwpPenjual = $efaktur->npwp_penjual
@@ -514,6 +542,14 @@ class EFakturController extends \App\Http\Controllers\Controller
      */
     public function vatInList(Request $request): JsonResponse
     {
+        if ($this->localSimulation->enabled()) {
+            $companyId = (string) $request->query('company_id');
+            if ($companyId === '') {
+                return response()->json(['message' => 'company_id diperlukan untuk simulasi faktur masukan lokal.'], 422);
+            }
+            return response()->json($this->localSimulation->vatInList($companyId, (int) $request->query('page', 1), (int) $request->query('limit', 20), (string) $request->query('periode', '')));
+        }
+
         try {
             $result = $this->pajakExpress->listVatIn(
                 (int) $request->query('page', 1),
@@ -532,6 +568,14 @@ class EFakturController extends \App\Http\Controllers\Controller
      */
     public function vatInPrepopulated(VatInPrepopulatedRequest $request): JsonResponse
     {
+        if ($this->localSimulation->enabled()) {
+            $companyId = (string) $request->input('company_id');
+            if ($companyId === '') {
+                return response()->json(['message' => 'company_id diperlukan untuk simulasi prepopulated lokal.'], 422);
+            }
+            return response()->json($this->localSimulation->prepopulatedVatIn($companyId, $request->tahun_pajak, $request->masa_pajak, (string) $request->input('npwp_penjual', ''), (string) $request->input('nomor_faktur', '')));
+        }
+
         try {
             $result = $this->pajakExpress->prepopulatedVatIn(
                 $request->tahun_pajak,
@@ -551,6 +595,14 @@ class EFakturController extends \App\Http\Controllers\Controller
      */
     public function vatInUpload(VatInUploadRequest $request): JsonResponse
     {
+        if ($this->localSimulation->enabled()) {
+            $companyId = (string) $request->input('company_id');
+            if ($companyId === '') {
+                return response()->json(['message' => 'company_id diperlukan untuk simulasi pengkreditan lokal.'], 422);
+            }
+            return response()->json(['result' => $this->localSimulation->creditVatIn($companyId, $request->nomor_faktur)]);
+        }
+
         try {
             $result = $this->pajakExpress->uploadVatIn(
                 $request->nomor_faktur,

@@ -11,6 +11,7 @@ class VatInUploadRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'company_id'              => ['nullable', 'uuid'],
             'nomor_faktur'            => ['required', 'string', 'max:25'],
             'masa_pajak'              => ['required', 'string', 'max:2'],
             'tahun_pajak'             => ['required', 'string', 'size:4', 'regex:/^\d{4}$/'],

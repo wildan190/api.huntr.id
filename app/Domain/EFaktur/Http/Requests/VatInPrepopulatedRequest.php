@@ -11,6 +11,7 @@ class VatInPrepopulatedRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'company_id'   => ['nullable', 'uuid'],
             'tahun_pajak'  => ['required', 'string', 'size:4', 'regex:/^\d{4}$/'],
             'masa_pajak'   => ['required', 'string', 'max:2'],
             'npwp_penjual' => ['nullable', 'string', 'max:20'],
