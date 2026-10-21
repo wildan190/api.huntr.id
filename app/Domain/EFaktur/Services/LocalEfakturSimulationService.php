@@ -209,28 +209,39 @@ class LocalEfakturSimulationService
 
         $content = "q\n0.7 w\n";
         $content .= $this->rect(28, 24, 539, 794) . $this->line(28, 736, 567, 736);
+        $sellerDetails = array_merge(
+            ['Nama : ' . $vendorName],
+            $this->wrap('Alamat : ' . ($vendorAddress ?: '-'), 98),
+            ['NPWP : ' . ($vendorTaxId ?: '-')],
+        );
+        $buyerDetails = array_merge(
+            ['Nama : ' . $buyerName],
+            $this->wrap('Alamat : ' . ($buyerAddress ?: '-'), 98),
+            ['NPWP : ' . ($buyerTaxId ?: '-'), 'NIK : -', 'Nomor Paspor : -', 'Email : ' . ($buyer?->email ?: '-')],
+        );
+
         $content .= $this->text('Faktur Pajak', 297, 812, 16, true, 'center');
         $content .= $this->text('Nama: ' . $vendorName, 330, 788, 9, false)
-            . $this->multiline($this->wrap('Alamat: ' . ($vendorAddress ?: '-'), 51), 330, 775, 9, 11)
-            . $this->text('#' . ($vendorTaxId ?: '0000000000000000') . '000000', 330, 743, 9);
+            . $this->multiline(array_slice($this->wrap('Alamat: ' . ($vendorAddress ?: '-'), 58), 0, 3), 330, 775, 9, 11)
+            . $this->text('#' . ($vendorTaxId ?: '0000000000000000') . '000000', 330, 742, 9);
         $content .= $this->section(28, 708, 539, 28, 'Kode dan Nomor Seri Faktur Pajak: ' . ($efaktur->nofa ?: '-'));
-        $content .= $this->section(28, 682, 539, 26, 'Pengusaha Kena Pajak:');
-        $content .= $this->rect(28, 610, 539, 72)
-            . $this->multiline(['Nama : ' . $vendorName, 'Alamat : ' . ($vendorAddress ?: '-'), 'NPWP : ' . ($vendorTaxId ?: '-')], 38, 662, 9, 12);
-        $content .= $this->section(28, 584, 539, 26, 'Pembeli Barang Kena Pajak/Penerima Jasa Kena Pajak:');
-        $content .= $this->rect(28, 498, 539, 86)
-            . $this->multiline(['Nama : ' . $buyerName, 'Alamat : ' . ($buyerAddress ?: '-'), 'NPWP : ' . ($buyerTaxId ?: '-'), 'NIK : -', 'Nomor Paspor : -', 'Email : ' . ($buyer?->email ?: '-')], 38, 564, 9, 11);
+        $content .= $this->section(28, 680, 539, 26, 'Pengusaha Kena Pajak:');
+        $content .= $this->rect(28, 590, 539, 64)
+            . $this->multiline(array_slice($sellerDetails, 0, 5), 38, 636, 9, 11);
+        $content .= $this->section(28, 590, 539, 26, 'Pembeli Barang Kena Pajak/Penerima Jasa Kena Pajak:');
+        $content .= $this->rect(28, 470, 539, 94)
+            . $this->multiline(array_slice($buyerDetails, 0, 8), 38, 544, 9, 11);
 
-        $tableTop = 498;
-        $headerBottom = 453;
+        $tableTop = 470;
+        $headerBottom = 428;
         $content .= $this->rect(28, $headerBottom, 539, $tableTop - $headerBottom)
             . $this->line(68, $headerBottom, 68, $tableTop) . $this->line(125, $headerBottom, 125, $tableTop) . $this->line(420, $headerBottom, 420, $tableTop)
-            . $this->text('No.', 48, 474, 8, false, 'center') . $this->multiline(['Kode', 'Barang/', 'Jasa'], 96, 485, 8, 9, true, 'center')
-            . $this->text('Nama Barang Kena Pajak / Jasa Kena Pajak', 272, 474, 8, false, 'center')
-            . $this->multiline(['Harga Jual / Penggantian /', 'Uang Muka / Termin', '(Rp)'], 493, 483, 8, 9, true, 'center');
+            . $this->text('No.', 48, 447, 8, false, 'center') . $this->multiline(['Kode', 'Barang/', 'Jasa'], 96, 459, 8, 9, true, 'center')
+            . $this->text('Nama Barang Kena Pajak / Jasa Kena Pajak', 272, 447, 8, false, 'center')
+            . $this->multiline(['Harga Jual / Penggantian /', 'Uang Muka / Termin', '(Rp)'], 493, 457, 8, 9, true, 'center');
         $rowTop = $headerBottom;
         foreach ($items as $index => $item) {
-            $rowHeight = 42;
+            $rowHeight = 38;
             $rowBottom = $rowTop - $rowHeight;
             $description = $this->wrap((string) ($item['namaBrgJasa'] ?? 'Barang'), 43);
             $description[] = sprintf('Rp %s x %s %s', number_format((float) ($item['hargaSatuan'] ?? 0), 0, ',', '.'), $item['jmlBrgJasa'] ?? 1, $item['satuanBrgJasa'] ?? 'Unit');
@@ -248,7 +259,7 @@ class LocalEfakturSimulationService
         $footerY = max(65, $rowTop - 15);
         $content .= $this->multiline(['Sesuai dengan ketentuan yang berlaku, Faktur Pajak ini dibuat dalam simulasi lokal.', 'Dokumen ini bukan dokumen pajak resmi dan tidak berlaku untuk pelaporan DJP.'], 38, $footerY, 7, 9)
             . $this->fakeQr(52, $footerY - 80, $this->approvalSign($efaktur), 62) . $this->text('SIMULASI LOKAL', 85, $footerY - 92, 7, false, 'center')
-            . $this->text(($vendor?->city ?: 'Jakarta') . ', ' . now()->translatedFormat('d F Y'), 340, $footerY - 16, 9) . $this->fakeQr(360, $footerY - 80, $efaktur->id, 62)
+            . $this->text(($vendor?->city ?: 'Jakarta') . ', ' . now()->translatedFormat('d F Y'), 340, $footerY - 16, 9) . $this->fakeQr(360, $footerY - 80, (string) $efaktur->id, 62)
             . $this->text('Ditandatangani secara elektronik', 340, $footerY - 92, 7) . $this->text($vendorName, 340, $footerY - 106, 9, true)
             . $this->text('Referensi: ' . ($efaktur->no_invoice ?: '-'), 38, 42, 6) . $this->text('1 dari 1', 556, 42, 6, false, 'right') . "Q\n";
         $objects = [
