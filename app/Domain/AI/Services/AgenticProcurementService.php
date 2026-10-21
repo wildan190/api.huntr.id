@@ -176,7 +176,7 @@ class AgenticProcurementService
         // Step 6: Susun PR
         $company = ! empty($options['company_id']) ? Company::find($options['company_id']) : null;
 
-        $items = $this->buildPrItems($intent, $foundCatalogues, $options);
+        $items = $this->buildPrItems($intent, $foundCatalogues, $webSearchResults, $historicalPrices, $options);
 
         $context = [
             'company_name' => $company?->name,
@@ -332,6 +332,7 @@ INSTRUCTION;
                     'brand' => $brand,
                     'web_prices' => $priceData,
                     'results' => array_slice($priceData['raw_results'], 0, 20),
+                    'metadata' => $this->webMetadata($priceData, $brand),
                 ];
             }
 
@@ -375,6 +376,39 @@ INSTRUCTION;
         return [$results, $brandComparisons, $summary];
     }
 
+    /** Returns only product facts present in an actual web listing; no AI-generated name/specification. */
+    private function webMetadata(array $priceData, string $claimedBrand = ''): ?array
+    {
+        $samples = (array) ($priceData['sources'] ?? []);
+        $raw = (array) ($priceData['raw_results'] ?? []);
+        $source = $samples[0] ?? $raw[0] ?? null;
+        if (! is_array($source)) {
+            return null;
+        }
+
+        $link = (string) ($source['link'] ?? '');
+        $full = collect($raw)->first(fn (array $result) => (string) ($result['link'] ?? '') === $link) ?? $source;
+        $title = trim(preg_replace('/\s+/u', ' ', strip_tags((string) ($full['title'] ?? ''))));
+        if ($title === '') {
+            return null;
+        }
+        $snippet = trim(preg_replace('/\s+/u', ' ', strip_tags((string) ($full['snippet'] ?? ''))));
+
+        $claimedBrand = trim($claimedBrand);
+        $brand = $claimedBrand !== '' && preg_match('/(?<![\p{L}\p{N}])'.preg_quote($claimedBrand, '/').'(?![\p{L}\p{N}])/iu', $title)
+            ? $claimedBrand
+            : null;
+
+        return [
+            'name' => mb_substr($title, 0, 250),
+            'brand' => $brand,
+            'specifications' => $snippet !== '' ? mb_substr($snippet, 0, 600) : null,
+            'source_url' => $link,
+            'source_title' => $title,
+            'thumbnail' => $full['thumbnail'] ?? null,
+        ];
+    }
+
     private function mergeBrandResults(array &$results, array $brandComparisons): void
     {
         foreach ($brandComparisons as $bc) {
@@ -385,6 +419,7 @@ INSTRUCTION;
                     'brand' => $bc['brand'],
                     'web_prices' => $bc['web_prices'],
                     'results' => $bc['results'],
+                    'metadata' => $this->webMetadata($bc['web_prices'] + ['raw_results' => $bc['results']], $bc['brand']),
                 ];
             }
         }
@@ -897,7 +932,7 @@ INSTRUCTION;
      * Susun item PR di SERVER: satu baris per target item buyer.
      * Jika ada katalog yang cocok, atribut diambil dari katalog; jika tidak, dari teks buyer.
      */
-    private function buildPrItems(array $intent, array $catalogues, array $options = []): array
+    private function buildPrItems(array $intent, array $catalogues, array $webSearchResults, array $historicalPrices, array $options = []): array
     {
         $matched = array_values(array_filter($catalogues, fn ($c) => ($c['ai_match'] ?? false) === true));
         usort($matched, fn ($a, $b) => ($b['ai_score'] ?? 0) <=> ($a['ai_score'] ?? 0));
@@ -912,10 +947,42 @@ INSTRUCTION;
         foreach ($targets as $target) {
             $qty = max(1, (int) ($target['quantity'] ?? 1));
             $cat = $this->pickCatalogueForTarget($target, $matched);
+            if ($cat) {
+                $items[] = $this->itemFromCatalogue($cat, $qty, $target);
+                continue;
+            }
 
-            $items[] = $cat
-                ? $this->itemFromCatalogue($cat, $qty, $target)
-                : $this->itemFromTarget($target, $qty, $intent);
+            $webEntry = $this->bestWebEntry(
+                (string) $target['name'],
+                (string) ($target['brand'] ?? ''),
+                $webSearchResults,
+                false,
+            );
+            if ($webEntry === null && $this->webSearch->isEnabled()) {
+                $live = $this->webSearch->searchMarketPrice(
+                    (string) $target['name'],
+                    (string) ($target['brand'] ?? ''),
+                    (string) ($target['spec_requirements'] ?? ''),
+                );
+                if (! empty($live['raw_results'])) {
+                    $webEntry = [
+                        'item_name' => (string) $target['name'],
+                        'brand' => (string) ($target['brand'] ?? ''),
+                        'web_prices' => $live,
+                        'results' => $live['raw_results'],
+                        'metadata' => $this->webMetadata($live, (string) ($target['brand'] ?? '')),
+                    ];
+                }
+            }
+            if ($webEntry !== null && ! empty($webEntry['metadata']['name'])) {
+                $items[] = $this->itemFromWebMetadata($webEntry, $qty, $target, $intent);
+                continue;
+            }
+
+            $historical = $this->matchHistorical($target, $historicalPrices);
+            if ($historical !== null) {
+                $items[] = $this->itemFromHistoricalMetadata($historical, $qty, $target, $intent);
+            }
         }
 
         // Tidak ada target item tetapi ada katalog yang cocok / dipilih buyer.
@@ -980,20 +1047,44 @@ INSTRUCTION;
         ];
     }
 
-    private function itemFromTarget(array $target, int $qty, array $intent): array
+    private function itemFromWebMetadata(array $entry, int $qty, array $target, array $intent): array
+    {
+        $metadata = $entry['metadata'];
+
+        return [
+            'catalogue_id' => null,
+            'name' => $metadata['name'],
+            'item_code' => null,
+            'category' => $intent['category'] ?? null,
+            'brand' => $metadata['brand'] ?? null,
+            'detailed_specs' => $metadata['specifications'] ?? null,
+            'qty' => $qty,
+            'uom' => $target['uom'] ?? 'unit',
+            'reason' => 'Metadata produk dari listing web yang relevan.',
+            'image_url' => $metadata['thumbnail'] ?? null,
+            'vendor' => null,
+            'metadata_source' => $metadata['source_url'] ?? null,
+            'metadata_source_title' => $metadata['source_title'] ?? null,
+            '_budget_hint_idr' => $target['budget_hint_idr'] ?? null,
+        ];
+    }
+
+    private function itemFromHistoricalMetadata(array $historical, int $qty, array $target, array $intent): array
     {
         return [
             'catalogue_id' => null,
-            'name' => $target['name'],
+            'name' => $historical['item_name'],
             'item_code' => null,
             'category' => $intent['category'] ?? null,
             'brand' => $target['brand'] ?? null,
-            'detailed_specs' => $target['spec_requirements'] ?? null,
+            'detailed_specs' => $historical['specifications'] ?? null,
             'qty' => $qty,
-            'uom' => $target['uom'] ?? 'unit',
-            'reason' => null,
+            'uom' => $historical['uom'] ?? ($target['uom'] ?? 'unit'),
+            'reason' => 'Metadata produk dari transaksi historis yang cocok.',
             'image_url' => null,
             'vendor' => null,
+            'metadata_source' => null,
+            'metadata_source_title' => $historical['source'] === 'historical_po' ? 'Purchase order historis' : 'Penawaran tender historis',
             '_budget_hint_idr' => $target['budget_hint_idr'] ?? null,
         ];
     }
@@ -1080,6 +1171,8 @@ INSTRUCTION;
                 'web_price_avg' => $webAverage > 0 ? $webAverage : null,
                 'web_price_sample_count' => (int) ($webPrices['sample_count'] ?? 0),
                 'web_sources' => $webSources,
+                'metadata_source' => $item['metadata_source'] ?? null,
+                'metadata_source_title' => $item['metadata_source_title'] ?? null,
                 'expected_date' => $expectedDate,
                 'reason' => $item['reason'] ?? null,
                 'image_url' => $item['image_url'] ?? null,
@@ -1113,7 +1206,8 @@ INSTRUCTION;
             if (! $this->unitsCompatible((string) ($item['uom'] ?? ''), (string) ($h['uom'] ?? ''))) {
                 continue;
             }
-            if ($this->hasConflictingModelNumber((string) ($item['detailed_specs'] ?? ''), (string) ($h['specifications'] ?? ''))) {
+            $requestedSpecs = (string) ($item['detailed_specs'] ?? $item['spec_requirements'] ?? '');
+            if ($this->hasConflictingModelNumber($requestedSpecs, (string) ($h['specifications'] ?? ''))) {
                 continue;
             }
 
