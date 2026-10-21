@@ -38,6 +38,7 @@ return [
     'fonnte' => [
         'device_token' => env('FONNTE_DEVICE_TOKEN'),
         'account_token' => env('FONNTE_ACCOUNT_TOKEN'),
+        'notification_driver' => env('WHATSAPP_NOTIFICATION_DRIVER', 'fonnte'),
     ],
 
     'midtrans' => [
