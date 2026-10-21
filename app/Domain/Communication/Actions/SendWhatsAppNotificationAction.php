@@ -43,9 +43,24 @@ class SendWhatsAppNotificationAction
     public function toUsers(iterable $users, string $message, bool $queued = false): array
     {
         $results = [];
+        $logOnly = config('services.fonnte.notification_driver') === 'log';
 
         foreach ($users as $user) {
             if (! $user instanceof User) {
+                continue;
+            }
+
+            if ($logOnly) {
+                Log::info('WhatsApp business notification logged without delivery.', [
+                    'user_id' => (string) $user->id,
+                    'message' => $message,
+                ]);
+                $results[] = [
+                    'user_id' => (string) $user->id,
+                    'ok' => true,
+                    'detail' => 'logged',
+                ];
+
                 continue;
             }
 
