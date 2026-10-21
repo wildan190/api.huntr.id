@@ -24,9 +24,10 @@ class GetRfqsAction
         
         $query = Rfq::with(['items.catalogue.company', 'company', 'user', 'proposals.company']);
         
-        // Data Isolation: If status is not 'active' (Global RFQ), company_id MUST be provided
-        // to prevent companies from seeing each other's private data.
-        if ($status !== 'active' && !$companyId && !$userId) {
+        // Data Isolation: If status is not a published global RFQ status, company_id or user_id MUST be provided
+        // to prevent companies from seeing each other's private data (drafts, pending_approval, rejected).
+        $publishedStatuses = ['active', 'closed', 'awarded', 'all_published', 'all_global'];
+        if (!in_array($status, $publishedStatuses) && !$companyId && !$userId) {
             return new Collection();
         }
 
@@ -38,7 +39,9 @@ class GetRfqsAction
             $query->where('user_id', $userId);
         }
         
-        if ($status) {
+        if (in_array($status, ['all_published', 'all_global'])) {
+            $query->whereIn('status', ['active', 'awarded', 'closed']);
+        } elseif ($status) {
             $query->where('status', $status);
         }
         
