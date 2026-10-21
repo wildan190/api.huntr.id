@@ -14,11 +14,15 @@ use Illuminate\Http\Request;
 use App\Domain\Subscription\Actions\ActivateCompanySubscriptionAction;
 use App\Domain\Admin\Models\AdminSetting;
 use App\Domain\Subscription\Actions\GetSubscriptionSummaryAction;
+use App\Domain\Subscription\Actions\AssignEnterprisePlanAction;
+use App\Domain\Subscription\Actions\GrantEnterpriseTrialAction;
+use App\Domain\Subscription\Http\Requests\AssignEnterprisePlanRequest;
 use App\Domain\Subscription\Models\CompanySubscription;
+use App\Domain\Subscription\Support\EnterprisePlanCatalog;
 
 class AdminCompanyController extends Controller
 {
-    public function getSubscription(Company $company, GetSubscriptionSummaryAction $action): JsonResponse
+    public function getSubscription(Company $company, GetSubscriptionSummaryAction $action, EnterprisePlanCatalog $catalog): JsonResponse
     {
         $summary = $action->execute($company);
         $savedDetails = AdminSetting::get('company_plan_' . $company->id);
@@ -50,6 +54,44 @@ class AdminCompanyController extends Controller
                 'total_amount' => $historicalPoTotal,
                 'total_pos'    => $historicalPoCount,
             ],
+            'enterprise_catalog' => $catalog->plans(),
+            'has_enterprise_history' => CompanySubscription::query()
+                ->where('company_id', $company->id)
+                ->whereNotNull('enterprise_plan')
+                ->exists(),
+        ]);
+    }
+
+    public function assignEnterprisePlan(
+        AssignEnterprisePlanRequest $request,
+        Company $company,
+        AssignEnterprisePlanAction $action,
+    ): JsonResponse {
+        $subscription = $action->execute(
+            $company,
+            $request->string('enterprise_plan')->toString(),
+            $request->string('billing_cycle')->toString(),
+        );
+
+        return response()->json([
+            'message' => 'Paket Enterprise berhasil diterapkan untuk perusahaan ini.',
+            'subscription' => app(GetSubscriptionSummaryAction::class)->execute($company),
+            'assigned_subscription_id' => $subscription->id,
+        ]);
+    }
+
+    public function grantEnterpriseTrial(
+        Company $company,
+        GrantEnterpriseTrialAction $action,
+    ): JsonResponse {
+        $result = $action->execute($company);
+
+        return response()->json([
+            'message' => $result['is_retrial']
+                ? 'Retrial Enterprise Pro 14 hari berhasil diberikan.'
+                : 'Trial Enterprise Pro 14 hari berhasil diberikan.',
+            'retrial' => $result['is_retrial'],
+            'subscription' => app(GetSubscriptionSummaryAction::class)->execute($company),
         ]);
     }
 

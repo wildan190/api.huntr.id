@@ -18,6 +18,13 @@ class GetSubscriptionSummaryAction
     {
         $subscription = CompanySubscription::query()
             ->where('company_id', $company->id)
+            ->where('status', 'active')
+            ->where('starts_at', '<=', now())
+            ->latest('starts_at')
+            ->first();
+
+        $subscription ??= CompanySubscription::query()
+            ->where('company_id', $company->id)
             ->where('starts_at', '<=', now())
             ->latest('starts_at')
             ->first();
