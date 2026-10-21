@@ -158,6 +158,8 @@ Route::prefix('api/admin')->middleware(['api', 'admin.session'])->group(function
     Route::get('companies/{company}/imports', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'getImportData']);
     Route::get('companies/{company}/subscription', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'getSubscription']);
     Route::post('companies/{company}/subscription', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'activateSubscription']);
+    Route::post('companies/{company}/enterprise-plan', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'assignEnterprisePlan']);
+    Route::post('companies/{company}/enterprise-trial', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'grantEnterpriseTrial']);
     Route::post('companies/{company}/subscription-scheme', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'updateCompanySubscriptionScheme']);
     Route::get('subscription-settings', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'getSubscriptionSettings']);
     Route::post('subscription-settings', [\App\Domain\Company\Http\Controllers\AdminCompanyController::class, 'updateSubscriptionSettings']);

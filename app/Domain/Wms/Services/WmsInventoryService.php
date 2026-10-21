@@ -268,7 +268,7 @@ class WmsInventoryService
         $company = $this->context->tenant($request);
         $items = Catalogue::query()->where(function ($query) use ($company) {
             $query->where('company_id', $company->id)->orWhereHas('company', fn ($vendor) => $vendor->where('type', 'vendor')->whereIn('status', ['approved', 'pending']));
-        })->orderBy('name')->limit(500)->get(['id', 'item_code', 'name', 'uom', 'category']);
+        })->orderBy('name')->limit(500)->get(['id', 'item_code', 'name', 'uom', 'category', 'image_path']);
 
         return response()->json(['data' => $items]);
     }
