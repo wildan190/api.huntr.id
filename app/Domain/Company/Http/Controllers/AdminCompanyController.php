@@ -16,6 +16,7 @@ use App\Domain\Admin\Models\AdminSetting;
 use App\Domain\Subscription\Actions\GetSubscriptionSummaryAction;
 use App\Domain\Subscription\Actions\AssignEnterprisePlanAction;
 use App\Domain\Subscription\Actions\GrantEnterpriseTrialAction;
+use App\Domain\Subscription\Actions\RevokeEnterpriseEntitlementAction;
 use App\Domain\Subscription\Http\Requests\AssignEnterprisePlanRequest;
 use App\Domain\Subscription\Models\CompanySubscription;
 use App\Domain\Subscription\Support\EnterprisePlanCatalog;
@@ -91,6 +92,18 @@ class AdminCompanyController extends Controller
                 ? 'Retrial Enterprise Pro 14 hari berhasil diberikan.'
                 : 'Trial Enterprise Pro 14 hari berhasil diberikan.',
             'retrial' => $result['is_retrial'],
+            'subscription' => app(GetSubscriptionSummaryAction::class)->execute($company),
+        ]);
+    }
+
+    public function revokeEnterpriseEntitlement(
+        Company $company,
+        RevokeEnterpriseEntitlementAction $action,
+    ): JsonResponse {
+        $revoked = $action->execute($company);
+
+        return response()->json([
+            'message' => $revoked . ' hak paket Enterprise berhasil dicabut.',
             'subscription' => app(GetSubscriptionSummaryAction::class)->execute($company),
         ]);
     }

@@ -53,7 +53,7 @@ class GrantEnterpriseTrialAction
                 'plan_snapshot' => $plan,
                 'is_trial' => true,
                 'status' => 'active',
-                'overflow_strategy' => CompanySubscription::OVERFLOW_RENEWAL_REQUIRED,
+                'overflow_strategy' => CompanySubscription::OVERFLOW_TRANSACTION_FEE,
                 'upfront_fee' => 0,
                 'gmv_limit' => 0,
                 'current_realized_gmv' => 0,
