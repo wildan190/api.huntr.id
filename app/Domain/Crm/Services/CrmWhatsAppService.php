@@ -7,9 +7,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\ValidationException;
 
 /** Bridges tenant CRM data to the private whatsapp-web.js container. */
@@ -40,7 +42,25 @@ class CrmWhatsAppService
         $company = $this->context->tenant($request);
         $this->serviceSecret();
         $response = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$company->id}"), $company->id);
-        if ($response->status() === 404) return response()->json(['session' => null]);
+        if ($response->status() === 404) {
+            $isConnectedBeforeRestart = DB::table('crm_integration_connections')
+                ->where('company_id', $company->id)
+                ->where('provider', 'whatsapp_web')
+                ->where('channel', 'whatsapp')
+                ->exists();
+
+            if (! $isConnectedBeforeRestart) return response()->json(['session' => null]);
+
+            // A RemoteAuth session lives in the encrypted CRM backup, not the container.
+            // Re-create its in-memory WhatsApp client whenever the sidecar has restarted.
+            $session = $this->callService(
+                fn () => $this->serviceRequest()->post("/sessions/{$company->id}")->throw()->json(),
+                $company->id,
+            );
+            $this->setIntegrationState($company->id, $session['status'] ?? 'initializing', $session);
+
+            return response()->json(['session' => $session]);
+        }
         $session = $response->throw()->json();
         $this->setIntegrationState($company->id, $session['status'] ?? 'unknown', $session);
 
@@ -56,20 +76,24 @@ class CrmWhatsAppService
             'conversation_id' => ['nullable', 'uuid'],
         ])->validate();
         $this->ensureConnectedSession($company->id);
-        $response = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$company->id}/messages", $data)->throw()->json(), $company->id);
+        $response = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$company->id}/messages", $data), $company->id);
+        if (! $response->successful()) {
+            $this->throwForSendFailure($company->id, $response);
+        }
+        $payload = $response->json();
         if (! empty($data['conversation_id'])) {
             $conversation = DB::table('crm_channel_conversations')->where('company_id', $company->id)->where('id', $data['conversation_id'])->first();
             if ($conversation) {
                 DB::table('crm_conversation_messages')->insert([
                     'id' => (string) Str::uuid(), 'company_id' => $company->id, 'conversation_id' => $conversation->id,
                     'author_id' => $request->user()->id, 'direction' => 'outbound', 'body' => $data['body'],
-                    'metadata' => json_encode(['provider_message_id' => $response['message_id'] ?? null]), 'delivered_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+                    'metadata' => json_encode(['provider_message_id' => $payload['message_id'] ?? null]), 'delivered_at' => now(), 'created_at' => now(), 'updated_at' => now(),
                 ]);
                 DB::table('crm_channel_conversations')->where('id', $conversation->id)->update(['last_message_at' => now(), 'updated_at' => now()]);
             }
         }
 
-        return response()->json($response, 201);
+        return response()->json($payload, 201);
     }
 
     public function disconnect(Request $request)
@@ -89,7 +113,7 @@ class CrmWhatsAppService
         return response()->json(['message' => 'Koneksi WhatsApp dan sesi perangkat telah dihapus.']);
     }
 
-    /** Receives an encrypted-at-rest LocalAuth archive from the private sidecar only. */
+    /** Receives an encrypted-at-rest RemoteAuth archive from the private sidecar only. */
     public function storeSessionBackup(Request $request)
     {
         $this->authorizeService($request);
@@ -135,16 +159,22 @@ class CrmWhatsAppService
         $this->authorizeService($request);
         $data = validator($request->all(), [
             'tenant_id' => ['required', 'uuid'],
-            'event' => ['required', 'in:qr,ready,auth_failed,disconnected,error,message'],
-            'qr' => ['nullable', 'string'], 'phone' => ['nullable', 'string'], 'message' => ['nullable', 'string'],
-            'external_id' => ['nullable', 'string'], 'body' => ['nullable', 'string'], 'message_id' => ['nullable', 'string'], 'received_at' => ['nullable', 'date'],
+            'event' => ['required', 'in:qr,syncing,ready,auth_failed,disconnected,error,message'],
+            'qr' => ['nullable', 'string'], 'phone' => ['nullable', 'string', 'max:40'], 'message' => ['nullable', 'string'],
+            'external_id' => ['nullable', 'string'], 'customer_name' => ['nullable', 'string', 'max:255'],
+            'media' => ['nullable', 'array'],
+            'media.type' => ['nullable', 'in:image'],
+            'media.mime_type' => ['nullable', 'in:image/jpeg,image/png,image/webp,image/gif'],
+            'media.filename' => ['nullable', 'string', 'max:255'],
+            'media.data' => ['nullable', 'string', 'max:7000000'],
+            'body' => ['nullable', 'string'], 'message_id' => ['nullable', 'string'], 'received_at' => ['nullable', 'date'],
         ])->validate();
 
         if ($data['event'] === 'message') {
             $this->storeInboundMessage($data);
         } else {
             $status = match ($data['event']) {
-                'qr' => 'awaiting_scan', 'ready' => 'connected', default => $data['event'],
+                'qr' => 'awaiting_scan', 'syncing' => 'initializing', 'ready' => 'connected', default => $data['event'],
             };
             $this->setIntegrationState($data['tenant_id'], $status, $data);
         }
@@ -155,16 +185,22 @@ class CrmWhatsAppService
     private function storeInboundMessage(array $data): void
     {
         $companyId = $data['tenant_id'];
-        $phone = preg_replace('/\D/', '', (string) $data['external_id']);
+        $resolvedPhone = preg_replace('/\D/', '', (string) ($data['phone'] ?? ''));
+        $phone = $resolvedPhone !== '' ? $resolvedPhone : preg_replace('/\D/', '', (string) $data['external_id']);
+        $incomingName = trim((string) ($data['customer_name'] ?? ''));
+        $fallbackName = $resolvedPhone !== '' ? 'WhatsApp +' . $resolvedPhone : 'Kontak WhatsApp';
         $customer = DB::table('crm_customers')->where('company_id', $companyId)->where('phone', $phone)->first();
         if (! $customer) {
             $customerId = (string) Str::uuid();
             DB::table('crm_customers')->insert([
-                'id' => $customerId, 'company_id' => $companyId, 'name' => 'WhatsApp ' . $phone,
-                'phone' => $phone, 'lifecycle_stage' => 'prospect', 'source' => 'whatsapp', 'language' => 'id', 'currency' => 'IDR',
+                'id' => $customerId, 'company_id' => $companyId, 'name' => $incomingName !== '' ? $incomingName : $fallbackName,
+                'phone' => $phone !== '' ? $phone : null, 'lifecycle_stage' => 'prospect', 'source' => 'whatsapp', 'language' => 'id', 'currency' => 'IDR',
                 'created_at' => now(), 'updated_at' => now(),
             ]);
             $customer = DB::table('crm_customers')->find($customerId);
+        } elseif ($incomingName !== '' && str_starts_with((string) $customer->name, 'WhatsApp ')) {
+            DB::table('crm_customers')->where('id', $customer->id)->update(['name' => $incomingName, 'updated_at' => now()]);
+            $customer = DB::table('crm_customers')->find($customer->id);
         }
         $conversation = DB::table('crm_channel_conversations')->where('company_id', $companyId)->where('channel', 'whatsapp')->where('external_id', $data['external_id'])->first();
         if (! $conversation) {
@@ -172,17 +208,25 @@ class CrmWhatsAppService
             DB::table('crm_channel_conversations')->insert([
                 'id' => $conversationId, 'company_id' => $companyId, 'customer_id' => $customer->id,
                 'channel' => 'whatsapp', 'external_id' => $data['external_id'], 'status' => 'open', 'last_message_at' => now(),
-                'metadata' => json_encode(['provider' => 'whatsapp-web.js']), 'created_at' => now(), 'updated_at' => now(),
+                'metadata' => json_encode(['provider' => 'whatsapp-web.js', 'phone_resolved' => $resolvedPhone !== '']), 'created_at' => now(), 'updated_at' => now(),
             ]);
             $conversation = DB::table('crm_channel_conversations')->find($conversationId);
+        } elseif ($conversation->customer_id !== $customer->id) {
+            DB::table('crm_channel_conversations')->where('id', $conversation->id)->update(['customer_id' => $customer->id, 'updated_at' => now()]);
+            $conversation = DB::table('crm_channel_conversations')->find($conversation->id);
         }
         if (! empty($data['message_id']) && DB::table('crm_conversation_messages')
             ->where('company_id', $companyId)
             ->whereRaw("metadata::text like ?", ['%' . $data['message_id'] . '%'])
             ->exists()) return;
+        $media = $this->storeInboundImage($companyId, $data['media'] ?? null);
         DB::table('crm_conversation_messages')->insert([
             'id' => (string) Str::uuid(), 'company_id' => $companyId, 'conversation_id' => $conversation->id,
-            'direction' => 'inbound', 'body' => $data['body'] ?? '', 'metadata' => json_encode(['provider_message_id' => $data['message_id'] ?? null]),
+            'direction' => 'inbound', 'body' => $data['body'] ?? '',
+            'metadata' => json_encode(array_filter([
+                'provider_message_id' => $data['message_id'] ?? null,
+                'media' => $media,
+            ])),
             'delivered_at' => $data['received_at'] ?? now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('crm_channel_conversations')->where('id', $conversation->id)->update(['last_message_at' => now(), 'updated_at' => now()]);
@@ -193,6 +237,32 @@ class CrmWhatsAppService
             $data['body'] ?? '',
             $conversation->id,
         );
+    }
+
+    /** Stores a bounded inbound image outside the message row and returns safe preview metadata. */
+    private function storeInboundImage(string $companyId, mixed $media): ?array
+    {
+        if (! is_array($media) || ($media['type'] ?? null) !== 'image') return null;
+
+        $mimeType = (string) ($media['mime_type'] ?? '');
+        $extension = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/gif' => 'gif',
+        ][$mimeType] ?? null;
+        $binary = base64_decode((string) ($media['data'] ?? ''), true);
+        if (! $extension || $binary === false || $binary === '' || strlen($binary) > 5 * 1024 * 1024) return null;
+
+        $path = "crm/whatsapp/{$companyId}/" . Str::uuid() . ".{$extension}";
+        Storage::disk('public')->put($path, $binary);
+
+        return [
+            'type' => 'image',
+            'url' => Storage::disk('public')->url($path),
+            'mime_type' => $mimeType,
+            'filename' => Str::limit((string) ($media['filename'] ?? 'foto-whatsapp'), 120, ''),
+        ];
     }
 
     private function upsertIntegration(string $companyId, string $status): void
@@ -221,7 +291,7 @@ class CrmWhatsAppService
             ->acceptJson()->timeout(15);
     }
 
-    /** Restore a persisted LocalAuth session after the WhatsApp sidecar restarts. */
+    /** Restore a persisted RemoteAuth session after the WhatsApp sidecar restarts. */
     private function ensureConnectedSession(string $companyId): void
     {
         $response = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$companyId}"), $companyId);
@@ -268,6 +338,32 @@ class CrmWhatsAppService
     {
         $secret = $this->serviceSecret();
         abort_unless(hash_equals($secret, (string) $request->header('x-crm-service-secret')), 401);
+    }
+
+    /** Converts a sidecar send failure into a recoverable CRM response. */
+    private function throwForSendFailure(string $companyId, \Illuminate\Http\Client\Response $response): never
+    {
+        $payload = $response->json();
+        $session = is_array($payload['session'] ?? null) ? $payload['session'] : [];
+        $status = $session['status'] ?? ($response->status() === 409 ? 'disconnected' : 'error');
+
+        if ($session) {
+            $this->setIntegrationState($companyId, $status, $session);
+        }
+
+        if ($response->status() === 409 || in_array($status, ['awaiting_scan', 'auth_failed', 'disconnected'], true)) {
+            throw new HttpResponseException(response()->json([
+                'message' => 'Sesi WhatsApp tidak aktif. Buka Automation untuk scan QR atau hubungkan kembali.',
+                'code' => 'whatsapp_session_unavailable',
+                'action' => ['label' => 'Buka Automation', 'target' => 'automation'],
+            ], 409));
+        }
+
+        throw new HttpResponseException(response()->json([
+            'message' => $payload['message'] ?? 'WhatsApp tidak dapat mengirim pesan. Periksa nomor tujuan dan status sesi di Automation.',
+            'code' => $payload['code'] ?? 'whatsapp_send_failed',
+            'action' => ['label' => 'Buka Automation', 'target' => 'automation'],
+        ], 503));
     }
 
     private function callService(callable $callback, ?string $companyId = null): mixed
