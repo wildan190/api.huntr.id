@@ -1,7 +1,8 @@
 # ==========================================
 # Base Stage
 # ==========================================
-FROM php:8.3-fpm-alpine AS base
+ARG PHP_VERSION=8.5
+FROM php:${PHP_VERSION}-fpm-alpine AS base
 
 # Install system dependencies
 RUN apk add --no-cache \
@@ -19,6 +20,8 @@ RUN apk add --no-cache \
     bash \
     openssl
 
+RUN { echo 'post_max_size = 32M'; echo 'upload_max_filesize = 32M'; } > "$PHP_INI_DIR/conf.d/crm-session-backup.ini"
+
 # Install PHP extensions
 RUN docker-php-ext-install \
     pdo_pgsql \
@@ -26,8 +29,7 @@ RUN docker-php-ext-install \
     bcmath \
     gd \
     zip \
-    pcntl \
-    opcache
+    pcntl
 
 # Install Redis extension
 RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \

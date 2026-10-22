@@ -280,13 +280,22 @@ class CompanyController extends \App\Http\Controllers\Controller
             }
         }
 
-        $members = $company->users()
+        app(\App\Domain\Company\Services\CompanyAccessService::class)->bootstrap($company);
+        $memberRoleIds = DB::table('company_user_roles')->where('company_id', $company->id)->pluck('company_role_id', 'user_id');
+        $companyRoles = \App\Domain\Company\Models\CompanyRole::query()->where('company_id', $company->id)->get()->keyBy('id');
+        $members = \App\Domain\Auth\Models\User::query()
+            ->where(function ($query) use ($company) {
+                $query->where('company_id', $company->id)->orWhere('id', $company->owner_id);
+            })
             ->select('users.id', 'users.name', 'users.email', 'users.whatsapp')
             ->with('roles')
             ->get()
-            ->map(function ($user) {
+            ->map(function ($user) use ($memberRoleIds, $companyRoles) {
                 $data = $user->toArray();
-                $data['role'] = $user->role;
+                $companyRole = $companyRoles->get($memberRoleIds[$user->id] ?? null);
+                $data['role'] = $companyRole?->name ?? $user->role;
+                $data['role_id'] = $companyRole?->id;
+                $data['role_slug'] = $companyRole?->slug ?? $user->role;
                 return $data;
             });
 
@@ -322,8 +331,10 @@ class CompanyController extends \App\Http\Controllers\Controller
             return response()->json(['message' => 'You are not authorized to manage this company.'], 403);
         }
 
-        if (!in_array($requestingUser->role, ['manager']) && $company->owner_id !== $requestingUser->id) {
-            return response()->json(['message' => 'Only managers and company owners can change user roles.'], 403);
+        $access = app(\App\Domain\Company\Services\CompanyAccessService::class);
+        $access->bootstrap($company);
+        if (! $access->can($requestingUser, $company, 'team.manage')) {
+            return response()->json(['message' => 'Role Anda belum memiliki izin untuk mengelola akses team.'], 403);
         }
 
         $targetUser = \App\Domain\Auth\Models\User::findOrFail($request->user_id);
@@ -337,6 +348,19 @@ class CompanyController extends \App\Http\Controllers\Controller
         }
 
         $newRole = $request->role;
+
+        // A company role ID is the dynamic access model. Legacy slugs below
+        // remain supported for existing API clients and invitations.
+        $companyRole = \App\Domain\Company\Models\CompanyRole::query()
+            ->where('company_id', $company->id)->whereKey($newRole)->first();
+        if ($companyRole) {
+            app(\App\Domain\Company\Services\CompanyAccessService::class)
+                ->assignRole($company, $requestingUser, $targetUser->id, $companyRole->id);
+            return response()->json([
+                'message' => 'User role updated successfully.',
+                'user' => ['id' => $targetUser->id, 'name' => $targetUser->name, 'email' => $targetUser->email, 'role' => $companyRole->name, 'role_id' => $companyRole->id],
+            ]);
+        }
 
         $validRoles = [];
         if ($company->type === 'buyer') {

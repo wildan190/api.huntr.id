@@ -3,6 +3,8 @@
 namespace App\Domain\Company\Actions;
 
 use App\Domain\Company\Models\Company;
+use App\Domain\Company\Models\CompanyRole;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Company\Models\CompanyInvitation;
 use App\Domain\Auth\Models\User;
 use Illuminate\Support\Str;
@@ -13,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 
 class InviteUserAction
 {
+    public function __construct(private CompanyAccessService $access) {}
     /**
      * Create a new company invitation and dispatch invitation email.
      */
@@ -20,11 +23,15 @@ class InviteUserAction
     {
         $company = Company::findOrFail($data['company_id']);
 
-        if ($company->owner_id !== $inviter->id && !$inviter->hasRole('manager')) {
+        $this->access->bootstrap($company);
+        if (! $this->access->can($inviter, $company, 'team.manage')) {
             throw new \Exception("Unauthorized to invite users to this company.");
         }
 
-        $this->validateRoleForCompanyType($data['role'], $company->type, $company->id);
+        $companyRole = CompanyRole::query()->where('company_id', $company->id)->whereKey($data['role'])->first();
+        if (! $companyRole) {
+            $this->validateRoleForCompanyType($data['role'], $company->type, $company->id);
+        }
 
         $token = Str::random(32);
 
@@ -32,7 +39,10 @@ class InviteUserAction
             'company_id' => $company->id,
             'email' => $data['email'],
             'whatsapp' => $data['whatsapp'] ?? null,
-            'role' => $data['role'],
+            // Keep the legacy role for invitation compatibility. The company role
+            // is the authoritative assignment when this invitation is accepted.
+            'role' => $companyRole ? ($company->type === 'vendor' ? 'admin' : 'buyer') : $data['role'],
+            'company_role_id' => $companyRole?->id,
             'token' => $token,
             'status' => 'pending',
             'expires_at' => now()->addDays(7),

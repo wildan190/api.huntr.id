@@ -76,13 +76,15 @@ class RfqController extends Controller
     /**
      * Membuat RFQ baru (Purchase Requisition).
      */
-    public function store(CreateRfqRequest $request, CreateRfqAction $action): JsonResponse
+    public function store(CreateRfqRequest $request, CreateRfqAction $action, \App\Domain\Company\Services\CompanyAccessService $access): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
 
         if ($company->type !== 'buyer') {
             return response()->json(['message' => 'Hanya perusahaan Buyer yang dapat membuat RFQ.'], 422);
         }
+        $access->bootstrap($company);
+        $access->assertCan($request->user(), $company, 'procurement.pr.create', 'Role Anda belum memiliki izin untuk membuat PR.');
 
         $data = $request->validated();
 

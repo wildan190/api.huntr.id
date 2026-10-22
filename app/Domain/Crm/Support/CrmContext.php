@@ -5,12 +5,16 @@ namespace App\Domain\Crm\Support;
 use App\Domain\Company\Models\Company;
 use App\Domain\Subscription\Models\CompanySubscription;
 use App\Domain\Subscription\Services\SubscriptionAccessService;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class CrmContext
 {
-    public function __construct(private SubscriptionAccessService $subscriptionAccess) {}
+    public function __construct(
+        private SubscriptionAccessService $subscriptionAccess,
+        private CompanyAccessService $access,
+    ) {}
 
     public function tenant(Request $request, bool $requireInstalled = true): Company
     {
@@ -24,6 +28,8 @@ class CrmContext
             $this->subscriptionAccess->assertAvailable($company);
             abort_unless($this->hasProEntitlement($company), 403, 'CRM hanya tersedia untuk paket Enterprise Pro yang aktif.');
             abort_unless($this->isInstalled($company), 403, 'Install CRM dari App Market terlebih dahulu.');
+            $this->access->bootstrap($company);
+            abort_unless($this->access->can($user, $company, 'crm.access'), 403, 'Akses CRM belum diberikan pada role Anda.');
         }
 
         return $company;

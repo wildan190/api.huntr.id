@@ -5,6 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
+      args:
+        PHP_VERSION: "8.5"
     container_name: huntr_app_staging
     volumes: [] # No host volume mounting in staging for isolation
     env_file:
@@ -37,6 +39,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
+      args:
+        PHP_VERSION: "8.5"
     container_name: huntr_horizon_staging
     command: php artisan horizon
     volumes: []
@@ -49,6 +53,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
+      args:
+        PHP_VERSION: "8.5"
     container_name: huntr_reverb_staging
     command: php artisan reverb:start --host=0.0.0.0 --port=8080
     ports:

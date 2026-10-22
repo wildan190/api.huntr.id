@@ -6,16 +6,16 @@
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.3",
         "dedoc/scramble": "^0.13.23",
         "laravel/fortify": "^1.37",
-        "laravel/framework": "^12.0",
-        "laravel/horizon": "^5.47",
+        "laravel/framework": "^13.0",
+        "laravel/horizon": "^5.50",
         "laravel/pulse": "^1.7",
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.0",
         "laravel/scout": "^11.2",
-        "laravel/tinker": "^2.10.1",
+        "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.0",
         "predis/predis": "^3.4",
         "rap2hpoutre/fast-excel": "^5.7"
@@ -27,7 +27,7 @@
         "laravel/sail": "^1.41",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^11.5.50"
+        "phpunit/phpunit": "^12.0"
     },
     "autoload": {
         "psr-4": {
@@ -86,7 +86,7 @@
     },
     "config": {
         "platform": {
-            "php": "8.3.31"
+            "php": "8.5.1"
         },
         "optimize-autoloader": true,
         "preferred-install": "dist",

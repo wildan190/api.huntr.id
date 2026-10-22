@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('api/crm/oauth/{provider}/callback', [CrmController::class, 'emailOAuthCallback']);
 Route::post('api/crm/integrations/whatsapp/events', [CrmController::class, 'whatsAppEvent'])->middleware('api');
+Route::post('api/crm/integrations/whatsapp/session-backups', [CrmController::class, 'storeWhatsAppSessionBackup'])->middleware('api');
+Route::get('api/crm/integrations/whatsapp/session-backups/{tenantId}', [CrmController::class, 'whatsAppSessionBackup'])->middleware('api');
 
 Route::prefix('api/crm')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('/apps', [CrmController::class, 'apps']);

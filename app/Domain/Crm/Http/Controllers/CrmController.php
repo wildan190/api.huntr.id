@@ -55,6 +55,8 @@ class CrmController
     public function sendWhatsApp(Request $request, CrmWhatsAppService $service) { return $service->send($request); }
     public function disconnectWhatsApp(Request $request, CrmWhatsAppService $service) { return $service->disconnect($request); }
     public function whatsAppEvent(Request $request, CrmWhatsAppService $service) { return $service->webhook($request); }
+    public function storeWhatsAppSessionBackup(Request $request, CrmWhatsAppService $service) { return $service->storeSessionBackup($request); }
+    public function whatsAppSessionBackup(Request $request, string $tenantId, CrmWhatsAppService $service) { return $service->sessionBackup($request, $tenantId); }
     public function forecast(Request $request, CrmService $service) { return $service->forecast($request); }
     public function contacts(Request $request, CrmEnterpriseService $service) { return $service->contacts($request); }
     public function storeContact(Request $request, CrmEnterpriseService $service) { return $service->storeContact($request); }

@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Domain\Company\Http\Controllers\CompanyController;
+use App\Domain\Company\Http\Controllers\CompanyAccessController;
 use App\Http\Controllers\DocumentController;
 
 // Public: get invitation info by token (no auth needed — used by register page to pre-fill phone)
@@ -27,6 +28,18 @@ Route::prefix('api/companies')->middleware(['api', 'cors', 'auth:api'])->group(f
     Route::post('accept-invitation', [CompanyController::class, 'acceptInvitation']);
     Route::get('{company}/members', [CompanyController::class, 'teamMembers']);
     Route::put('{company}/users/role', [CompanyController::class, 'updateUserRole']);
+    Route::get('{company}/access', [CompanyAccessController::class, 'show']);
+    Route::post('{company}/access/roles', [CompanyAccessController::class, 'storeRole']);
+    Route::put('{company}/access/roles/{role}', [CompanyAccessController::class, 'updateRole']);
+    Route::delete('{company}/access/roles/{role}', [CompanyAccessController::class, 'destroyRole']);
+    Route::post('{company}/access/permissions', [CompanyAccessController::class, 'storePermission']);
+    Route::post('{company}/access/assignments', [CompanyAccessController::class, 'assignRole']);
+    Route::post('{company}/approval-flows', [CompanyAccessController::class, 'storeFlow']);
+    Route::put('{company}/approval-flows/{flow}', [CompanyAccessController::class, 'updateFlow']);
+    Route::delete('{company}/approval-flows/{flow}', [CompanyAccessController::class, 'destroyFlow']);
+    Route::get('{company}/approval-requests', [CompanyAccessController::class, 'queue']);
+    Route::post('{company}/approval-requests/{approvalRequest}/approve', [CompanyAccessController::class, 'approve']);
+    Route::post('{company}/approval-requests/{approvalRequest}/reject', [CompanyAccessController::class, 'reject']);
     Route::get('{company}/diagnose-roles', [CompanyController::class, 'diagnoseRoles']);
     Route::post('{company}/fix-owner-role', [CompanyController::class, 'fixCompanyOwnerRole']);
     Route::post('{company}/switch-active', [CompanyController::class, 'switchActiveCompany']);
