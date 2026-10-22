@@ -45,6 +45,7 @@ class EnterprisePlanCatalog
                 'support' => 'Business Hours',
                 'warehouses' => 1,
                 'ai_requests_per_month' => 500,
+                'crm' => false,
             ],
             [
                 'key' => 'enterprise_growth',
@@ -57,6 +58,7 @@ class EnterprisePlanCatalog
                 'support' => 'Priority',
                 'warehouses' => 2,
                 'ai_requests_per_month' => 2000,
+                'crm' => false,
             ],
             [
                 'key' => 'enterprise_pro',
@@ -69,6 +71,7 @@ class EnterprisePlanCatalog
                 'support' => 'Priority',
                 'warehouses' => 100,
                 'ai_requests_per_month' => 10000,
+                'crm' => true,
             ],
         ];
         $overrides = collect(($configuration ?? $this->overrides())['plans'] ?? [])->keyBy('key');

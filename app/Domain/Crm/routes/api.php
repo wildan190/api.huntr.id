@@ -1,0 +1,67 @@
+<?php
+
+use App\Domain\Crm\Http\Controllers\CrmController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('api/crm/oauth/{provider}/callback', [CrmController::class, 'emailOAuthCallback']);
+Route::post('api/crm/integrations/whatsapp/events', [CrmController::class, 'whatsAppEvent'])->middleware('api');
+
+Route::prefix('api/crm')->middleware(['api', 'auth:api'])->group(function () {
+    Route::get('/apps', [CrmController::class, 'apps']);
+    Route::post('/apps/install', [CrmController::class, 'install']);
+    Route::delete('/apps/install', [CrmController::class, 'uninstall']);
+    Route::get('/dashboard', [CrmController::class, 'dashboard']);
+    Route::get('/customers', [CrmController::class, 'customers']);
+    Route::post('/customers', [CrmController::class, 'storeCustomer']);
+    Route::get('/customers/{customerId}', [CrmController::class, 'customer']);
+    Route::put('/customers/{customerId}', [CrmController::class, 'updateCustomer']);
+    Route::get('/leads', [CrmController::class, 'leads']);
+    Route::post('/leads', [CrmController::class, 'storeLead']);
+    Route::put('/leads/{leadId}', [CrmController::class, 'updateLead']);
+    Route::post('/leads/{leadId}/convert', [CrmController::class, 'convertLead']);
+    Route::get('/deals', [CrmController::class, 'deals']);
+    Route::post('/deals', [CrmController::class, 'storeDeal']);
+    Route::put('/deals/{dealId}', [CrmController::class, 'updateDeal']);
+    Route::get('/activities', [CrmController::class, 'activities']);
+    Route::post('/activities', [CrmController::class, 'storeActivity']);
+    Route::put('/activities/{activityId}', [CrmController::class, 'updateActivity']);
+    Route::get('/tickets', [CrmController::class, 'tickets']);
+    Route::post('/tickets', [CrmController::class, 'storeTicket']);
+    Route::put('/tickets/{ticketId}', [CrmController::class, 'updateTicket']);
+    Route::get('/tickets/{ticketId}/messages', [CrmController::class, 'ticketMessages']);
+    Route::post('/tickets/{ticketId}/messages', [CrmController::class, 'storeTicketMessage']);
+    Route::get('/conversations', [CrmController::class, 'conversations']);
+    Route::post('/conversations', [CrmController::class, 'storeConversation']);
+    Route::get('/conversations/{conversationId}/messages', [CrmController::class, 'conversationMessages']);
+    Route::post('/conversations/{conversationId}/messages', [CrmController::class, 'storeConversationMessage']);
+    Route::get('/quotes', [CrmController::class, 'quotes']);
+    Route::post('/quotes', [CrmController::class, 'storeQuote']);
+    Route::get('/territories', [CrmController::class, 'territories']);
+    Route::post('/territories', [CrmController::class, 'storeTerritory']);
+    Route::get('/workflows', [CrmController::class, 'workflows']);
+    Route::post('/workflows', [CrmController::class, 'storeWorkflow']);
+    Route::get('/email-connections', [CrmController::class, 'emailConnections']);
+    Route::post('/email-connections', [CrmController::class, 'storeEmailConnection']);
+    Route::post('/email-connections/{provider}/authorize', [CrmController::class, 'authorizeEmail']);
+    Route::post('/email-connections/sync', [CrmController::class, 'syncEmailInbox']);
+    Route::get('/forecast', [CrmController::class, 'forecast']);
+    Route::get('/contacts', [CrmController::class, 'contacts']);
+    Route::post('/contacts', [CrmController::class, 'storeContact']);
+    Route::get('/campaigns', [CrmController::class, 'campaigns']);
+    Route::post('/campaigns', [CrmController::class, 'storeCampaign']);
+    Route::get('/knowledge', [CrmController::class, 'knowledge']);
+    Route::post('/knowledge', [CrmController::class, 'storeKnowledge']);
+    Route::get('/integrations', [CrmController::class, 'integrations']);
+    Route::post('/integrations', [CrmController::class, 'connectIntegration']);
+    Route::post('/integrations/whatsapp/session', [CrmController::class, 'startWhatsApp']);
+    Route::get('/integrations/whatsapp/session', [CrmController::class, 'whatsAppStatus']);
+    Route::post('/integrations/whatsapp/messages', [CrmController::class, 'sendWhatsApp']);
+    Route::delete('/integrations/whatsapp/session', [CrmController::class, 'disconnectWhatsApp']);
+    Route::get('/currency-rates', [CrmController::class, 'rates']);
+    Route::post('/currency-rates', [CrmController::class, 'storeRate']);
+    Route::get('/sales-targets', [CrmController::class, 'targets']);
+    Route::post('/sales-targets', [CrmController::class, 'storeTarget']);
+    Route::post('/quotes/{quoteId}/approval-requests', [CrmController::class, 'requestQuoteApproval']);
+    Route::post('/quotes/{quoteId}/approval-requests/{approvalId}/decision', [CrmController::class, 'decideQuoteApproval']);
+    Route::get('/reports', [CrmController::class, 'reports']);
+});

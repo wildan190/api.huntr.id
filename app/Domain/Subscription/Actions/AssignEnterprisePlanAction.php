@@ -53,7 +53,7 @@ class AssignEnterprisePlanAction
                 'plan_snapshot' => $plan,
                 'is_trial' => false,
                 'status' => 'active',
-                'overflow_strategy' => CompanySubscription::OVERFLOW_RENEWAL_REQUIRED,
+                'overflow_strategy' => CompanySubscription::OVERFLOW_TRANSACTION_FEE,
                 'upfront_fee' => $plan[$billingCycle === 'annual' ? 'annual_price' : 'monthly_price'],
                 'gmv_limit' => 0,
                 'current_realized_gmv' => 0,

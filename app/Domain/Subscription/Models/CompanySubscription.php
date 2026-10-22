@@ -35,14 +35,6 @@ class CompanySubscription extends Model
     protected static function booted(): void
     {
         static::saving(function (self $subscription): void {
-            if ($subscription->plan === 'gmv_subscription') {
-                $expectedUpfrontFee = round((float) $subscription->gmv_limit * self::UPFRONT_RATE, 2);
-
-                if (round((float) $subscription->upfront_fee, 2) !== $expectedUpfrontFee) {
-                    throw new \InvalidArgumentException('Biaya subscription harus tepat 1,5% dari kuota GMV.');
-                }
-            }
-
             if ($subscription->starts_at && $subscription->ends_at && $subscription->ends_at->greaterThan($subscription->starts_at->copy()->addYear())) {
                 throw new \InvalidArgumentException('Masa berlaku subscription tidak boleh lebih dari satu tahun.');
             }

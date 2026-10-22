@@ -83,5 +83,23 @@ services:
     depends_on:
       - app
 
+  whatsapp:
+    build:
+      context: ./services/crm-whatsapp
+      dockerfile: Dockerfile
+    container_name: huntr_whatsapp_prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      PORT: 3100
+      WHATSAPP_AUTH_PATH: /data/auth
+      CRM_WHATSAPP_WEBHOOK_URL: http://web/api/crm/integrations/whatsapp/events
+    volumes:
+      - whatsapp_auth:/data/auth
+    depends_on:
+      - web
+
 volumes:
   pgdata: # <--- Tempat penyimpanan database aman
+  whatsapp_auth:

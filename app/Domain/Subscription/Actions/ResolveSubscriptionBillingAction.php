@@ -3,7 +3,6 @@
 namespace App\Domain\Subscription\Actions;
 
 use App\Domain\Company\Models\Company;
-use App\Domain\Subscription\Exceptions\SubscriptionRenewalRequiredException;
 use App\Domain\Subscription\Models\CompanySubscription;
 
 /**
@@ -28,7 +27,7 @@ class ResolveSubscriptionBillingAction
             return $this->transactionFeeDecision();
         }
 
-        if ($subscription->plan === 'saas_subscription') {
+        if ($subscription->plan === 'saas_subscription' || $subscription->plan === 'enterprise_trial' || $subscription->is_trial) {
             return [
                 'billing_mode' => 'saas_subscription',
                 'subscription_id' => $subscription->id,
@@ -46,27 +45,14 @@ class ResolveSubscriptionBillingAction
             ];
         }
 
-        $usedOrReserved = (float) $subscription->current_realized_gmv + (float) $subscription->reserved_gmv;
-        if ($usedOrReserved + $transactionAmount <= (float) $subscription->gmv_limit) {
-            $subscription->increment('reserved_gmv', $transactionAmount);
-
-            return [
-                'billing_mode' => 'subscription_quota',
-                'subscription_id' => $subscription->id,
-                'gmv_credited_amount' => $transactionAmount,
-                'waive_platform_fee' => true,
-            ];
-        }
-
-        if ($subscription->overflow_strategy === CompanySubscription::OVERFLOW_RENEWAL_REQUIRED) {
-            $subscription->update(['status' => 'renewal_required']);
-
-            throw new SubscriptionRenewalRequiredException(
-                'Kuota GMV subscription tidak mencukupi. Silakan perpanjang atau upgrade kontrak terlebih dahulu.'
-            );
-        }
-
-        return $this->transactionFeeDecision();
+        // Under SaaS subscription model, active subscriptions (SaaS / Enterprise / Trial)
+        // waive the platform fee without being restricted by legacy GMV quotas.
+        return [
+            'billing_mode' => 'saas_subscription',
+            'subscription_id' => $subscription->id,
+            'gmv_credited_amount' => $transactionAmount,
+            'waive_platform_fee' => true,
+        ];
     }
 
     /** @return array{billing_mode: string, subscription_id: null, gmv_credited_amount: float, waive_platform_fee: bool} */

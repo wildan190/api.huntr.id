@@ -59,7 +59,7 @@ class DomainServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription', 'Wms', 'CrowdBuy'];
+        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription', 'Wms', 'Crm', 'CrowdBuy'];
         foreach ($domains as $domain) {
             $routePath = app_path("Domain/{$domain}/routes/api.php");
             if (file_exists($routePath)) {
@@ -71,6 +71,8 @@ class DomainServiceProvider extends ServiceProvider
             $this->commands([
                 \App\Domain\CrowdBuy\Console\Commands\EvaluateCrowdBuyDeadlinesCommand::class,
                 \App\Domain\CrowdBuy\Console\Commands\AggregateHistoricalDemandsCommand::class,
+                \App\Domain\Crm\Console\DispatchCrmCampaignsCommand::class,
+                \App\Domain\Crm\Console\EscalateCrmTicketSlaCommand::class,
             ]);
         }
     }
