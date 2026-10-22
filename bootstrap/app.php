@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Exempt 2FA and API endpoints from CSRF validation (Bearer token auth)
-        $middleware->preventRequestForgery(except: [
+        $middleware->validateCsrfTokens(except: [
             'user/two-factor-authentication',
             'user/two-factor-authentication/*',
             'user/two-factor-qr-code',
