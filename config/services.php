@@ -58,4 +58,27 @@ return [
         'local_simulation' => env('PAJAK_EXPRESS_LOCAL_SIMULATION', true),
     ],
 
+    'crm' => [
+        'whatsapp' => [
+            'service_url' => env('CRM_WHATSAPP_SERVICE_URL', 'http://whatsapp:3100'),
+            'webhook_secret' => env('CRM_WHATSAPP_WEBHOOK_SECRET'),
+        ],
+        'gmail' => [
+            'client_id' => env('CRM_GMAIL_CLIENT_ID'),
+            'client_secret' => env('CRM_GMAIL_CLIENT_SECRET'),
+            'redirect_uri' => env('CRM_GMAIL_REDIRECT_URI'),
+            'authorize_url' => 'https://accounts.google.com/o/oauth2/v2/auth',
+            'token_url' => 'https://oauth2.googleapis.com/token',
+            'scope' => 'openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send',
+        ],
+        'microsoft' => [
+            'client_id' => env('CRM_MICROSOFT_CLIENT_ID'),
+            'client_secret' => env('CRM_MICROSOFT_CLIENT_SECRET'),
+            'redirect_uri' => env('CRM_MICROSOFT_REDIRECT_URI'),
+            'authorize_url' => 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+            'token_url' => 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+            'scope' => 'openid profile email offline_access User.Read Mail.Read Mail.Send',
+        ],
+    ],
+
 ];

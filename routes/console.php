@@ -16,3 +16,6 @@ Schedule::command('crowd-buy:aggregate-demands', ['--limit=30'])->monthlyOn(1, '
 Schedule::call(fn () => app(\App\Domain\Subscription\Services\SubscriptionBillingEmailService::class)->enqueueOutstanding())
     ->everyFiveMinutes()->name('subscription-billing-email-retry')->withoutOverlapping();
 
+
+Schedule::command('crm:dispatch-campaigns')->everyFiveMinutes()->name('crm-campaign-dispatch')->withoutOverlapping();
+Schedule::command('crm:escalate-ticket-sla')->everyFiveMinutes()->name('crm-ticket-sla')->withoutOverlapping();

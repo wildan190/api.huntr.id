@@ -100,8 +100,31 @@ services:
     networks:
       - huntr_network
 
+  # Per-tenant whatsapp-web.js sessions for CRM.
+  whatsapp:
+    build:
+      context: ./services/crm-whatsapp
+      dockerfile: Dockerfile
+    container_name: huntr_whatsapp
+    restart: unless-stopped
+    env_file:
+      - path: .env.local
+        format: raw
+    environment:
+      PORT: 3100
+      WHATSAPP_AUTH_PATH: /data/auth
+      CRM_WHATSAPP_WEBHOOK_URL: http://web/api/crm/integrations/whatsapp/events
+    volumes:
+      - whatsapp_auth:/data/auth
+    depends_on:
+      - web
+    networks:
+      - huntr_network
+
 volumes:
   pgdata:
+    driver: local
+  whatsapp_auth:
     driver: local
 
 networks:
