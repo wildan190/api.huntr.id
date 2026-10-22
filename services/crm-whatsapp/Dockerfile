@@ -21,7 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 \
     libxfixes3 \
     libxrandr2 \
-    tar \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,7 +29,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY src ./src
 RUN chown -R node:node /app
-RUN mkdir -p /data/auth
+RUN mkdir -p /tmp/whatsapp-remote-auth
 EXPOSE 3100
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["npm", "start"]

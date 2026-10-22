@@ -103,7 +103,7 @@ services:
       - .env.production
     environment:
       PORT: 3100
-      WHATSAPP_AUTH_PATH: /data/auth
+      WHATSAPP_REMOTE_AUTH_PATH: /tmp/whatsapp-remote-auth
       CRM_WHATSAPP_WEBHOOK_URL: http://web/api/crm/integrations/whatsapp/events
       CRM_WHATSAPP_API_URL: http://web/api/crm
     healthcheck:
@@ -112,9 +112,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    volumes:
-      - whatsapp_auth:/data/auth
 
 volumes:
   pgdata: # <--- Tempat penyimpanan database aman
-  whatsapp_auth:
