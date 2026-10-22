@@ -7,6 +7,7 @@ use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use App\Domain\Company\Models\Company;
 use App\Domain\Subscription\Services\SubscriptionAccessService;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +19,8 @@ class CreateRfqAction
         private readonly RfqRepositoryInterface $rfqRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
         private readonly NotifyRelevantVendorsAction $notifyVendorsAction,
-        private readonly SubscriptionAccessService $subscriptionAccess
+        private readonly SubscriptionAccessService $subscriptionAccess,
+        private readonly CompanyAccessService $companyAccess,
     ) {}
 
     /**
@@ -75,6 +77,12 @@ class CreateRfqAction
         ]);
 
         $this->rfqRepository->createItems($lineItems);
+
+        if ($status === 'pending_approval') {
+            $estimatedAmount = collect($lineItems)->sum(fn (array $item) => (float) ($item['qty'] ?? 0) * (float) ($item['estimated_price'] ?? 0));
+            $this->companyAccess->bootstrap($buyerCompany);
+            $this->companyAccess->startSubject($buyerCompany, 'purchase_request', $rfq->id, $estimatedAmount, $userId, ['title' => $rfq->title, 'procurement_mode' => $procurementMode]);
+        }
 
         $this->broadcastAction->execute(
             'New PR Created',

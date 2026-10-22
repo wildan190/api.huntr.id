@@ -7,6 +7,8 @@ use App\Domain\Auth\Models\User;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
+use App\Domain\Company\Models\ApprovalRequest;
+use App\Domain\Company\Services\CompanyAccessService;
 
 /**
  * RejectRfqAction
@@ -17,7 +19,8 @@ use Illuminate\Support\Facades\DB;
 class RejectRfqAction
 {
     public function __construct(
-        private BroadcastWebsocketNotificationAction $broadcastAction
+        private BroadcastWebsocketNotificationAction $broadcastAction,
+        private CompanyAccessService $companyAccess,
     ) {}
 
     /**
@@ -38,8 +41,12 @@ class RejectRfqAction
 
         // Validate that the user has permission to reject
         $isOwner = $rfq->company->owner_id === $rejector->id;
+        $approval = ApprovalRequest::query()->where('company_id', $rfq->company_id)->where('subject_type', 'purchase_request')->where('subject_id', $rfq->id)->where('status', 'pending')->latest()->first();
+        if ($approval) {
+            $this->companyAccess->rejectSubject($rfq->company, $approval, $rejector, $reason);
+        }
         
-        if (!$rejector->hasRole('manager') && !$isOwner) {
+        if (! $approval && ! $isOwner && ! $this->companyAccess->can($rejector, $rfq->company, 'procurement.pr.approve')) {
             throw new \Exception('Only purchasing managers or company owners can reject RFQs.');
         }
 

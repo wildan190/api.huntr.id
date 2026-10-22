@@ -28,6 +28,7 @@ class CompanyInvitation extends Model
         'email',
         'whatsapp',
         'role',
+        'company_role_id',
         'token',
         'status',
         'expires_at',

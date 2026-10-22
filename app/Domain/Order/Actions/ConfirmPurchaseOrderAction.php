@@ -9,6 +9,8 @@ use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Subscription\Actions\ResolveSubscriptionBillingAction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Domain\Auth\Models\User;
+use App\Domain\Company\Services\CompanyAccessService;
 
 class ConfirmPurchaseOrderAction
 {
@@ -17,6 +19,7 @@ class ConfirmPurchaseOrderAction
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
         private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction,
         private readonly ResolveSubscriptionBillingAction $resolveSubscriptionBillingAction,
+        private readonly CompanyAccessService $companyAccess,
     ) {
     }
 
@@ -28,12 +31,31 @@ class ConfirmPurchaseOrderAction
      * @return PurchaseOrder
      * @throws ValidationException
      */
-    public function execute(Company $vendorCompany, PurchaseOrder $po): PurchaseOrder
+    public function execute(Company $vendorCompany, PurchaseOrder $po, User $actor): PurchaseOrder
     {
         if ($po->vendor_id !== $vendorCompany->id) {
             throw ValidationException::withMessages([
                 'vendor' => ['This PO does not belong to your company.'],
             ]);
+        }
+
+        $this->companyAccess->bootstrap($vendorCompany);
+        $approval = $this->companyAccess->approveSubject(
+            $vendorCompany,
+            'po_confirmation',
+            $po->id,
+            $actor,
+            (float) ($po->total_amount ?? 0),
+            $po->created_by,
+            ['po_number' => $po->po_number, 'buyer_company_id' => $po->buyer_company_id],
+        );
+        if ($approval['configured'] && ! $approval['completed']) {
+            $po->setAttribute('approval_pending', true);
+            $po->setAttribute('approval_request', $approval['request']);
+            return $po;
+        }
+        if (! $approval['configured']) {
+            $this->companyAccess->assertCan($actor, $vendorCompany, 'procurement.po.confirm', 'Role Anda belum memiliki izin untuk mengonfirmasi PO.');
         }
 
         return DB::transaction(function () use ($vendorCompany, $po) {

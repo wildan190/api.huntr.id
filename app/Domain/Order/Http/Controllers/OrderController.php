@@ -91,8 +91,10 @@ class OrderController extends \App\Http\Controllers\Controller
 
         $vendorCompany = Company::findOrFail($vendorCompanyId);
 
+        $po = $action->execute($vendorCompany, $po, $request->user());
         return response()->json([
-            'po' => $action->execute($vendorCompany, $po)
+            'po' => $po,
+            'message' => $po->getAttribute('approval_pending') ? 'Confirmation recorded. Waiting for the next approval stage.' : 'Purchase order confirmed.',
         ]);
     }
 

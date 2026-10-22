@@ -227,7 +227,7 @@ class ProposalController extends \App\Http\Controllers\Controller
         }
 
         return response()->json([
-            'message' => 'Winner approved successfully.',
+            'message' => $approvedProposal->getAttribute('approval_pending') ? 'Winner approval recorded. Waiting for the next approval stage.' : 'Winner approved successfully.',
             'proposal' => $approvedProposal->load('rfq', 'company'),
         ]);
     }

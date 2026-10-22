@@ -3,6 +3,7 @@
 namespace App\Domain\Rfq\Actions;
 
 use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Auth\Models\User;
 use Illuminate\Validation\UnauthorizedException;
@@ -13,7 +14,8 @@ class ApproveRfqAction
     public function __construct(
         private readonly RfqRepositoryInterface $rfqRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly NotifyRelevantVendorsAction $notifyVendorsAction
+        private readonly NotifyRelevantVendorsAction $notifyVendorsAction,
+        private readonly CompanyAccessService $companyAccess,
     ) {}
 
     /**
@@ -28,7 +30,23 @@ class ApproveRfqAction
     {
         $isOwner = $rfq->company->owner_id === $manager->id;
 
-        if (!$manager->hasRole('manager') && !$isOwner) {
+        $estimatedAmount = $rfq->items()->get()->sum(fn ($item) => (float) $item->qty * (float) ($item->estimated_price ?? 0));
+        $approval = $this->companyAccess->approveSubject(
+            $rfq->company,
+            'purchase_request',
+            $rfq->id,
+            $manager,
+            $estimatedAmount,
+            $rfq->user_id,
+            ['title' => $rfq->title, 'procurement_mode' => $rfq->procurement_mode],
+        );
+        if ($approval['configured'] && ! $approval['completed']) {
+            $rfq->setAttribute('approval_pending', true);
+            $rfq->setAttribute('approval_request', $approval['request']);
+            return $rfq;
+        }
+
+        if (! $approval['configured'] && ! $isOwner && ! $this->companyAccess->can($manager, $rfq->company, 'procurement.pr.approve')) {
             throw new UnauthorizedException("Only purchasing managers or company owners can approve RFQs.");
         }
 

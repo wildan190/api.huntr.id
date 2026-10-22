@@ -9,13 +9,17 @@ use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Auth\Access\AuthorizationException;
+use App\Domain\Auth\Models\User;
+use App\Domain\Company\Services\CompanyAccessService;
 
 class ApproveWinnerAction
 {
     public function __construct(
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly SendWhatsAppNotificationAction $whatsAppAction
+        private readonly SendWhatsAppNotificationAction $whatsAppAction,
+        private readonly CompanyAccessService $companyAccess,
     ) {}
 
     /**
@@ -33,6 +37,24 @@ class ApproveWinnerAction
     public function execute(Proposal $proposal, string $managerUserId): Proposal
     {
         $rfq = $proposal->rfq;
+        $actor = User::query()->findOrFail($managerUserId);
+        $approval = $this->companyAccess->approveSubject(
+            $rfq->company,
+            'winner_approval',
+            $proposal->id,
+            $actor,
+            (float) ($proposal->awarded_amount ?? $proposal->price_offer ?? 0),
+            $rfq->user_id,
+            ['rfq_id' => $rfq->id, 'rfq_title' => $rfq->title, 'vendor_id' => $proposal->company_id],
+        );
+        if ($approval['configured'] && ! $approval['completed']) {
+            $proposal->setAttribute('approval_pending', true);
+            $proposal->setAttribute('approval_request', $approval['request']);
+            return $proposal;
+        }
+        if (! $approval['configured'] && (string) $rfq->company->owner_id !== (string) $actor->id && ! $this->companyAccess->can($actor, $rfq->company, 'procurement.winner.approve')) {
+            throw new AuthorizationException('Only purchasing managers or company owners can approve tender winners.');
+        }
         $poNumber = 'PO-' . date('Ymd') . '-' . strtoupper(substr($proposal->id, 0, 6));
 
         // Check if a PO for THIS proposal already exists (not just same rfq and vendor)

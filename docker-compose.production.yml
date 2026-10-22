@@ -5,6 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
+      args:
+        PHP_VERSION: "8.5"
     container_name: huntr_app_prod
     restart: unless-stopped
     volumes:
@@ -13,8 +15,12 @@ services:
     env_file:
       - .env.production
     depends_on:
-      - db
-      - cache
+      db:
+        condition: service_started
+      cache:
+        condition: service_started
+      whatsapp:
+        condition: service_healthy
 
   # Nginx Web Server (Production)
   web:
@@ -55,6 +61,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
+      args:
+        PHP_VERSION: "8.5"
     container_name: huntr_horizon_prod
     command: php artisan horizon
     volumes:
@@ -71,6 +79,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
+      args:
+        PHP_VERSION: "8.5"
     container_name: huntr_reverb_prod
     command: php artisan reverb:start --host=0.0.0.0 --port=8080
     ports:
@@ -104,8 +114,6 @@ services:
       start_period: 20s
     volumes:
       - whatsapp_auth:/data/auth
-    depends_on:
-      - web
 
 volumes:
   pgdata: # <--- Tempat penyimpanan database aman

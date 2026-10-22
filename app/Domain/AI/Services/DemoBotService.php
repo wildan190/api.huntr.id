@@ -366,7 +366,7 @@ PROMPT;
 
         if ($po->vendor && $po->status !== 'confirmed') {
             try {
-                $po = $this->confirmPoAction->execute($po->vendor, $po);
+                $po = $this->confirmPoAction->execute($po->vendor, $po, $po->vendor->owner);
             } catch (\Exception $e) {
                 Log::warning("DemoBotService: confirmPoAction failed: " . $e->getMessage());
             }

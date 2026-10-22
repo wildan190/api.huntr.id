@@ -6,12 +6,13 @@ use App\Domain\Company\Models\CompanyInvitation;
 use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
 use App\Domain\Subscription\Services\EnterpriseEntitlementService;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class AcceptInvitationAction
 {
-    public function __construct(private EnterpriseEntitlementService $entitlements) {}
+    public function __construct(private EnterpriseEntitlementService $entitlements, private CompanyAccessService $access) {}
 
     /**
      * Accept a company invitation and associate the user with the company and role.
@@ -33,6 +34,10 @@ class AcceptInvitationAction
 
             $user->update(['company_id' => $invitation->company_id]);
             $user->assignRole($invitation->role);
+            if ($invitation->company_role_id) {
+                $this->access->bootstrap($company);
+                $this->access->assignRole($company, $company->owner, $user->id, $invitation->company_role_id);
+            }
             $invitation->update(['status' => 'accepted']);
 
             return ['user' => $user->fresh(), 'company' => $company];

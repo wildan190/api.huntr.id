@@ -25,10 +25,10 @@ class CrmWhatsAppService
         $company = $this->context->tenant($request);
         $this->serviceSecret();
         $this->upsertIntegration($company->id, 'initializing');
-        $session = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$company->id}")->throw()->json());
+        $session = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$company->id}")->throw()->json(), $company->id);
         for ($attempt = 0; $attempt < 8 && ($session['status'] ?? '') === 'initializing'; $attempt++) {
             usleep(500000);
-            $session = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$company->id}")->throw()->json());
+            $session = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$company->id}")->throw()->json(), $company->id);
         }
         $this->setIntegrationState($company->id, $session['status'] ?? 'initializing', $session);
 
@@ -39,7 +39,7 @@ class CrmWhatsAppService
     {
         $company = $this->context->tenant($request);
         $this->serviceSecret();
-        $response = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$company->id}"));
+        $response = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$company->id}"), $company->id);
         if ($response->status() === 404) return response()->json(['session' => null]);
         $session = $response->throw()->json();
         $this->setIntegrationState($company->id, $session['status'] ?? 'unknown', $session);
@@ -56,7 +56,7 @@ class CrmWhatsAppService
             'conversation_id' => ['nullable', 'uuid'],
         ])->validate();
         $this->ensureConnectedSession($company->id);
-        $response = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$company->id}/messages", $data)->throw()->json());
+        $response = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$company->id}/messages", $data)->throw()->json(), $company->id);
         if (! empty($data['conversation_id'])) {
             $conversation = DB::table('crm_channel_conversations')->where('company_id', $company->id)->where('id', $data['conversation_id'])->first();
             if ($conversation) {
@@ -75,7 +75,7 @@ class CrmWhatsAppService
     public function disconnect(Request $request)
     {
         $company = $this->context->tenant($request);
-        $response = $this->callService(fn () => $this->serviceRequest()->delete("/sessions/{$company->id}"));
+        $response = $this->callService(fn () => $this->serviceRequest()->delete("/sessions/{$company->id}"), $company->id);
         if (! in_array($response->status(), [204, 404], true)) {
             $response->throw();
         }
@@ -224,13 +224,13 @@ class CrmWhatsAppService
     /** Restore a persisted LocalAuth session after the WhatsApp sidecar restarts. */
     private function ensureConnectedSession(string $companyId): void
     {
-        $response = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$companyId}"));
+        $response = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$companyId}"), $companyId);
         $session = $response->status() === 404
-            ? $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$companyId}")->throw()->json())
+            ? $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$companyId}")->throw()->json(), $companyId)
             : $response->throw()->json();
 
         if (in_array($session['status'] ?? null, ['error', 'auth_failed', 'disconnected'], true)) {
-            $session = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$companyId}")->throw()->json());
+            $session = $this->callService(fn () => $this->serviceRequest()->post("/sessions/{$companyId}")->throw()->json(), $companyId);
         }
 
         for ($attempt = 0; $attempt < 16; $attempt++) {
@@ -248,7 +248,7 @@ class CrmWhatsAppService
                 ]);
             }
             usleep(500000);
-            $session = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$companyId}")->throw()->json());
+            $session = $this->callService(fn () => $this->serviceRequest()->get("/sessions/{$companyId}")->throw()->json(), $companyId);
         }
 
         $this->setIntegrationState($companyId, $session['status'] ?? 'initializing', $session);
@@ -270,7 +270,7 @@ class CrmWhatsAppService
         abort_unless(hash_equals($secret, (string) $request->header('x-crm-service-secret')), 401);
     }
 
-    private function callService(callable $callback): mixed
+    private function callService(callable $callback, ?string $companyId = null): mixed
     {
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
@@ -280,9 +280,18 @@ class CrmWhatsAppService
                     usleep($attempt * 250000);
                     continue;
                 }
-                throw ValidationException::withMessages([
-                    'whatsapp' => 'Koneksi WhatsApp sedang tidak tersedia. Buka Automation untuk menyambungkan ulang setelah layanan kembali aktif.',
-                ]);
+
+                if ($companyId) {
+                    $this->setIntegrationState($companyId, 'service_unavailable', [
+                        'message' => 'Layanan WhatsApp CRM tidak merespons.',
+                    ]);
+                }
+
+                throw new HttpResponseException(response()->json([
+                    'message' => 'Layanan WhatsApp CRM sedang tidak tersedia. Coba lagi setelah layanan kembali aktif.',
+                    'code' => 'crm_whatsapp_service_unavailable',
+                    'action' => ['label' => 'Buka Automation', 'target' => 'automation'],
+                ], 503));
             } catch (RequestException $exception) {
                 report($exception);
                 throw ValidationException::withMessages([
@@ -291,6 +300,9 @@ class CrmWhatsAppService
             }
         }
 
-        throw ValidationException::withMessages(['whatsapp' => 'Koneksi WhatsApp tidak tersedia.']);
+        throw new HttpResponseException(response()->json([
+            'message' => 'Layanan WhatsApp CRM sedang tidak tersedia.',
+            'code' => 'crm_whatsapp_service_unavailable',
+        ], 503));
     }
 }

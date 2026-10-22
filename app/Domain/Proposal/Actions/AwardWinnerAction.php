@@ -10,12 +10,15 @@ use App\Domain\Communication\Actions\SendWhatsAppNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Domain\Auth\Models\User;
+use App\Domain\Company\Services\CompanyAccessService;
 
 class AwardWinnerAction
 {
     public function __construct(
         private readonly BroadcastWebsocketNotificationAction $broadcastAction,
-        private readonly SendWhatsAppNotificationAction $whatsAppAction
+        private readonly SendWhatsAppNotificationAction $whatsAppAction,
+        private readonly CompanyAccessService $companyAccess,
     ) {}
 
     /**
@@ -31,6 +34,9 @@ class AwardWinnerAction
      */
     public function execute(Proposal $proposal, string $buyerUserId, Rfq $rfq): Proposal
     {
+    $actor = User::query()->findOrFail($buyerUserId);
+    $this->companyAccess->bootstrap($rfq->company);
+    $this->companyAccess->assertCan($actor, $rfq->company, 'procurement.winner.select', 'Role Anda belum memiliki izin untuk memilih pemenang tender.');
     /**
      * Verify proposal belongs to this RFQ
      */

@@ -1,7 +1,8 @@
 # ==========================================
 # Base Stage
 # ==========================================
-FROM php:8.3-fpm-alpine AS base
+ARG PHP_VERSION=8.5
+FROM php:${PHP_VERSION}-fpm-alpine AS base
 
 # Install system dependencies
 RUN apk add --no-cache \
@@ -28,8 +29,7 @@ RUN docker-php-ext-install \
     bcmath \
     gd \
     zip \
-    pcntl \
-    opcache
+    pcntl
 
 # Install Redis extension
 RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
