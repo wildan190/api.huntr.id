@@ -360,10 +360,25 @@ class CrmService
     public function conversations(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('crm_channel_conversations')->where('company_id', $company->id);
-        if ($channel = $request->query('channel')) $query->where('channel', $channel);
+        $query = DB::table('crm_channel_conversations as conversations')
+            ->leftJoin('crm_customers as customers', 'customers.id', '=', 'conversations.customer_id')
+            ->where('conversations.company_id', $company->id)
+            ->select([
+                'conversations.*',
+                'customers.name as customer_name',
+                'customers.phone as customer_phone',
+            ])
+            ->selectSub(
+                DB::table('crm_conversation_messages as messages')
+                    ->select('messages.body')
+                    ->whereColumn('messages.conversation_id', 'conversations.id')
+                    ->orderByDesc('messages.created_at')
+                    ->limit(1),
+                'last_message_body',
+            );
+        if ($channel = $request->query('channel')) $query->where('conversations.channel', $channel);
 
-        return response()->json($this->paginate($query->orderByDesc('last_message_at')->orderByDesc('created_at'), $request));
+        return response()->json($this->paginate($query->orderByDesc('conversations.last_message_at')->orderByDesc('conversations.created_at'), $request));
     }
 
     public function storeConversation(Request $request)

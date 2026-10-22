@@ -11,6 +11,8 @@ use Illuminate\Support\Str;
 /** Imports inbound provider mail into tenant conversations; credentials never leave the server. */
 class CrmEmailInboxSyncService
 {
+    public function __construct(private CrmInboundNotificationService $notifications) {}
+
     public function syncCompany(string $companyId): int
     {
         $connections = DB::table('crm_integration_connections')->where('company_id', $companyId)
@@ -29,10 +31,12 @@ class CrmEmailInboxSyncService
         $tokens = json_decode(Crypt::decryptString($connection->encrypted_credentials), true, 512, JSON_THROW_ON_ERROR);
         $messages = $connection->provider === 'gmail' ? $this->gmailMessages($tokens) : $this->microsoftMessages($tokens);
         $imported = 0;
+        $isInitialSync = empty($connection->last_synced_at);
         foreach ($messages as $message) {
-            $imported += $this->storeMessage($connection->company_id, $connection->provider, $message) ? 1 : 0;
+            $imported += $this->storeMessage($connection->company_id, $connection->provider, $message, ! $isInitialSync) ? 1 : 0;
         }
         DB::table('crm_integration_connections')->where('id', $connection->id)->update(['last_synced_at' => now(), 'updated_at' => now()]);
+        if ($isInitialSync) $this->notifications->inboxSynced($connection->company_id, $connection->provider, $imported);
         return $imported;
     }
 
@@ -59,7 +63,7 @@ class CrmEmailInboxSyncService
         return collect($items)->map(fn (array $item) => ['id' => $item['id'], 'from' => $item['from']['emailAddress']['address'] ?? '', 'subject' => $item['subject'] ?? '(Tanpa subjek)', 'body' => trim(strip_tags($item['body']['content'] ?? '')), 'received_at' => $item['receivedDateTime'] ?? now()])->all();
     }
 
-    private function storeMessage(string $companyId, string $provider, array $message): bool
+    private function storeMessage(string $companyId, string $provider, array $message, bool $notify): bool
     {
         $externalMessageId = "{$provider}:{$message['id']}";
         if (DB::table('crm_conversation_messages')->where('company_id', $companyId)->whereRaw('metadata::text like ?', ['%' . $externalMessageId . '%'])->exists()) return false;
@@ -72,6 +76,7 @@ class CrmEmailInboxSyncService
         if (! $conversation) { $id=(string)Str::uuid(); DB::table('crm_channel_conversations')->insert(['id'=>$id,'company_id'=>$companyId,'customer_id'=>$customer->id,'channel'=>'email','external_id'=>$externalConversationId,'status'=>'open','last_message_at'=>now(),'metadata'=>json_encode(['provider'=>$provider,'subject'=>$message['subject']]),'created_at'=>now(),'updated_at'=>now()]); $conversation=DB::table('crm_channel_conversations')->find($id); }
         DB::table('crm_conversation_messages')->insert(['id'=>(string)Str::uuid(),'company_id'=>$companyId,'conversation_id'=>$conversation->id,'direction'=>'inbound','body'=>trim($message['subject']."\n\n".$message['body']),'metadata'=>json_encode(['provider_message_id'=>$externalMessageId]),'delivered_at'=>$message['received_at'],'created_at'=>now(),'updated_at'=>now()]);
         DB::table('crm_channel_conversations')->where('id',$conversation->id)->update(['last_message_at'=>now(),'updated_at'=>now()]);
+        if ($notify) $this->notifications->inboundMessage($companyId, 'email', $message['from'] ?: $email, $message['subject'] . ' ' . $message['body'], $conversation->id);
         return true;
     }
 }

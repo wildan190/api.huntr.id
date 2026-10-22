@@ -19,6 +19,8 @@ RUN apk add --no-cache \
     bash \
     openssl
 
+RUN { echo 'post_max_size = 32M'; echo 'upload_max_filesize = 32M'; } > "$PHP_INI_DIR/conf.d/crm-session-backup.ini"
+
 # Install PHP extensions
 RUN docker-php-ext-install \
     pdo_pgsql \

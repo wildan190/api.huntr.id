@@ -95,6 +95,13 @@ services:
       PORT: 3100
       WHATSAPP_AUTH_PATH: /data/auth
       CRM_WHATSAPP_WEBHOOK_URL: http://web/api/crm/integrations/whatsapp/events
+      CRM_WHATSAPP_API_URL: http://web/api/crm
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - whatsapp_auth:/data/auth
     depends_on:
