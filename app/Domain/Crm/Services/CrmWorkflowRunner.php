@@ -11,7 +11,7 @@ class CrmWorkflowRunner
 {
     public function run(Company $company, string $trigger, array $context = []): void
     {
-        $workflows = DB::table('crm_workflows')->where('company_id', $company->id)
+        $workflows = DB::table('crm_workflows')->where('company_id', $company->id)->where('user_id', $context['user_id'] ?? null)
             ->where('trigger', $trigger)->where('is_active', true)->get();
 
         foreach ($workflows as $workflow) {
@@ -20,7 +20,7 @@ class CrmWorkflowRunner
             foreach (json_decode($workflow->actions ?? '[]', true) ?: [] as $action) {
                 if (($action['type'] ?? null) !== 'create_task') continue;
                 DB::table('crm_activities')->insert([
-                    'id' => (string) Str::uuid(), 'company_id' => $company->id,
+                    'id' => (string) Str::uuid(), 'company_id' => $company->id, 'user_id' => $context['user_id'] ?? null,
                     'customer_id' => $context['customer_id'] ?? null, 'lead_id' => $context['lead_id'] ?? null,
                     'deal_id' => $context['deal_id'] ?? null, 'assignee_id' => $action['assignee_id'] ?? null,
                     'created_by' => $context['user_id'] ?? null, 'type' => 'task',

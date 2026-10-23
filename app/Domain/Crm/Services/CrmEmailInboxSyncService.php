@@ -13,9 +13,10 @@ class CrmEmailInboxSyncService
 {
     public function __construct(private CrmInboundNotificationService $notifications) {}
 
-    public function syncCompany(string $companyId): int
+    public function syncCompany(string $companyId, ?string $userId = null): int
     {
         $connections = DB::table('crm_integration_connections')->where('company_id', $companyId)
+            ->when($userId, fn ($query) => $query->where('user_id', $userId))
             ->where('channel', 'email')->whereIn('provider', ['gmail', 'microsoft'])->where('status', 'connected')->get();
         return $connections->sum(fn ($connection) => $this->syncConnection($connection));
     }
@@ -23,7 +24,7 @@ class CrmEmailInboxSyncService
     public function syncRequest(Request $request, \App\Domain\Crm\Support\CrmContext $context)
     {
         $company = $context->tenant($request);
-        return response()->json(['imported' => $this->syncCompany($company->id)]);
+        return response()->json(['imported' => $this->syncCompany($company->id, $request->user()->id)]);
     }
 
     private function syncConnection(object $connection): int
@@ -33,10 +34,10 @@ class CrmEmailInboxSyncService
         $imported = 0;
         $isInitialSync = empty($connection->last_synced_at);
         foreach ($messages as $message) {
-            $imported += $this->storeMessage($connection->company_id, $connection->provider, $message, ! $isInitialSync) ? 1 : 0;
+            $imported += $this->storeMessage($connection->company_id, $connection->user_id, $connection->provider, $message, ! $isInitialSync) ? 1 : 0;
         }
         DB::table('crm_integration_connections')->where('id', $connection->id)->update(['last_synced_at' => now(), 'updated_at' => now()]);
-        if ($isInitialSync) $this->notifications->inboxSynced($connection->company_id, $connection->provider, $imported);
+        if ($isInitialSync) $this->notifications->inboxSynced($connection->company_id, $connection->user_id, $connection->provider, $imported);
         return $imported;
     }
 
@@ -63,20 +64,20 @@ class CrmEmailInboxSyncService
         return collect($items)->map(fn (array $item) => ['id' => $item['id'], 'from' => $item['from']['emailAddress']['address'] ?? '', 'subject' => $item['subject'] ?? '(Tanpa subjek)', 'body' => trim(strip_tags($item['body']['content'] ?? '')), 'received_at' => $item['receivedDateTime'] ?? now()])->all();
     }
 
-    private function storeMessage(string $companyId, string $provider, array $message, bool $notify): bool
+    private function storeMessage(string $companyId, string $userId, string $provider, array $message, bool $notify): bool
     {
         $externalMessageId = "{$provider}:{$message['id']}";
-        if (DB::table('crm_conversation_messages')->where('company_id', $companyId)->whereRaw('metadata::text like ?', ['%' . $externalMessageId . '%'])->exists()) return false;
+        if (DB::table('crm_conversation_messages')->where('company_id', $companyId)->where('user_id', $userId)->whereRaw('metadata::text like ?', ['%' . $externalMessageId . '%'])->exists()) return false;
         preg_match('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', $message['from'], $matches);
         $email = strtolower($matches[0] ?? '');
-        $customer = $email ? DB::table('crm_customers')->where('company_id', $companyId)->whereRaw('lower(email) = ?', [$email])->first() : null;
-        if (! $customer) { $customerId = (string) Str::uuid(); DB::table('crm_customers')->insert(['id'=>$customerId,'company_id'=>$companyId,'name'=>$email ?: $message['from'],'email'=>$email ?: null,'lifecycle_stage'=>'prospect','source'=>'email','language'=>'id','currency'=>'IDR','created_at'=>now(),'updated_at'=>now()]); $customer=DB::table('crm_customers')->find($customerId); }
+        $customer = $email ? DB::table('crm_customers')->where('company_id', $companyId)->where('user_id', $userId)->whereRaw('lower(email) = ?', [$email])->first() : null;
+        if (! $customer) { $customerId = (string) Str::uuid(); DB::table('crm_customers')->insert(['id'=>$customerId,'company_id'=>$companyId,'user_id'=>$userId,'name'=>$email ?: $message['from'],'email'=>$email ?: null,'lifecycle_stage'=>'prospect','source'=>'email','language'=>'id','currency'=>'IDR','created_at'=>now(),'updated_at'=>now()]); $customer=DB::table('crm_customers')->find($customerId); }
         $externalConversationId = "{$provider}:{$email}";
-        $conversation = DB::table('crm_channel_conversations')->where('company_id', $companyId)->where('external_id', $externalConversationId)->first();
-        if (! $conversation) { $id=(string)Str::uuid(); DB::table('crm_channel_conversations')->insert(['id'=>$id,'company_id'=>$companyId,'customer_id'=>$customer->id,'channel'=>'email','external_id'=>$externalConversationId,'status'=>'open','last_message_at'=>now(),'metadata'=>json_encode(['provider'=>$provider,'subject'=>$message['subject']]),'created_at'=>now(),'updated_at'=>now()]); $conversation=DB::table('crm_channel_conversations')->find($id); }
-        DB::table('crm_conversation_messages')->insert(['id'=>(string)Str::uuid(),'company_id'=>$companyId,'conversation_id'=>$conversation->id,'direction'=>'inbound','body'=>trim($message['subject']."\n\n".$message['body']),'metadata'=>json_encode(['provider_message_id'=>$externalMessageId]),'delivered_at'=>$message['received_at'],'created_at'=>now(),'updated_at'=>now()]);
+        $conversation = DB::table('crm_channel_conversations')->where('company_id', $companyId)->where('user_id', $userId)->where('external_id', $externalConversationId)->first();
+        if (! $conversation) { $id=(string)Str::uuid(); DB::table('crm_channel_conversations')->insert(['id'=>$id,'company_id'=>$companyId,'user_id'=>$userId,'customer_id'=>$customer->id,'channel'=>'email','external_id'=>$externalConversationId,'status'=>'open','last_message_at'=>now(),'metadata'=>json_encode(['provider'=>$provider,'subject'=>$message['subject']]),'created_at'=>now(),'updated_at'=>now()]); $conversation=DB::table('crm_channel_conversations')->find($id); }
+        DB::table('crm_conversation_messages')->insert(['id'=>(string)Str::uuid(),'company_id'=>$companyId,'user_id'=>$userId,'conversation_id'=>$conversation->id,'direction'=>'inbound','body'=>trim($message['subject']."\n\n".$message['body']),'metadata'=>json_encode(['provider_message_id'=>$externalMessageId]),'delivered_at'=>$message['received_at'],'created_at'=>now(),'updated_at'=>now()]);
         DB::table('crm_channel_conversations')->where('id',$conversation->id)->update(['last_message_at'=>now(),'updated_at'=>now()]);
-        if ($notify) $this->notifications->inboundMessage($companyId, 'email', $message['from'] ?: $email, $message['subject'] . ' ' . $message['body'], $conversation->id);
+        if ($notify) $this->notifications->inboundMessage($companyId, $userId, 'email', $message['from'] ?: $email, $message['subject'] . ' ' . $message['body'], $conversation->id);
         return true;
     }
 }

@@ -24,7 +24,7 @@ class CrmEnterpriseService
 
         return response()->json([
             'contacts' => DB::table('crm_contacts')
-                ->where('company_id', $company->id)
+                ->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->orderBy('name')
                 ->get(),
         ]);
@@ -47,7 +47,7 @@ class CrmEnterpriseService
         $id = (string) Str::uuid();
         DB::table('crm_contacts')->insert($this->record($data, [
             'id' => $id,
-            'company_id' => $company->id,
+            'company_id' => $company->id, 'user_id' => $request->user()->id,
             'is_primary' => $data['is_primary'] ?? false,
         ]));
         $this->audit($company->id, $request->user()?->id, 'contact', $id, 'created', $data);
@@ -61,7 +61,7 @@ class CrmEnterpriseService
 
         return response()->json([
             'campaigns' => DB::table('crm_campaigns')
-                ->where('company_id', $company->id)
+                ->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->latest()
                 ->get(),
         ]);
@@ -83,7 +83,7 @@ class CrmEnterpriseService
 
         DB::table('crm_campaigns')->insert($this->record($data, [
             'id' => $id,
-            'company_id' => $company->id,
+            'company_id' => $company->id, 'user_id' => $request->user()->id,
             'created_by' => $request->user()?->id,
             'channel' => $data['channel'] ?? 'email',
             'status' => $status,
@@ -99,7 +99,7 @@ class CrmEnterpriseService
 
         return response()->json([
             'articles' => DB::table('crm_knowledge_articles')
-                ->where('company_id', $company->id)
+                ->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->latest()
                 ->get(),
         ]);
@@ -118,7 +118,7 @@ class CrmEnterpriseService
 
         DB::table('crm_knowledge_articles')->insert($this->record($data, [
             'id' => $id,
-            'company_id' => $company->id,
+            'company_id' => $company->id, 'user_id' => $request->user()->id,
             'author_id' => $request->user()?->id,
             'slug' => Str::slug($data['title']) . '-' . Str::lower(Str::random(5)),
             'status' => $data['status'] ?? 'draft',
@@ -134,7 +134,7 @@ class CrmEnterpriseService
 
         return response()->json([
             'integrations' => DB::table('crm_integration_connections')
-                ->where('company_id', $company->id)
+                ->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->get(['id', 'provider', 'channel', 'status', 'settings', 'last_synced_at', 'created_at']),
         ]);
     }
@@ -149,7 +149,7 @@ class CrmEnterpriseService
             'settings' => ['nullable', 'array'],
         ]);
         $identity = [
-            'company_id' => $company->id,
+            'company_id' => $company->id, 'user_id' => $request->user()->id,
             'provider' => $data['provider'],
             'channel' => $data['channel'],
         ];
@@ -181,7 +181,7 @@ class CrmEnterpriseService
 
         return response()->json([
             'rates' => DB::table('crm_currency_rates')
-                ->where('company_id', $company->id)
+                ->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->latest('effective_at')
                 ->get(),
         ]);
@@ -200,7 +200,7 @@ class CrmEnterpriseService
 
         DB::table('crm_currency_rates')->insert($this->record($data, [
             'id' => $id,
-            'company_id' => $company->id,
+            'company_id' => $company->id, 'user_id' => $request->user()->id,
             'base_currency' => strtoupper($data['base_currency']),
             'quote_currency' => strtoupper($data['quote_currency']),
             'source' => 'manual',
@@ -216,7 +216,7 @@ class CrmEnterpriseService
 
         return response()->json([
             'targets' => DB::table('crm_sales_targets')
-                ->where('company_id', $company->id)
+                ->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->orderByDesc('period')
                 ->get(),
         ]);
@@ -239,7 +239,7 @@ class CrmEnterpriseService
 
         DB::table('crm_sales_targets')->insert($this->record($data, [
             'id' => $id,
-            'company_id' => $company->id,
+            'company_id' => $company->id, 'user_id' => $request->user()->id,
             'currency' => strtoupper($data['currency'] ?? 'IDR'),
         ]));
 
@@ -260,7 +260,7 @@ class CrmEnterpriseService
         DB::transaction(function () use ($company, $quoteId, $data, $approvalId, $request) {
             DB::table('crm_quote_approvals')->insert($this->record($data, [
                 'id' => $approvalId,
-                'company_id' => $company->id,
+                'company_id' => $company->id, 'user_id' => $request->user()->id,
                 'quote_id' => $quoteId,
                 'status' => 'pending',
             ]));
@@ -279,7 +279,7 @@ class CrmEnterpriseService
         $company = $this->context->tenant($request);
         $this->assertOwned($company->id, 'crm_quotes', $quoteId);
         $approval = DB::table('crm_quote_approvals')
-            ->where('company_id', $company->id)
+            ->where('company_id', $company->id)->where('user_id', request()->user()->id)
             ->where('quote_id', $quoteId)
             ->where('id', $approvalId)
             ->first();
@@ -315,18 +315,18 @@ class CrmEnterpriseService
         $currency = strtoupper((string) $request->query('currency', 'IDR'));
         $rates = $this->ratesByCurrency($company->id, $currency);
         $target = $this->convertRows(
-            DB::table('crm_sales_targets')->where('company_id', $company->id)->where('period', $period)->get(['target_amount as amount', 'currency']),
+            DB::table('crm_sales_targets')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('period', $period)->get(['target_amount as amount', 'currency']),
             $rates,
             $currency,
         );
         $won = $this->convertRows(
-            DB::table('crm_deals')->where('company_id', $company->id)->where('stage', 'closed_won')
+            DB::table('crm_deals')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('stage', 'closed_won')
                 ->whereBetween('updated_at', [$month, $month->copy()->endOfMonth()])->get(['amount', 'currency']),
             $rates,
             $currency,
         );
-        $allDeals = DB::table('crm_deals')->where('company_id', $company->id)->count();
-        $wonCount = DB::table('crm_deals')->where('company_id', $company->id)->where('stage', 'closed_won')->count();
+        $allDeals = DB::table('crm_deals')->where('company_id', $company->id)->where('user_id', request()->user()->id)->count();
+        $wonCount = DB::table('crm_deals')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('stage', 'closed_won')->count();
 
         return response()->json([
             'period' => $period,
@@ -335,8 +335,8 @@ class CrmEnterpriseService
             'won_revenue' => $won,
             'target_attainment' => $target > 0 ? round(($won / $target) * 100, 2) : null,
             'win_rate' => $allDeals > 0 ? round(($wonCount / $allDeals) * 100, 2) : null,
-            'tickets' => DB::table('crm_tickets')->where('company_id', $company->id)->select('status', DB::raw('count(*) as count'))->groupBy('status')->pluck('count', 'status'),
-            'campaigns' => DB::table('crm_campaigns')->where('company_id', $company->id)->select('status', DB::raw('count(*) as count'))->groupBy('status')->pluck('count', 'status'),
+            'tickets' => DB::table('crm_tickets')->where('company_id', $company->id)->where('user_id', request()->user()->id)->select('status', DB::raw('count(*) as count'))->groupBy('status')->pluck('count', 'status'),
+            'campaigns' => DB::table('crm_campaigns')->where('company_id', $company->id)->where('user_id', request()->user()->id)->select('status', DB::raw('count(*) as count'))->groupBy('status')->pluck('count', 'status'),
             'rate_coverage' => count($rates),
         ]);
     }
@@ -344,7 +344,7 @@ class CrmEnterpriseService
     private function ratesByCurrency(string $companyId, string $baseCurrency): array
     {
         $rates = [$baseCurrency => 1.0];
-        DB::table('crm_currency_rates')->where('company_id', $companyId)
+        DB::table('crm_currency_rates')->where('company_id', $companyId)->where('user_id', request()->user()->id)
             ->where('base_currency', $baseCurrency)
             ->orderByDesc('effective_at')->get()
             ->each(function ($rate) use (&$rates) {
@@ -369,7 +369,7 @@ class CrmEnterpriseService
 
     private function assertOwned(string $companyId, string $table, string $id): void
     {
-        if (! DB::table($table)->where('company_id', $companyId)->where('id', $id)->exists()) {
+        if (! DB::table($table)->where('company_id', $companyId)->where('user_id', request()->user()->id)->where('id', $id)->exists()) {
             throw ValidationException::withMessages(['id' => 'Data tidak ditemukan pada workspace ini.']);
         }
     }
@@ -390,6 +390,7 @@ class CrmEnterpriseService
         DB::table('crm_audit_logs')->insert($this->record(['payload' => $payload], [
             'id' => (string) Str::uuid(),
             'company_id' => $companyId,
+            'user_id' => $actorId,
             'actor_id' => $actorId,
             'entity_type' => $type,
             'entity_id' => $id,

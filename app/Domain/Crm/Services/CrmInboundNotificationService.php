@@ -6,21 +6,22 @@ use App\Domain\Auth\Models\User;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use App\Domain\Company\Models\Company;
 use App\Domain\Subscription\Models\CompanySubscription;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
-/** Delivers inbox events only to people entitled to use the tenant CRM. */
+/** Delivers private CRM inbox events only to the owner of that personal workspace. */
 class CrmInboundNotificationService
 {
-    public function inboundMessage(string $companyId, string $channel, string $sender, string $body, string $conversationId): void
+    public function inboundMessage(string $companyId, string $userId, string $channel, string $sender, string $body, string $conversationId): void
     {
+        $user = $this->recipient($companyId, $userId);
+        if (! $user) return;
+
         $channelLabel = $channel === 'whatsapp' ? 'WhatsApp' : 'email';
-        $title = "Pesan {$channelLabel} baru";
         $preview = trim(preg_replace('/\s+/', ' ', $body) ?? '');
         $message = trim($sender . ($preview !== '' ? ': ' . Str::limit($preview, 120) : ' mengirim pesan baru.'));
 
-        $this->recipients($companyId)->each(fn (User $user) => $user->notify(new DatabaseNotification(
-            $title,
+        $user->notify(new DatabaseNotification(
+            "Pesan {$channelLabel} baru",
             $message,
             '/notifications',
             $channel === 'whatsapp' ? 'message-circle' : 'mail',
@@ -30,14 +31,14 @@ class CrmInboundNotificationService
                 'conversation_id' => $conversationId,
                 'channel' => $channel,
             ],
-        )));
+        ));
     }
 
-    public function inboxSynced(string $companyId, string $provider, int $messageCount): void
+    public function inboxSynced(string $companyId, string $userId, string $provider, int $messageCount): void
     {
-        if ($messageCount < 1) return;
+        if ($messageCount < 1 || ! ($user = $this->recipient($companyId, $userId))) return;
 
-        $this->recipients($companyId)->each(fn (User $user) => $user->notify(new DatabaseNotification(
+        $user->notify(new DatabaseNotification(
             'Inbox CRM disinkronkan',
             "{$messageCount} email dari {$provider} siap ditinjau di Helpdesk.",
             '/notifications',
@@ -47,20 +48,21 @@ class CrmInboundNotificationService
                 'company_id' => $companyId,
                 'provider' => $provider,
             ],
-        )));
+        ));
     }
 
-    /** @return Collection<int, User> */
-    private function recipients(string $companyId): Collection
+    private function recipient(string $companyId, string $userId): ?User
     {
         $company = Company::query()->find($companyId);
-        if (! $company || ! $this->crmIsAvailable($company)) return collect();
+        if (! $company || ! $this->crmIsAvailable($company)) return null;
 
-        $members = $company->users()->get();
-        $owner = User::query()->find($company->owner_id);
-        if ($owner) $members->push($owner);
+        $user = User::query()->find($userId);
+        if (! $user) return null;
 
-        return $members->unique('id')->values();
+        $isOwner = $company->owner_id === $user->id;
+        $isMember = $company->users()->whereKey($user->id)->exists();
+
+        return $isOwner || $isMember ? $user : null;
     }
 
     private function crmIsAvailable(Company $company): bool
