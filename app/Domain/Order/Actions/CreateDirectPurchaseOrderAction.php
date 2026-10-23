@@ -37,6 +37,7 @@ class CreateDirectPurchaseOrderAction
             return PurchaseOrder::create([
                 'buyer_company_id' => $lockedRfq->company_id,
                 'rfq_id' => $lockedRfq->id,
+                'procurement_type' => $lockedRfq->procurement_type ?? 'goods',
                 'vendor_id' => null,
                 'vendor_name' => $data['vendor_name'],
                 'po_number' => 'PO-'.now()->format('Ymd').'-'.$reference,
@@ -49,6 +50,11 @@ class CreateDirectPurchaseOrderAction
                 'purchase_type' => $data['purchase_type'] ?? 'Immediate',
                 'order_date' => today(),
                 'expected_receiving_date' => $data['expected_receiving_date'] ?? null,
+                'service_start_date' => $data['service_start_date'] ?? $lockedRfq->service_start_date,
+                'service_end_date' => $data['service_end_date'] ?? $lockedRfq->service_end_date,
+                'service_location' => $data['service_location'] ?? $lockedRfq->service_location,
+                'acceptance_criteria' => $data['acceptance_criteria'] ?? $lockedRfq->acceptance_criteria,
+                'requires_service_acceptance' => in_array($lockedRfq->procurement_type ?? 'goods', ['services', 'mixed'], true),
                 'delivery_point' => $lockedRfq->delivery_point,
                 'department' => $lockedRfq->department ?? 'General Procurement',
             ]);

@@ -2,11 +2,15 @@
 
 namespace App\Domain\Order\Models;
 
+use App\Domain\Auth\Models\User;
+use App\Domain\Company\Models\Company;
+use App\Domain\EFaktur\Models\EFaktur;
+use App\Domain\Proposal\Models\Proposal;
+use App\Domain\Rfq\Models\Rfq;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Domain\Rfq\Models\Rfq;
-use App\Domain\Company\Models\Company;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
@@ -21,8 +25,8 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property float $total_amount
  * @property string $purchase_category
  * @property string $purchase_type
- * @property \Illuminate\Support\Carbon|null $order_date
- * @property \Illuminate\Support\Carbon|null $expected_receiving_date
+ * @property Carbon|null $order_date
+ * @property Carbon|null $expected_receiving_date
  * @property string $delivery_point
  * @property string $status
  * @property string $delivery_status
@@ -30,8 +34,8 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
  * @property bool $is_historical
  * @property string $created_by
  * @property string $approved_by
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  * @property Company|null $buyer
  * @property Company|null $vendor
  */
@@ -42,6 +46,7 @@ class PurchaseOrder extends Model
     protected $fillable = [
         'buyer_company_id',
         'rfq_id',
+        'procurement_type',
         'vendor_id',
         'proposal_id',
         'po_number',
@@ -53,6 +58,11 @@ class PurchaseOrder extends Model
         'purchase_type',
         'order_date',
         'expected_receiving_date',
+        'service_start_date',
+        'service_end_date',
+        'service_location',
+        'acceptance_criteria',
+        'requires_service_acceptance',
         'delivery_point',
         'status',
         'delivery_status',
@@ -63,20 +73,23 @@ class PurchaseOrder extends Model
     ];
 
     protected $casts = [
-        'order_date'              => 'date',
+        'order_date' => 'date',
         'expected_receiving_date' => 'date',
-        'is_historical'           => 'boolean',
-        'tracking_timeline'       => 'array',
+        'service_start_date' => 'date',
+        'service_end_date' => 'date',
+        'requires_service_acceptance' => 'boolean',
+        'is_historical' => 'boolean',
+        'tracking_timeline' => 'array',
     ];
 
     public function creator()
     {
-        return $this->belongsTo(\App\Domain\Auth\Models\User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function approver()
     {
-        return $this->belongsTo(\App\Domain\Auth\Models\User::class, 'approved_by');
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function rfq()
@@ -86,7 +99,7 @@ class PurchaseOrder extends Model
 
     public function proposal()
     {
-        return $this->belongsTo(\App\Domain\Proposal\Models\Proposal::class, 'proposal_id');
+        return $this->belongsTo(Proposal::class, 'proposal_id');
     }
 
     public function buyer()
@@ -121,6 +134,6 @@ class PurchaseOrder extends Model
 
     public function efakturs()
     {
-        return $this->hasMany(\App\Domain\EFaktur\Models\EFaktur::class, 'po_id');
+        return $this->hasMany(EFaktur::class, 'po_id');
     }
 }

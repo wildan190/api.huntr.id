@@ -41,6 +41,11 @@ class Rfq extends Model
         'status',
         'award_mode',
         'procurement_mode',
+        'procurement_type',
+        'service_start_date',
+        'service_end_date',
+        'service_location',
+        'acceptance_criteria',
         'duration_days',
         'approved_by',
         'approved_at',
@@ -56,6 +61,8 @@ class Rfq extends Model
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
         'duration_days' => 'integer',
+        'service_start_date' => 'date',
+        'service_end_date' => 'date',
     ];
 
     protected $appends = ['document_url'];
