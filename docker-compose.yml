@@ -8,9 +8,10 @@ services:
       args:
         PHP_VERSION: "8.5"
     container_name: huntr_app
-    restart: unless-stopped
+    command: php -d memory_limit=512M artisan octane:start --server=swoole --host=0.0.0.0 --port=8000 --watch
     volumes:
       - .:/var/www
+      - ./docker/php/conf.d/local.ini:/usr/local/etc/php/conf.d/local.ini:ro
     env_file:
       - path: .env.local
         format: raw
