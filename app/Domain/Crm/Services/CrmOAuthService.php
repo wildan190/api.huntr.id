@@ -66,7 +66,7 @@ class CrmOAuthService
             if (! $email) throw ValidationException::withMessages(['provider' => 'Provider tidak mengembalikan alamat email.']);
 
             DB::transaction(function () use ($session, $provider, $token, $email) {
-                $integrationIdentity = ['company_id' => $session['company_id'], 'provider' => $provider, 'channel' => 'email'];
+                $integrationIdentity = ['company_id' => $session['company_id'], 'user_id' => $session['user_id'], 'provider' => $provider, 'channel' => 'email'];
                 $integrationId = (string) (DB::table('crm_integration_connections')->where($integrationIdentity)->value('id') ?? Str::uuid());
                 DB::table('crm_integration_connections')->updateOrInsert($integrationIdentity, [
                     ...$integrationIdentity,
@@ -79,9 +79,10 @@ class CrmOAuthService
                     'updated_at' => now(),
                 ]);
                 DB::table('crm_email_connections')->updateOrInsert(
-                    ['company_id' => $session['company_id'], 'email' => $email],
+                    ['company_id' => $session['company_id'], 'user_id' => $session['user_id'], 'email' => $email],
                     [
-                        'id' => (string) (DB::table('crm_email_connections')->where('company_id', $session['company_id'])->where('email', $email)->value('id') ?? Str::uuid()),
+                        'id' => (string) (DB::table('crm_email_connections')->where('company_id', $session['company_id'])->where('user_id', $session['user_id'])->where('email', $email)->value('id') ?? Str::uuid()),
+                        'user_id' => $session['user_id'],
                         'provider' => $provider,
                         'status' => 'connected',
                         'settings' => json_encode(['integration_connection_id' => $integrationId]),

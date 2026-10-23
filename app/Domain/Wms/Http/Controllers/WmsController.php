@@ -6,6 +6,7 @@ use App\Domain\Wms\Http\Requests\AdjustStockRequest;
 use App\Domain\Wms\Http\Requests\AllocateStockRequest;
 use App\Domain\Wms\Http\Requests\CheckStockAvailabilityRequest;
 use App\Domain\Wms\Http\Requests\ImportGoodsReceiptsRequest;
+use App\Domain\Wms\Http\Requests\ImportWarehouseStockRequest;
 use App\Domain\Wms\Http\Requests\PackWarehouseOrderRequest;
 use App\Domain\Wms\Http\Requests\PutAwayStockRequest;
 use App\Domain\Wms\Http\Requests\ReceiveStockRequest;
@@ -21,6 +22,7 @@ use App\Domain\Wms\Services\WmsAnalyticsService;
 use App\Domain\Wms\Services\WmsAppService;
 use App\Domain\Wms\Services\WmsGoodsReceiptImportService;
 use App\Domain\Wms\Services\WmsInventoryService;
+use App\Domain\Wms\Services\WmsUniversalImportService;
 use App\Domain\Wms\Services\WmsOrderService;
 use Illuminate\Http\Request;
 
@@ -134,6 +136,11 @@ class WmsController
     public function repairLegacyGoodsReceiptStock(Request $request, WmsGoodsReceiptImportService $service)
     {
         return $service->repairLegacyInventory($request);
+    }
+
+    public function importWarehouseStock(ImportWarehouseStockRequest $request, WmsUniversalImportService $service)
+    {
+        return $service->import($request);
     }
 
     public function putaway(PutAwayStockRequest $request, WmsInventoryService $service)

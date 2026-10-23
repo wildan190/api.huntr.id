@@ -34,6 +34,7 @@ class CrmCampaignDispatchService
                 $audience = json_decode($lockedCampaign->audience ?? '{}', true) ?: [];
                 $customers = DB::table('crm_customers')
                     ->where('company_id', $lockedCampaign->company_id)
+                    ->where('user_id', $lockedCampaign->user_id)
                     ->whereNotNull('email')
                     ->when(
                         $audience['lifecycle_stage'] ?? null,
@@ -46,6 +47,7 @@ class CrmCampaignDispatchService
                     DB::table('crm_campaign_recipients')->insert([
                         'id' => $recipientId,
                         'company_id' => $lockedCampaign->company_id,
+                        'user_id' => $lockedCampaign->user_id,
                         'campaign_id' => $lockedCampaign->id,
                         'customer_id' => $customer->id,
                         'email' => $customer->email,

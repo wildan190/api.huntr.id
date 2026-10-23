@@ -21,7 +21,7 @@ class CrmService
     {
         $company = $this->context->tenant($request);
         $companyId = $company->id;
-        $openDeals = DB::table('crm_deals')->where('company_id', $companyId)->whereNotIn('stage', ['closed_won', 'closed_lost']);
+        $openDeals = DB::table('crm_deals')->where('company_id', $companyId)->where('user_id', request()->user()->id)->whereNotIn('stage', ['closed_won', 'closed_lost']);
         $deals = $openDeals->get(['stage', 'amount', 'probability', 'currency']);
         $pipeline = $deals->groupBy('stage')->map(fn ($rows) => [
             'count' => $rows->count(),
@@ -32,27 +32,27 @@ class CrmService
 
         return response()->json([
             'metrics' => [
-                'open_leads' => DB::table('crm_leads')->where('company_id', $companyId)->whereNotIn('status', ['converted', 'disqualified'])->count(),
+                'open_leads' => DB::table('crm_leads')->where('company_id', $companyId)->where('user_id', request()->user()->id)->whereNotIn('status', ['converted', 'disqualified'])->count(),
                 'pipeline_value' => round($deals->sum('amount'), 2),
                 'weighted_forecast' => round($deals->sum(fn ($deal) => (float) $deal->amount * ((int) $deal->probability / 100)), 2),
-                'open_tickets' => DB::table('crm_tickets')->where('company_id', $companyId)->whereIn('status', ['open', 'pending'])->count(),
-                'sla_breaches' => DB::table('crm_tickets')->where('company_id', $companyId)->whereIn('status', ['open', 'pending'])->where(function ($query) use ($now) {
+                'open_tickets' => DB::table('crm_tickets')->where('company_id', $companyId)->where('user_id', request()->user()->id)->whereIn('status', ['open', 'pending'])->count(),
+                'sla_breaches' => DB::table('crm_tickets')->where('company_id', $companyId)->where('user_id', request()->user()->id)->whereIn('status', ['open', 'pending'])->where(function ($query) use ($now) {
                     $query->where('first_response_due_at', '<', $now)->orWhere('resolve_due_at', '<', $now);
                 })->count(),
-                'overdue_tasks' => DB::table('crm_activities')->where('company_id', $companyId)->where('status', 'open')->whereNotNull('due_at')->where('due_at', '<', $now)->count(),
+                'overdue_tasks' => DB::table('crm_activities')->where('company_id', $companyId)->where('user_id', request()->user()->id)->where('status', 'open')->whereNotNull('due_at')->where('due_at', '<', $now)->count(),
             ],
             'pipeline' => $pipeline,
-            'lead_funnel' => DB::table('crm_leads')->where('company_id', $companyId)->select('status', DB::raw('count(*) as total'))->groupBy('status')->pluck('total', 'status'),
-            'recent_activity' => DB::table('crm_activities')->where('company_id', $companyId)->orderByDesc('created_at')->limit(8)->get(),
-            'upcoming_tasks' => DB::table('crm_activities')->where('company_id', $companyId)->where('status', 'open')->whereNotNull('due_at')->where('due_at', '>=', $now)->orderBy('due_at')->limit(8)->get(),
-            'channels' => DB::table('crm_channel_conversations')->where('company_id', $companyId)->select('channel', DB::raw('count(*) as total'))->groupBy('channel')->pluck('total', 'channel'),
+            'lead_funnel' => DB::table('crm_leads')->where('company_id', $companyId)->where('user_id', request()->user()->id)->select('status', DB::raw('count(*) as total'))->groupBy('status')->pluck('total', 'status'),
+            'recent_activity' => DB::table('crm_activities')->where('company_id', $companyId)->where('user_id', request()->user()->id)->orderByDesc('created_at')->limit(8)->get(),
+            'upcoming_tasks' => DB::table('crm_activities')->where('company_id', $companyId)->where('user_id', request()->user()->id)->where('status', 'open')->whereNotNull('due_at')->where('due_at', '>=', $now)->orderBy('due_at')->limit(8)->get(),
+            'channels' => DB::table('crm_channel_conversations')->where('company_id', $companyId)->where('user_id', request()->user()->id)->select('channel', DB::raw('count(*) as total'))->groupBy('channel')->pluck('total', 'channel'),
         ]);
     }
 
     public function customers(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('crm_customers')->where('company_id', $company->id);
+        $query = DB::table('crm_customers')->where('company_id', $company->id)->where('user_id', request()->user()->id);
         if ($search = trim((string) $request->query('search', ''))) {
             $query->where(fn ($q) => $q->where('name', 'ilike', "%{$search}%")->orWhere('email', 'ilike', "%{$search}%")->orWhere('company_name', 'ilike', "%{$search}%"));
         }
@@ -64,16 +64,16 @@ class CrmService
     public function customer(Request $request, string $customerId)
     {
         $company = $this->context->tenant($request);
-        $customer = DB::table('crm_customers')->where('company_id', $company->id)->where('id', $customerId)->first();
+        $customer = DB::table('crm_customers')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('id', $customerId)->first();
         abort_unless($customer, 404, 'Customer tidak ditemukan.');
 
         return response()->json([
             'customer' => $customer,
-            'leads' => DB::table('crm_leads')->where('company_id', $company->id)->where('customer_id', $customerId)->latest()->get(),
-            'deals' => DB::table('crm_deals')->where('company_id', $company->id)->where('customer_id', $customerId)->latest()->get(),
-            'tickets' => DB::table('crm_tickets')->where('company_id', $company->id)->where('customer_id', $customerId)->latest()->get(),
-            'activities' => DB::table('crm_activities')->where('company_id', $company->id)->where('customer_id', $customerId)->latest()->get(),
-            'conversations' => DB::table('crm_channel_conversations')->where('company_id', $company->id)->where('customer_id', $customerId)->latest('last_message_at')->get(),
+            'leads' => DB::table('crm_leads')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('customer_id', $customerId)->latest()->get(),
+            'deals' => DB::table('crm_deals')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('customer_id', $customerId)->latest()->get(),
+            'tickets' => DB::table('crm_tickets')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('customer_id', $customerId)->latest()->get(),
+            'activities' => DB::table('crm_activities')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('customer_id', $customerId)->latest()->get(),
+            'conversations' => DB::table('crm_channel_conversations')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('customer_id', $customerId)->latest('last_message_at')->get(),
             'purchase_history' => $customer->external_company_id
                 ? DB::table('purchase_orders')->where('buyer_company_id', $company->id)->where('vendor_id', $customer->external_company_id)->latest('order_date')->limit(25)->get(['id', 'po_number', 'total_amount', 'currency', 'status', 'order_date'])
                 : [],
@@ -90,7 +90,7 @@ class CrmService
             'attributes' => ['nullable', 'array'], 'notes' => ['nullable', 'string'],
         ])->validate();
         $id = (string) Str::uuid();
-        DB::table('crm_customers')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'language' => $data['language'] ?? 'id', 'currency' => strtoupper($data['currency'] ?? 'IDR')]));
+        DB::table('crm_customers')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'language' => $data['language'] ?? 'id', 'currency' => strtoupper($data['currency'] ?? 'IDR')]));
 
         return response()->json(['customer' => DB::table('crm_customers')->where('id', $id)->first()], 201);
     }
@@ -108,7 +108,7 @@ class CrmService
     public function leads(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('crm_leads')->where('company_id', $company->id);
+        $query = DB::table('crm_leads')->where('company_id', $company->id)->where('user_id', request()->user()->id);
         if ($status = $request->query('status')) $query->where('status', $status);
         if ($search = trim((string) $request->query('search', ''))) $query->where(fn ($q) => $q->where('name', 'ilike', "%{$search}%")->orWhere('email', 'ilike', "%{$search}%")->orWhere('company_name', 'ilike', "%{$search}%"));
 
@@ -127,7 +127,7 @@ class CrmService
         $data['territory_id'] ??= $this->matchTerritory($company->id, $data);
         [$score, $reason] = $this->scoreLead($data);
         $id = (string) Str::uuid();
-        DB::table('crm_leads')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'owner_id' => $request->user()->id, 'status' => $data['status'] ?? 'new', 'score' => $score, 'score_reason' => $reason, 'estimated_value' => $data['estimated_value'] ?? 0, 'currency' => strtoupper($data['currency'] ?? 'IDR')]));
+        DB::table('crm_leads')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'owner_id' => $request->user()->id, 'status' => $data['status'] ?? 'new', 'score' => $score, 'score_reason' => $reason, 'estimated_value' => $data['estimated_value'] ?? 0, 'currency' => strtoupper($data['currency'] ?? 'IDR')]));
 
         
         $this->workflowRunner->run($company, 'lead_created', ['lead_id' => $id, 'customer_id' => $data['customer_id'] ?? null, 'user_id' => $request->user()->id, 'source' => $data['source'] ?? 'manual']);
@@ -161,17 +161,17 @@ class CrmService
 
         $result = DB::transaction(function () use ($company, $lead, $data, $request) {
             $customer = $lead->customer_id
-                ? DB::table('crm_customers')->where('company_id', $company->id)->where('id', $lead->customer_id)->first()
+                ? DB::table('crm_customers')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('id', $lead->customer_id)->first()
                 : null;
             if (! $customer && $lead->email) {
-                $customer = DB::table('crm_customers')->where('company_id', $company->id)->whereRaw('lower(email) = ?', [strtolower($lead->email)])->first();
+                $customer = DB::table('crm_customers')->where('company_id', $company->id)->where('user_id', request()->user()->id)->whereRaw('lower(email) = ?', [strtolower($lead->email)])->first();
             }
             if (! $customer) {
                 $customerId = (string) Str::uuid();
                 DB::table('crm_customers')->insert([
                     ...$this->timestamps(),
                     'id' => $customerId,
-                    'company_id' => $company->id,
+                    'company_id' => $company->id, 'user_id' => $request->user()->id,
                     'name' => $lead->name,
                     'email' => $lead->email,
                     'phone' => $lead->phone,
@@ -185,13 +185,13 @@ class CrmService
                 $customer = DB::table('crm_customers')->find($customerId);
             }
 
-            $deal = DB::table('crm_deals')->where('company_id', $company->id)->where('lead_id', $lead->id)->first();
+            $deal = DB::table('crm_deals')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('lead_id', $lead->id)->first();
             if (! $deal && ($data['create_deal'] ?? true)) {
                 $dealId = (string) Str::uuid();
                 DB::table('crm_deals')->insert([
                     ...$this->timestamps(),
                     'id' => $dealId,
-                    'company_id' => $company->id,
+                    'company_id' => $company->id, 'user_id' => $request->user()->id,
                     'customer_id' => $customer->id,
                     'lead_id' => $lead->id,
                     'owner_id' => $request->user()?->id,
@@ -214,7 +214,7 @@ class CrmService
             DB::table('crm_activities')->insert([
                 ...$this->timestamps(),
                 'id' => (string) Str::uuid(),
-                'company_id' => $company->id,
+                'company_id' => $company->id, 'user_id' => $request->user()->id,
                 'customer_id' => $customer->id,
                 'lead_id' => $lead->id,
                 'deal_id' => $deal?->id,
@@ -239,7 +239,7 @@ class CrmService
     public function deals(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('crm_deals')->where('company_id', $company->id);
+        $query = DB::table('crm_deals')->where('company_id', $company->id)->where('user_id', request()->user()->id);
         if ($stage = $request->query('stage')) $query->where('stage', $stage);
 
         return response()->json($this->paginate($query->orderBy('expected_close_date')->orderByDesc('amount'), $request));
@@ -252,7 +252,7 @@ class CrmService
         $this->assertOptionalOwned($company->id, 'crm_customers', $data['customer_id'] ?? null, 'Customer');
         $this->assertOptionalOwned($company->id, 'crm_leads', $data['lead_id'] ?? null, 'Lead');
         $id = (string) Str::uuid();
-        DB::table('crm_deals')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'owner_id' => $request->user()->id, 'stage' => $data['stage'] ?? 'qualification', 'probability' => $data['probability'] ?? 10, 'amount' => $data['amount'] ?? 0, 'currency' => strtoupper($data['currency'] ?? 'IDR')]));
+        DB::table('crm_deals')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'owner_id' => $request->user()->id, 'stage' => $data['stage'] ?? 'qualification', 'probability' => $data['probability'] ?? 10, 'amount' => $data['amount'] ?? 0, 'currency' => strtoupper($data['currency'] ?? 'IDR')]));
 
         return response()->json(['deal' => DB::table('crm_deals')->where('id', $id)->first()], 201);
     }
@@ -273,7 +273,7 @@ class CrmService
     public function activities(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('crm_activities')->where('company_id', $company->id);
+        $query = DB::table('crm_activities')->where('company_id', $company->id)->where('user_id', request()->user()->id);
         if ($status = $request->query('status')) $query->where('status', $status);
 
         return response()->json($this->paginate($query->orderBy('due_at')->orderByDesc('created_at'), $request));
@@ -285,7 +285,7 @@ class CrmService
         $data = validator($request->all(), ['type' => ['nullable', 'in:task,call,email,meeting,follow_up'], 'title' => ['required', 'string', 'max:180'], 'description' => ['nullable', 'string'], 'customer_id' => ['nullable', 'uuid'], 'lead_id' => ['nullable', 'uuid'], 'deal_id' => ['nullable', 'uuid'], 'assignee_id' => ['nullable', 'uuid'], 'due_at' => ['nullable', 'date']])->validate();
         foreach (['customer_id' => 'crm_customers', 'lead_id' => 'crm_leads', 'deal_id' => 'crm_deals'] as $key => $table) $this->assertOptionalOwned($company->id, $table, $data[$key] ?? null, ucfirst(str_replace('_id', '', $key)));
         $id = (string) Str::uuid();
-        DB::table('crm_activities')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'created_by' => $request->user()->id, 'type' => $data['type'] ?? 'task', 'status' => 'open']));
+        DB::table('crm_activities')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'created_by' => $request->user()->id, 'type' => $data['type'] ?? 'task', 'status' => 'open']));
 
         return response()->json(['activity' => DB::table('crm_activities')->where('id', $id)->first()], 201);
     }
@@ -304,7 +304,7 @@ class CrmService
     public function tickets(Request $request)
     {
         $company = $this->context->tenant($request);
-        $query = DB::table('crm_tickets')->where('company_id', $company->id);
+        $query = DB::table('crm_tickets')->where('company_id', $company->id)->where('user_id', request()->user()->id);
         if ($status = $request->query('status')) $query->where('status', $status);
 
         return response()->json($this->paginate($query->orderByDesc('created_at'), $request));
@@ -318,7 +318,7 @@ class CrmService
         $id = (string) Str::uuid();
         $priority = $data['priority'] ?? 'normal';
         $sla = $this->ticketSla($priority);
-        DB::table('crm_tickets')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'number' => $this->number('TKT'), 'channel' => $data['channel'] ?? 'web', 'priority' => $priority, 'status' => 'open', 'first_response_due_at' => $data['first_response_due_at'] ?? now()->addMinutes($sla['response_minutes']), 'resolve_due_at' => $data['resolve_due_at'] ?? now()->addMinutes($sla['resolve_minutes'])]));
+        DB::table('crm_tickets')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'number' => $this->number('TKT'), 'channel' => $data['channel'] ?? 'web', 'priority' => $priority, 'status' => 'open', 'first_response_due_at' => $data['first_response_due_at'] ?? now()->addMinutes($sla['response_minutes']), 'resolve_due_at' => $data['resolve_due_at'] ?? now()->addMinutes($sla['resolve_minutes'])]));
 
         
         $this->workflowRunner->run($company, 'ticket_created', ['customer_id' => $data['customer_id'] ?? null, 'user_id' => $request->user()->id, 'ticket_id' => $id, 'priority' => $data['priority'] ?? 'normal']);
@@ -342,7 +342,7 @@ class CrmService
         $company = $this->context->tenant($request);
         $this->assertOwned($company->id, 'crm_tickets', $ticketId, 'Ticket');
 
-        return response()->json(['messages' => DB::table('crm_ticket_messages')->where('company_id', $company->id)->where('ticket_id', $ticketId)->oldest('created_at')->get()]);
+        return response()->json(['messages' => DB::table('crm_ticket_messages')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('ticket_id', $ticketId)->oldest('created_at')->get()]);
     }
 
     public function storeTicketMessage(Request $request, string $ticketId)
@@ -351,7 +351,7 @@ class CrmService
         $this->assertOwned($company->id, 'crm_tickets', $ticketId, 'Ticket');
         $data = validator($request->all(), ['body' => ['required', 'string'], 'is_internal' => ['nullable', 'boolean']])->validate();
         $id = (string) Str::uuid();
-        DB::table('crm_ticket_messages')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'ticket_id' => $ticketId, 'author_id' => $request->user()->id, 'is_internal' => $data['is_internal'] ?? false]));
+        DB::table('crm_ticket_messages')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'ticket_id' => $ticketId, 'author_id' => $request->user()->id, 'is_internal' => $data['is_internal'] ?? false]));
         if (! ($data['is_internal'] ?? false)) DB::table('crm_tickets')->where('id', $ticketId)->whereNull('first_responded_at')->update(['first_responded_at' => now(), 'updated_at' => now()]);
 
         return response()->json(['message' => DB::table('crm_ticket_messages')->where('id', $id)->first()], 201);
@@ -363,6 +363,7 @@ class CrmService
         $query = DB::table('crm_channel_conversations as conversations')
             ->leftJoin('crm_customers as customers', 'customers.id', '=', 'conversations.customer_id')
             ->where('conversations.company_id', $company->id)
+            ->where('conversations.user_id', $request->user()->id)
             ->select([
                 'conversations.*',
                 'customers.name as customer_name',
@@ -387,7 +388,7 @@ class CrmService
         $data = validator($request->all(), ['customer_id' => ['nullable', 'uuid'], 'channel' => ['required', 'in:whatsapp,email,live_chat,social'], 'external_id' => ['nullable', 'string', 'max:180'], 'metadata' => ['nullable', 'array']])->validate();
         $this->assertOptionalOwned($company->id, 'crm_customers', $data['customer_id'] ?? null, 'Customer');
         $id = (string) Str::uuid();
-        DB::table('crm_channel_conversations')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'status' => 'open', 'last_message_at' => now()]));
+        DB::table('crm_channel_conversations')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'status' => 'open', 'last_message_at' => now()]));
 
         return response()->json(['conversation' => DB::table('crm_channel_conversations')->where('id', $id)->first()], 201);
     }
@@ -398,7 +399,7 @@ class CrmService
         $this->assertOwned($company->id, 'crm_channel_conversations', $conversationId, 'Conversation');
 
         return response()->json([
-            'messages' => DB::table('crm_conversation_messages')->where('company_id', $company->id)
+            'messages' => DB::table('crm_conversation_messages')->where('company_id', $company->id)->where('user_id', request()->user()->id)
                 ->where('conversation_id', $conversationId)->oldest('created_at')->get(),
         ]);
     }
@@ -419,7 +420,7 @@ class CrmService
                 $this->databasePayload($data),
                 [
                     'id' => $id,
-                    'company_id' => $company->id,
+                    'company_id' => $company->id, 'user_id' => $request->user()->id,
                     'conversation_id' => $conversationId,
                     'author_id' => $request->user()?->id,
                     'direction' => $data['direction'] ?? 'outbound',
@@ -438,7 +439,7 @@ class CrmService
     public function quotes(Request $request)
     {
         $company = $this->context->tenant($request);
-        return response()->json($this->paginate(DB::table('crm_quotes')->where('company_id', $company->id)->orderByDesc('created_at'), $request));
+        return response()->json($this->paginate(DB::table('crm_quotes')->where('company_id', $company->id)->where('user_id', request()->user()->id)->orderByDesc('created_at'), $request));
     }
 
     public function storeQuote(Request $request)
@@ -450,7 +451,7 @@ class CrmService
         $subtotal = collect($data['lines'])->sum(fn ($line) => (float) $line['quantity'] * (float) $line['unit_price']);
         $total = max(0, $subtotal - (float) ($data['discount_amount'] ?? 0) + (float) ($data['tax_amount'] ?? 0));
         $id = (string) Str::uuid();
-        DB::table('crm_quotes')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'owner_id' => $request->user()->id, 'number' => $this->number('QTE'), 'status' => 'draft', 'currency' => strtoupper($data['currency'] ?? 'IDR'), 'subtotal' => $subtotal, 'discount_amount' => $data['discount_amount'] ?? 0, 'tax_amount' => $data['tax_amount'] ?? 0, 'total_amount' => $total]));
+        DB::table('crm_quotes')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'owner_id' => $request->user()->id, 'number' => $this->number('QTE'), 'status' => 'draft', 'currency' => strtoupper($data['currency'] ?? 'IDR'), 'subtotal' => $subtotal, 'discount_amount' => $data['discount_amount'] ?? 0, 'tax_amount' => $data['tax_amount'] ?? 0, 'total_amount' => $total]));
 
         return response()->json(['quote' => DB::table('crm_quotes')->where('id', $id)->first()], 201);
     }
@@ -458,7 +459,7 @@ class CrmService
     public function territories(Request $request)
     {
         $company = $this->context->tenant($request);
-        return response()->json(['territories' => DB::table('crm_territories')->where('company_id', $company->id)->orderBy('name')->get()]);
+        return response()->json(['territories' => DB::table('crm_territories')->where('company_id', $company->id)->where('user_id', request()->user()->id)->orderBy('name')->get()]);
     }
 
     public function storeTerritory(Request $request)
@@ -466,7 +467,7 @@ class CrmService
         $company = $this->context->tenant($request);
         $data = validator($request->all(), ['name' => ['required', 'string', 'max:150'], 'region' => ['nullable', 'string', 'max:150'], 'industry' => ['nullable', 'string', 'max:150'], 'rules' => ['nullable', 'array'], 'owner_id' => ['nullable', 'uuid']])->validate();
         $id = (string) Str::uuid();
-        DB::table('crm_territories')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id]));
+        DB::table('crm_territories')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id]));
 
         return response()->json(['territory' => DB::table('crm_territories')->where('id', $id)->first()], 201);
     }
@@ -474,7 +475,7 @@ class CrmService
     public function workflows(Request $request)
     {
         $company = $this->context->tenant($request);
-        return response()->json(['workflows' => DB::table('crm_workflows')->where('company_id', $company->id)->orderByDesc('updated_at')->get()]);
+        return response()->json(['workflows' => DB::table('crm_workflows')->where('company_id', $company->id)->where('user_id', request()->user()->id)->orderByDesc('updated_at')->get()]);
     }
 
     public function storeWorkflow(Request $request)
@@ -482,7 +483,7 @@ class CrmService
         $company = $this->context->tenant($request);
         $data = validator($request->all(), ['name' => ['required', 'string', 'max:160'], 'trigger' => ['required', 'in:lead_created,deal_stage_changed,ticket_created,quote_approved'], 'conditions' => ['nullable', 'array'], 'actions' => ['required', 'array', 'min:1'], 'is_active' => ['nullable', 'boolean']])->validate();
         $id = (string) Str::uuid();
-        DB::table('crm_workflows')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'is_active' => $data['is_active'] ?? true]));
+        DB::table('crm_workflows')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'is_active' => $data['is_active'] ?? true]));
 
         return response()->json(['workflow' => DB::table('crm_workflows')->where('id', $id)->first()], 201);
     }
@@ -490,17 +491,17 @@ class CrmService
     public function emailConnections(Request $request)
     {
         $company = $this->context->tenant($request);
-        return response()->json(['connections' => DB::table('crm_email_connections')->where('company_id', $company->id)->orderByDesc('created_at')->get(['id', 'provider', 'email', 'status', 'last_synced_at', 'created_at'])]);
+        return response()->json(['connections' => DB::table('crm_email_connections')->where('company_id', $company->id)->where('user_id', request()->user()->id)->orderByDesc('created_at')->get(['id', 'provider', 'email', 'status', 'last_synced_at', 'created_at'])]);
     }
 
     public function storeEmailConnection(Request $request)
     {
         $company = $this->context->tenant($request);
         $data = validator($request->all(), ['provider' => ['required', 'in:gmail,microsoft,imap'], 'email' => ['required', 'email'], 'settings' => ['nullable', 'array']])->validate();
-        $existing = DB::table('crm_email_connections')->where('company_id', $company->id)->where('email', $data['email'])->first();
+        $existing = DB::table('crm_email_connections')->where('company_id', $company->id)->where('user_id', request()->user()->id)->where('email', $data['email'])->first();
         if ($existing) return response()->json(['connection' => $existing, 'message' => 'Email sudah terhubung.']);
         $id = (string) Str::uuid();
-        DB::table('crm_email_connections')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'status' => 'pending_authorization']));
+        DB::table('crm_email_connections')->insert(array_merge($this->timestamps(), $this->databasePayload($data), ['id' => $id, 'company_id' => $company->id, 'user_id' => $request->user()->id, 'status' => 'pending_authorization']));
 
         return response()->json(['connection' => DB::table('crm_email_connections')->where('id', $id)->first(), 'message' => 'Koneksi email disimpan. Lanjutkan otorisasi OAuth dari penyedia email.'], 201);
     }
@@ -509,8 +510,8 @@ class CrmService
     {
         $company = $this->context->tenant($request);
         $companyId = $company->id;
-        $deals = DB::table('crm_deals')->where('company_id', $companyId)->whereNotIn('stage', ['closed_won', 'closed_lost'])->get(['amount', 'probability']);
-        $closed = DB::table('crm_deals')->where('company_id', $companyId)->whereIn('stage', ['closed_won', 'closed_lost'])->get(['stage', 'amount']);
+        $deals = DB::table('crm_deals')->where('company_id', $companyId)->where('user_id', request()->user()->id)->whereNotIn('stage', ['closed_won', 'closed_lost'])->get(['amount', 'probability']);
+        $closed = DB::table('crm_deals')->where('company_id', $companyId)->where('user_id', request()->user()->id)->whereIn('stage', ['closed_won', 'closed_lost'])->get(['stage', 'amount']);
         $won = $closed->where('stage', 'closed_won');
         $winRate = $closed->count() ? round($won->count() / $closed->count(), 4) : null;
         $weighted = round($deals->sum(fn ($deal) => (float) $deal->amount * ((int) $deal->probability / 100)), 2);
@@ -548,7 +549,7 @@ class CrmService
 
     private function assertOwned(string $companyId, string $table, string $id, string $label): object
     {
-        $row = DB::table($table)->where('company_id', $companyId)->where('id', $id)->first();
+        $row = DB::table($table)->where('company_id', $companyId)->where('user_id', request()->user()->id)->where('id', $id)->first();
         if (! $row) throw ValidationException::withMessages(['id' => "{$label} tidak ditemukan pada workspace ini."]);
 
         return $row;
@@ -583,7 +584,7 @@ class CrmService
         $region = strtolower((string) ($attributes['region'] ?? $lead['territory'] ?? ''));
         $industry = strtolower((string) ($attributes['industry'] ?? ''));
 
-        foreach (DB::table('crm_territories')->where('company_id', $companyId)->orderBy('created_at')->get() as $territory) {
+        foreach (DB::table('crm_territories')->where('company_id', $companyId)->where('user_id', request()->user()->id)->orderBy('created_at')->get() as $territory) {
             $rules = json_decode($territory->rules ?? '[]', true) ?: [];
             $regions = array_map('strtolower', $rules['regions'] ?? array_filter([$territory->region]));
             $industries = array_map('strtolower', $rules['industries'] ?? array_filter([$territory->industry]));
@@ -608,7 +609,7 @@ class CrmService
     private function territoryName(string $companyId, ?string $territoryId): ?string
     {
         return $territoryId
-            ? DB::table('crm_territories')->where('company_id', $companyId)->where('id', $territoryId)->value('name')
+            ? DB::table('crm_territories')->where('company_id', $companyId)->where('user_id', request()->user()->id)->where('id', $territoryId)->value('name')
             : null;
     }
 
