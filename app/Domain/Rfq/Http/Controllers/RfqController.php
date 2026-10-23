@@ -3,6 +3,7 @@
 namespace App\Domain\Rfq\Http\Controllers;
 
 use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Rfq\Actions\ApproveRfqAction;
 use App\Domain\Rfq\Actions\CreateRfqAction;
 use App\Domain\Rfq\Actions\GetRfqsAction;
@@ -76,7 +77,7 @@ class RfqController extends Controller
     /**
      * Membuat RFQ baru (Purchase Requisition).
      */
-    public function store(CreateRfqRequest $request, CreateRfqAction $action, \App\Domain\Company\Services\CompanyAccessService $access): JsonResponse
+    public function store(CreateRfqRequest $request, CreateRfqAction $action, CompanyAccessService $access): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
 
@@ -116,6 +117,11 @@ class RfqController extends Controller
             $data['department'] ?? null,
             $data['warehouse_id'] ?? null,
             $data['procurement_mode'] ?? 'tender',
+            $data['procurement_type'] ?? 'goods',
+            $data['service_start_date'] ?? null,
+            $data['service_end_date'] ?? null,
+            $data['service_location'] ?? null,
+            $data['acceptance_criteria'] ?? null,
         );
 
         return response()->json(['rfq' => $rfq], 201);

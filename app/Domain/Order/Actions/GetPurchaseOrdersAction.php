@@ -2,12 +2,11 @@
 
 namespace App\Domain\Order\Actions;
 
-use App\Domain\Order\Models\PurchaseOrder;
-use App\Domain\Order\Actions\BuildInvoicePaymentBreakdownAction;
+use App\Domain\Auth\Models\User;
 use App\Domain\Company\Models\Company;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\Storage;
+use App\Domain\Order\Models\PurchaseOrder;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Action to fetch and map purchase orders based on company type and search criteria.
@@ -20,9 +19,6 @@ class GetPurchaseOrdersAction
 
     /**
      * Execute the action.
-     *
-     * @param array $params
-     * @return array
      */
     public function execute(array $params): array
     {
@@ -48,7 +44,7 @@ class GetPurchaseOrdersAction
             $query->where('is_historical', true);
         }
 
-        if (!empty($search)) {
+        if (! empty($search)) {
             $query->where(function ($q) use ($search) {
                 $q->where('po_number', 'ilike', "%{$search}%")
                     ->orWhere('vendor_name', 'ilike', "%{$search}%")
@@ -63,22 +59,22 @@ class GetPurchaseOrdersAction
         $paginator = $query->paginate($perPage);
         $items = $paginator->items();
 
-        if (!empty($items)) {
-            $hasHistorical  = collect($items)->contains(fn($po) => $this->isHistoricalPo($po));
-            $hasOperational = collect($items)->contains(fn($po) => !$this->isHistoricalPo($po));
+        if (! empty($items)) {
+            $hasHistorical = collect($items)->contains(fn ($po) => $this->isHistoricalPo($po));
+            $hasOperational = collect($items)->contains(fn ($po) => ! $this->isHistoricalPo($po));
 
             // Always load historical items + buyer info for historical POs
             // (buyer_name/address needed for print PO; vendor_name is stored as plain text)
             if ($hasHistorical) {
                 $paginator->getCollection()
-                    ->filter(fn($po) => $this->isHistoricalPo($po))
+                    ->filter(fn ($po) => $this->isHistoricalPo($po))
                     ->loadMissing(['historicalItems', 'buyer']);
             }
 
             // Only load heavy operational relations when there are operational POs on this page
             if ($hasOperational) {
                 $paginator->getCollection()
-                    ->filter(fn($po) => !$this->isHistoricalPo($po))
+                    ->filter(fn ($po) => ! $this->isHistoricalPo($po))
                     ->loadMissing([
                         'invoices',
                         'deliveryOrders',
@@ -105,7 +101,6 @@ class GetPurchaseOrdersAction
         ];
     }
 
-
     /**
      * Manual eager loading for creator and approver to avoid UUID errors with historical names.
      */
@@ -122,7 +117,7 @@ class GetPurchaseOrdersAction
             return;
         }
 
-        $users = \App\Domain\Auth\Models\User::whereIn('id', $userIds->toArray())->get()->keyBy('id');
+        $users = User::whereIn('id', $userIds->toArray())->get()->keyBy('id');
 
         foreach ($items as $po) {
             if ($po->created_by && $users->has($po->created_by)) {
@@ -159,17 +154,17 @@ class GetPurchaseOrdersAction
                         'total_amount' => $item->total_amount,
                     ];
                 });
-            } else if ($po->rfq) {
+            } elseif ($po->rfq) {
                 // Find the awarded proposal specifically
                 $winningProposal = null;
                 if ($po->proposal_id) {
                     $winningProposal = $po->proposal ?? ($po->rfq->proposals->where('id', $po->proposal_id)->first());
                 }
-                if (!$winningProposal && $po->vendor_id) {
+                if (! $winningProposal && $po->vendor_id) {
                     $winningProposal = $po->rfq->proposals->where('company_id', $po->vendor_id)->whereIn('winner_status', ['approved', 'awarded'])->first()
                         ?? $po->rfq->proposals->where('company_id', $po->vendor_id)->first();
                 }
-                if (!$winningProposal) {
+                if (! $winningProposal) {
                     $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first()
                         ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
                         ?? $po->rfq->proposals->where('winner_status', 'awarded')->first()
@@ -196,7 +191,7 @@ class GetPurchaseOrdersAction
                     $negotiationItem = null;
                     if ($winningProposal && $winningProposal->relationLoaded('acceptedNegotiation') && $winningProposal->acceptedNegotiation) {
                         $negotiationItem = $winningProposal->acceptedNegotiation->items
-                            ->filter(function ($nItem) use ($proposalItem, $item) {
+                            ->filter(function ($nItem) use ($proposalItem) {
                                 return $nItem->proposal_item_id === ($proposalItem?->id ?? null);
                             })
                             ->first();
@@ -209,8 +204,11 @@ class GetPurchaseOrdersAction
 
                     return [
                         'id' => $item->id,
-                        'pr_reference_number' => 'RFQ-' . $item->rfq_id,
-                        'inventory_code' => $cat?->item_code ?? $item->sku ?? 'MANUAL',
+                        'pr_reference_number' => 'RFQ-'.$item->rfq_id,
+                        'inventory_code' => $cat?->item_code ?? $item->sku ?? (($item->line_type ?? 'goods') === 'service' ? 'SERVICE' : 'MANUAL'),
+                        'line_type' => $item->line_type ?? 'goods',
+                        'service_scope' => $item->service_scope,
+                        'acceptance_criteria' => $item->acceptance_criteria,
                         'inventory_name' => $cat?->name ?? $item->item_name ?? 'Manual item',
                         'category' => $cat?->category ?? 'Manual purchase',
                         'uom' => $cat?->uom ?? $item->uom ?? 'Pc',
@@ -239,9 +237,9 @@ class GetPurchaseOrdersAction
                 $winningProposal = $po->rfq->proposals->where('status', 'accepted')->first()
                     ?? $po->rfq->proposals->where('winner_status', 'approved')->first()
                     ?? $po->rfq->proposals->first();
-                if ($winningProposal && $winningProposal->relationLoaded('acceptedNegotiation') && $winningProposal->acceptedNegotiation && !empty($winningProposal->acceptedNegotiation->payment_scheme)) {
+                if ($winningProposal && $winningProposal->relationLoaded('acceptedNegotiation') && $winningProposal->acceptedNegotiation && ! empty($winningProposal->acceptedNegotiation->payment_scheme)) {
                     $paymentScheme = $winningProposal->acceptedNegotiation->payment_scheme;
-                } else if ($winningProposal && !empty($winningProposal->payment_term)) {
+                } elseif ($winningProposal && ! empty($winningProposal->payment_term)) {
                     $paymentScheme = $winningProposal->payment_term;
                 }
             }
@@ -282,6 +280,12 @@ class GetPurchaseOrdersAction
                 'delivery_point' => $po->delivery_point ?? $po->rfq?->delivery_point ?? null,
                 'status' => $po->status,
                 'procurement_mode' => $po->rfq?->procurement_mode ?? 'tender',
+                'procurement_type' => $po->procurement_type ?? $po->rfq?->procurement_type ?? 'goods',
+                'service_start_date' => $po->service_start_date?->format('Y-m-d'),
+                'service_end_date' => $po->service_end_date?->format('Y-m-d'),
+                'service_location' => $po->service_location,
+                'acceptance_criteria' => $po->acceptance_criteria,
+                'requires_service_acceptance' => (bool) $po->requires_service_acceptance,
                 'is_historical' => $isHistorical,
                 'created_at' => $po->created_at?->toIso8601String(),
                 'updated_at' => $po->updated_at?->toIso8601String(),

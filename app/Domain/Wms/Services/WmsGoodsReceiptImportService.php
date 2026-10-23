@@ -6,6 +6,7 @@ use App\Domain\Receipt\Models\GoodsReceipt;
 use App\Domain\Wms\Http\Requests\ImportGoodsReceiptsRequest;
 use App\Domain\Wms\Support\WmsContext;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -189,7 +190,10 @@ class WmsGoodsReceiptImportService
             $query = DB::table('proposal_items as pi')
                 ->join('rfq_items as ri', 'ri.id', '=', 'pi.rfq_item_id')
                 ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
-                ->where('pi.proposal_id', $po->proposal_id);
+                ->where('pi.proposal_id', $po->proposal_id)
+                ->where(function ($items) {
+                    $items->whereNull('ri.line_type')->orWhere('ri.line_type', 'goods');
+                });
 
             if ($hasAwardedFlags) {
                 $query->where('pi.is_awarded', true);
@@ -207,6 +211,9 @@ class WmsGoodsReceiptImportService
             $rfqLines = DB::table('rfq_items as ri')
                 ->leftJoin('catalogues as c', 'c.id', '=', 'ri.catalogue_id')
                 ->where('ri.rfq_id', $po->rfq_id)
+                ->where(function ($items) {
+                    $items->whereNull('ri.line_type')->orWhere('ri.line_type', 'goods');
+                })
                 ->selectRaw("ri.id as po_item_id, c.id as catalogue_id, UPPER(COALESCE(NULLIF(c.item_code, ''), NULLIF(ri.sku, ''), CONCAT('PR-', SUBSTRING(CAST(ri.id AS TEXT), 1, 8)))) as sku, COALESCE(c.name, ri.item_name, 'Manual item') as item_name, COALESCE(c.uom, ri.uom, 'unit') as uom, ri.qty as ordered_quantity")
                 ->get();
             if ($rfqLines->isNotEmpty()) {
@@ -218,7 +225,7 @@ class WmsGoodsReceiptImportService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     * @param  Collection<int, object>  $rows
      * @return list<array{po_item_id: string, sku: string, item_name: string, uom: string, catalogue_id: ?string, ordered_quantity: float}>
      */
     private function mapCatalogRows($rows): array

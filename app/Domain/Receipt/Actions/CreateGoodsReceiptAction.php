@@ -3,10 +3,10 @@
 namespace App\Domain\Receipt\Actions;
 
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
+use App\Domain\Order\Actions\CalculateInvoiceFeesAction;
 use App\Domain\Order\Models\DeliveryOrder;
 use App\Domain\Order\Models\GoodsReturn;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
-use App\Domain\Order\Actions\CalculateInvoiceFeesAction;
 use App\Domain\Receipt\Models\GoodsReceipt;
 use App\Domain\Receipt\Repositories\ReceiptRepositoryInterface;
 use App\Domain\Wms\Services\WmsGoodsReceiptImportService;
@@ -40,8 +40,15 @@ class CreateGoodsReceiptAction
             ]);
         }
 
-        // 1. Auto-derive received qty from PO items (sum of all ordered quantities) if no items_inspection is provided
+        // 1. Service acceptance is documented through BAST, never as a physical Goods Receipt.
         $po = $do->purchaseOrder;
+        if (($po->procurement_type ?? 'goods') === 'services') {
+            throw ValidationException::withMessages([
+                'purchase_order' => ['PO jasa menggunakan BAST sebagai bukti penerimaan layanan, bukan Goods Receipt.'],
+            ]);
+        }
+
+        // 2. Auto-derive received qty from PO items (sum of all ordered quantities) if no items_inspection is provided
 
         $itemsInspection = $data['items_inspection'] ?? null;
         if ($itemsInspection && is_array($itemsInspection)) {

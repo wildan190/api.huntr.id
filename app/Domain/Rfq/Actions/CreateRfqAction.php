@@ -6,10 +6,10 @@ use App\Domain\AI\Services\DemoBotService;
 use App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction;
 use App\Domain\Communication\Notifications\DatabaseNotification;
 use App\Domain\Company\Models\Company;
-use App\Domain\Subscription\Services\SubscriptionAccessService;
 use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
+use App\Domain\Subscription\Services\SubscriptionAccessService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -31,7 +31,7 @@ class CreateRfqAction
      * @param  string|null  $description  RFQ Description
      * @param  array  $cartItems  Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
      */
-    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null, string $procurementMode = 'tender'): Rfq
+    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null, string $procurementMode = 'tender', string $procurementType = 'goods', ?string $serviceStartDate = null, ?string $serviceEndDate = null, ?string $serviceLocation = null, ?string $acceptanceCriteria = null): Rfq
     {
         $this->subscriptionAccess->assertAvailable($buyerCompany);
 
@@ -41,6 +41,9 @@ class CreateRfqAction
             'cart_items_details' => $cartItems,
         ]);
 
+        if ($procurementType === 'services' && $warehouseId) {
+            abort(422, 'Layanan tidak dapat menggunakan tujuan warehouse. Gunakan lokasi layanan.');
+        }
         if ($warehouseId) {
             abort_unless(DB::table('company_apps')->where('company_id', $buyerCompany->id)->where('app_key', 'wms-inventory')->whereNotNull('installed_at')->exists(), 422, 'Install WMS & Inventory before choosing a warehouse destination.');
             abort_unless(DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $buyerCompany->id)->where('status', 'active')->exists(), 422, 'Warehouse tujuan tidak valid atau tidak aktif.');
@@ -53,6 +56,11 @@ class CreateRfqAction
             'document_path' => $documentPath,
             'status' => $status,
             'procurement_mode' => $procurementMode,
+            'procurement_type' => $procurementType,
+            'service_start_date' => $serviceStartDate,
+            'service_end_date' => $serviceEndDate,
+            'service_location' => $serviceLocation,
+            'acceptance_criteria' => $acceptanceCriteria,
             'duration_days' => $durationDays ?? 7,
             'delivery_point' => $deliveryPoint,
             'department' => $department,
@@ -62,9 +70,14 @@ class CreateRfqAction
         $lineItems = array_map(fn ($item) => [
             'rfq_id' => $rfq->id,
             'catalogue_id' => $item['catalogue_id'] ?? null,
+            'line_type' => $item['line_type'] ?? (($item['catalogue_id'] ?? null) ? 'goods' : 'service'),
             'item_name' => $item['item_name'] ?? null,
             'sku' => $item['sku'] ?? null,
             'uom' => $item['uom'] ?? null,
+            'service_scope' => $item['service_scope'] ?? null,
+            'acceptance_criteria' => $item['acceptance_criteria'] ?? null,
+            'service_start_date' => $item['service_start_date'] ?? $serviceStartDate,
+            'service_end_date' => $item['service_end_date'] ?? $serviceEndDate,
             'qty' => $item['qty'],
             'estimated_price' => $item['estimated_price'] ?? null,
             'expected_date' => $item['expected_date'] ?? null,
@@ -81,7 +94,7 @@ class CreateRfqAction
         if ($status === 'pending_approval') {
             $estimatedAmount = collect($lineItems)->sum(fn (array $item) => (float) ($item['qty'] ?? 0) * (float) ($item['estimated_price'] ?? 0));
             $this->companyAccess->bootstrap($buyerCompany);
-            $this->companyAccess->startSubject($buyerCompany, 'purchase_request', $rfq->id, $estimatedAmount, $userId, ['title' => $rfq->title, 'procurement_mode' => $procurementMode]);
+            $this->companyAccess->startSubject($buyerCompany, 'purchase_request', $rfq->id, $estimatedAmount, $userId, ['title' => $rfq->title, 'procurement_mode' => $procurementMode, 'procurement_type' => $procurementType]);
         }
 
         $this->broadcastAction->execute(
