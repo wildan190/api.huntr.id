@@ -2,36 +2,35 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
-
+use App\Domain\Auth\Repositories\EloquentUserRepository;
 // Auth
 use App\Domain\Auth\Repositories\UserRepositoryInterface;
-use App\Domain\Auth\Repositories\EloquentUserRepository;
-
-// Company
-use App\Domain\Company\Repositories\CompanyRepositoryInterface;
-use App\Domain\Company\Repositories\EloquentCompanyRepository;
-
-// Catalogue
 use App\Domain\Catalogue\Repositories\CatalogueRepositoryInterface;
+// Company
 use App\Domain\Catalogue\Repositories\EloquentCatalogueRepository;
 use App\Domain\Catalogue\Services\CatalogueCacheService;
-
+// Catalogue
+use App\Domain\Company\Repositories\CompanyRepositoryInterface;
+use App\Domain\Company\Repositories\EloquentCompanyRepository;
+use App\Domain\Crm\Console\DispatchCrmCampaignsCommand;
 // Rfq
-use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
-use App\Domain\Rfq\Repositories\EloquentRfqRepository;
-
+use App\Domain\Crm\Console\EscalateCrmTicketSlaCommand;
+use App\Domain\CrowdBuy\Console\Commands\AggregateHistoricalDemandsCommand;
 // Proposal
-use App\Domain\Proposal\Repositories\ProposalRepositoryInterface;
-use App\Domain\Proposal\Repositories\EloquentProposalRepository;
-
+use App\Domain\CrowdBuy\Console\Commands\EvaluateCrowdBuyDeadlinesCommand;
+use App\Domain\CrowdBuy\Repositories\CrowdBuyRepositoryInterface;
 // Order
-use App\Domain\Order\Repositories\OrderRepositoryInterface;
+use App\Domain\CrowdBuy\Repositories\EloquentCrowdBuyRepository;
 use App\Domain\Order\Repositories\EloquentOrderRepository;
-
 // Receipt
-use App\Domain\Receipt\Repositories\ReceiptRepositoryInterface;
+use App\Domain\Order\Repositories\OrderRepositoryInterface;
+use App\Domain\Proposal\Repositories\EloquentProposalRepository;
+use App\Domain\Proposal\Repositories\ProposalRepositoryInterface;
 use App\Domain\Receipt\Repositories\EloquentReceiptRepository;
+use App\Domain\Receipt\Repositories\ReceiptRepositoryInterface;
+use App\Domain\Rfq\Repositories\EloquentRfqRepository;
+use App\Domain\Rfq\Repositories\RfqRepositoryInterface;
+use Illuminate\Support\ServiceProvider;
 
 class DomainServiceProvider extends ServiceProvider
 {
@@ -48,8 +47,8 @@ class DomainServiceProvider extends ServiceProvider
         $this->app->bind(ProposalRepositoryInterface::class, EloquentProposalRepository::class);
         $this->app->bind(OrderRepositoryInterface::class, EloquentOrderRepository::class);
         $this->app->bind(ReceiptRepositoryInterface::class, EloquentReceiptRepository::class);
-        $this->app->bind(\App\Domain\CrowdBuy\Repositories\CrowdBuyRepositoryInterface::class, \App\Domain\CrowdBuy\Repositories\EloquentCrowdBuyRepository::class);
-        
+        $this->app->bind(CrowdBuyRepositoryInterface::class, EloquentCrowdBuyRepository::class);
+
         // Register catalogue cache service as singleton for better performance
         $this->app->singleton(CatalogueCacheService::class);
     }
@@ -59,7 +58,7 @@ class DomainServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription', 'Wms', 'Crm', 'CrowdBuy'];
+        $domains = ['Admin', 'Auth', 'Company', 'Catalogue', 'Rfq', 'Proposal', 'Order', 'Receipt', 'Communication', 'Access', 'Payment', 'Negotiation', 'EFaktur', 'AI', 'Subscription', 'Wms', 'Crm', 'Budget', 'CrowdBuy'];
         foreach ($domains as $domain) {
             $routePath = app_path("Domain/{$domain}/routes/api.php");
             if (file_exists($routePath)) {
@@ -69,10 +68,10 @@ class DomainServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
-                \App\Domain\CrowdBuy\Console\Commands\EvaluateCrowdBuyDeadlinesCommand::class,
-                \App\Domain\CrowdBuy\Console\Commands\AggregateHistoricalDemandsCommand::class,
-                \App\Domain\Crm\Console\DispatchCrmCampaignsCommand::class,
-                \App\Domain\Crm\Console\EscalateCrmTicketSlaCommand::class,
+                EvaluateCrowdBuyDeadlinesCommand::class,
+                AggregateHistoricalDemandsCommand::class,
+                DispatchCrmCampaignsCommand::class,
+                EscalateCrmTicketSlaCommand::class,
             ]);
         }
     }
