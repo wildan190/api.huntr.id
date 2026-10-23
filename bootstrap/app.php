@@ -3,8 +3,6 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Support\Facades\Route;
-use Laravel\Sanctum\Sanctum;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -15,7 +13,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Exempt 2FA and API endpoints from CSRF validation (Bearer token auth)
+        // ── Trust Nginx reverse proxy: read X-Forwarded-Proto so Laravel knows it's HTTPS ──
+        // This fixes Livewire/Pulse generating http:// URLs that cause CORS preflight redirects
+        $middleware->trustProxies(at: '*');
+
+        // Stamp every response with Octane/Swoole headers (visible in DevTools)
+        $middleware->prepend(\App\Http\Middleware\AddOctaneHeaders::class);
+
+        // Exempt 2FA, API, and Livewire endpoints from CSRF validation
         $middleware->validateCsrfTokens(except: [
             'user/two-factor-authentication',
             'user/two-factor-authentication/*',
@@ -23,8 +28,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'user/two-factor-recovery-codes',
             'user/confirmed-two-factor-authentication',
             'two-factor-challenge',
+            'livewire/*',        // ← Livewire update endpoint (OPTIONS preflight)
+            'livewire-*/*',      // ← versioned Livewire endpoint
         ]);
-        
+
         $middleware->append(\App\Http\Middleware\ValidateUserExists::class);
         $middleware->append(\App\Http\Middleware\DemoModeDisabledModules::class);
         $middleware->append(\App\Http\Middleware\CheckCompanyApproved::class);
@@ -35,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.session' => \App\Http\Middleware\AuthenticateAdminSession::class,
         ]);
     })
+
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (Illuminate\Auth\AuthenticationException $e, Illuminate\Http\Request $request) {
             return response()->json(['message' => 'Unauthenticated'], 401);

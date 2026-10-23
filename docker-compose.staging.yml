@@ -8,6 +8,7 @@ services:
       args:
         PHP_VERSION: "8.5"
     container_name: huntr_app_staging
+    command: php artisan octane:start --server=swoole --host=0.0.0.0 --port=8000 --workers=auto --max-requests=10000
     volumes: [] # No host volume mounting in staging for isolation
     env_file:
       - .env.staging

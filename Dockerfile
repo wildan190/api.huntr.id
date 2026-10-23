@@ -7,6 +7,7 @@ FROM php:${PHP_VERSION}-fpm-alpine AS base
 # Install system dependencies
 RUN apk add --no-cache \
     curl \
+    curl-dev \
     libpng-dev \
     libxml2-dev \
     libzip-dev \
@@ -18,7 +19,9 @@ RUN apk add --no-cache \
     fcgi \
     shadow \
     bash \
-    openssl
+    openssl \
+    openssl-dev \
+    libstdc++
 
 RUN { echo 'post_max_size = 32M'; echo 'upload_max_filesize = 32M'; } > "$PHP_INI_DIR/conf.d/crm-session-backup.ini"
 
@@ -31,10 +34,12 @@ RUN docker-php-ext-install \
     zip \
     pcntl
 
-# Install Redis extension
-RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+# Install Redis and Swoole extensions
+RUN apk add --no-cache --virtual .build-deps $PHPIZE_DEPS linux-headers \
     && pecl install redis \
     && docker-php-ext-enable redis \
+    && pecl install -D 'enable-openssl="yes" enable-http2="yes" enable-swoole-curl="yes"' swoole \
+    && docker-php-ext-enable swoole \
     && apk del .build-deps
 
 # Install Composer
@@ -51,6 +56,11 @@ RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 # ==========================================
 FROM base AS development
 
+# Install nodejs, npm, and chokidar for Octane file watching (--watch)
+RUN apk add --no-cache nodejs npm \
+    && npm install -g chokidar
+ENV NODE_PATH="/usr/local/lib/node_modules:/usr/lib/node_modules"
+
 # Switch back to development ini for better errors
 RUN mv "$PHP_INI_DIR/php.ini" "$PHP_INI_DIR/php.ini-production" \
     && mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
@@ -59,10 +69,16 @@ RUN mv "$PHP_INI_DIR/php.ini" "$PHP_INI_DIR/php.ini-production" \
 RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
 USER www-data
 
+EXPOSE 8000
+CMD ["php", "artisan", "octane:start", "--server=swoole", "--host=0.0.0.0", "--port=8000", "--watch"]
+
 # ==========================================
 # Production Stage
 # ==========================================
 FROM base AS production
+
+# PHP 8.5 ships OPcache with the runtime; this file only tunes it for immutable production images.
+COPY docker/php/conf.d/zz-production-performance.ini $PHP_INI_DIR/conf.d/zz-production-performance.ini
 
 # Set environment variables
 ENV APP_ENV=production
@@ -79,5 +95,5 @@ RUN composer install --no-interaction --no-dev --optimize-autoloader --prefer-di
 RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
 USER www-data
 
-EXPOSE 9000
-CMD ["php-fpm"]
+EXPOSE 8000
+CMD ["php", "artisan", "octane:start", "--server=swoole", "--host=0.0.0.0", "--port=8000", "--workers=auto", "--max-requests=10000"]
