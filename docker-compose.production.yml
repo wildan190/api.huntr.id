@@ -27,6 +27,7 @@ services:
   web:
     image: nginx:alpine
     container_name: huntr_web_prod
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
@@ -40,6 +41,7 @@ services:
   db:
     image: postgres:16-alpine
     container_name: huntr_db_prod
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
@@ -53,6 +55,7 @@ services:
   cache:
     image: docker.dragonflydb.io/dragonflydb/dragonfly
     container_name: huntr_cache
+    restart: unless-stopped
     ports:
       - "6379:6379"
 
@@ -65,6 +68,7 @@ services:
       args:
         PHP_VERSION: "8.5"
     container_name: huntr_horizon_prod
+    restart: unless-stopped
     command: php artisan horizon
     volumes:
       - ./storage:/var/www/storage
@@ -72,7 +76,12 @@ services:
     env_file:
       - .env.production
     depends_on:
-      - app
+      app:
+        condition: service_started
+      cache:
+        condition: service_started
+      db:
+        condition: service_started
 
   # Laravel Reverb (Production)
   reverb:
@@ -83,6 +92,7 @@ services:
       args:
         PHP_VERSION: "8.5"
     container_name: huntr_reverb_prod
+    restart: unless-stopped
     command: php artisan reverb:start --host=0.0.0.0 --port=8080
     ports:
       - "8080:8080"
@@ -92,7 +102,10 @@ services:
     env_file:
       - .env.production
     depends_on:
-      - app
+      app:
+        condition: service_started
+      cache:
+        condition: service_started
 
   whatsapp:
     build:
