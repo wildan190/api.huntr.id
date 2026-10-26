@@ -4,16 +4,22 @@ namespace App\Domain\Receipt\Http\Controllers;
 
 use App\Domain\Receipt\Models\GoodsReceipt;
 use App\Domain\Receipt\Actions\InspectGoodsReceiptAction;
+use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class GoodsReceiptController
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, CompanyAccessService $access): JsonResponse
     {
         $companyId = $request->input('company_id');
         $poId = $request->input('po_id');
+        abort_unless($companyId, 422, 'Company ID is required.');
+
+        $company = Company::query()->findOrFail($companyId);
+        $access->assertMember($request->user(), $company);
         
         $query = GoodsReceipt::with([
             'deliveryOrder.purchaseOrder',
@@ -21,13 +27,10 @@ class GoodsReceiptController
             'returns'
         ]);
 
-        // Filter by company through delivery order -> purchase order
-        if ($companyId) {
-            $query->whereHas('deliveryOrder.purchaseOrder', function ($q) use ($companyId) {
-                $q->where('buyer_company_id', $companyId)
-                  ->orWhere('vendor_company_id', $companyId);
-            });
-        }
+        $query->whereHas('deliveryOrder.purchaseOrder', function ($q) use ($companyId) {
+            $q->where('buyer_company_id', $companyId)
+                ->orWhere('vendor_id', $companyId);
+        });
 
         // Filter by PO
         if ($poId) {
@@ -41,7 +44,7 @@ class GoodsReceiptController
         return response()->json($receipts);
     }
 
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $receipt = GoodsReceipt::with([
             'deliveryOrder.purchaseOrder.buyerCompany',
@@ -51,12 +54,15 @@ class GoodsReceiptController
             'returns.resolutionApprovedBy'
         ])->findOrFail($id);
 
+        $this->assertReceiptAccess($request, $receipt, $access);
+
         return response()->json($receipt);
     }
 
-    public function inspect(Request $request, string $id, InspectGoodsReceiptAction $action): JsonResponse
+    public function inspect(Request $request, string $id, InspectGoodsReceiptAction $action, CompanyAccessService $access): JsonResponse
     {
         $receipt = GoodsReceipt::findOrFail($id);
+        $this->assertReceiptAccess($request, $receipt, $access);
 
         // Validate
         $validator = Validator::make($request->all(), [
@@ -103,5 +109,21 @@ class GoodsReceiptController
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function assertReceiptAccess(Request $request, GoodsReceipt $receipt, CompanyAccessService $access): void
+    {
+        $receipt->loadMissing('deliveryOrder.purchaseOrder');
+        $purchaseOrder = $receipt->deliveryOrder?->purchaseOrder;
+        abort_unless($purchaseOrder, 404, 'Purchase order not found for this receipt.');
+
+        $buyer = Company::query()->findOrFail($purchaseOrder->buyer_company_id);
+        $vendor = $purchaseOrder->vendor_id ? Company::query()->find($purchaseOrder->vendor_id) : null;
+        abort_unless(
+            $access->isMember($request->user(), $buyer)
+            || ($vendor && $access->isMember($request->user(), $vendor)),
+            403,
+            'Anda tidak memiliki akses ke Goods Receipt ini.',
+        );
     }
 }

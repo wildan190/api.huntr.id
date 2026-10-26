@@ -14,7 +14,7 @@ class UploadCompanyDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'company_id' => ['nullable', 'exists:companies,id'],
+            'company_id' => ['required', 'exists:companies,id'],
             'type' => ['nullable', 'string', 'max:100'],
             'document' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,doc,docx', 'max:10000'],
         ];

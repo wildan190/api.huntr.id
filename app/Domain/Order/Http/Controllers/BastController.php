@@ -7,6 +7,8 @@ use App\Domain\Order\Actions\BuildPurchaseOrderPaymentBreakdownAction;
 use App\Domain\Order\Events\BastIssuedEvent;
 use App\Domain\Order\Models\Bast;
 use App\Domain\Order\Models\PurchaseOrder;
+use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -25,7 +27,7 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Create BAST for a purchase order
      */
-    public function store(Request $request, CreateBastAction $action): JsonResponse
+    public function store(Request $request, CreateBastAction $action, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'po_id' => 'required|uuid|exists:purchase_orders,id',
@@ -47,6 +49,9 @@ class BastController extends \App\Http\Controllers\Controller
             ]);
 
             $po = PurchaseOrder::findOrFail($request->input('po_id'));
+            $buyer = Company::query()->findOrFail($po->buyer_company_id);
+            $vendor = $po->vendor_id ? Company::query()->find($po->vendor_id) : null;
+            abort_unless($access->isMember($request->user(), $buyer) || ($vendor && $access->isMember($request->user(), $vendor)), 403);
 
             $bast = $action->execute($po, $request->all());
 
@@ -79,10 +84,11 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Get BAST by ID
      */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $bast = Bast::with('purchaseOrder', 'buyerCompany', 'vendorCompany', 'handedByUser', 'receivedByUser', 'witnessUser')
             ->findOrFail($id);
+        $this->assertCompanyAccess($request, $bast, $access);
 
         return response()->json(['bast' => $bast]);
     }
@@ -90,16 +96,13 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * List BASTs for a company
      */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, CompanyAccessService $access): JsonResponse
     {
+        $companyId = $request->input('company_id');
+        abort_unless($companyId, 422, 'company_id is required');
+        $access->assertMember($request->user(), Company::query()->findOrFail($companyId));
         try {
             // Validate only required parameters without database checks first
-            $companyId = $request->input('company_id');
-            if (!$companyId) {
-                return response()->json([
-                    'message' => 'company_id is required',
-                ], 422);
-            }
 
             Log::info('BastController.index called', [
                 'company_id' => $companyId,
@@ -158,7 +161,7 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Sign BAST as handed-by party (vendor)
      */
-    public function signHandedBy(Request $request, string $id): JsonResponse
+    public function signHandedBy(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'handed_by_user_id' => 'required|uuid|exists:users,id',
@@ -186,6 +189,8 @@ class BastController extends \App\Http\Controllers\Controller
         }
 
         $bast = Bast::findOrFail($id);
+        abort_unless((string) $request->input('handed_by_user_id') === (string) $user->id, 403, 'Anda hanya dapat menandatangani atas nama akun sendiri.');
+        $access->assertMember($user, Company::query()->findOrFail($bast->vendor_company_id));
 
         $bast->update([
             'handed_by_user_id' => $request->input('handed_by_user_id'),
@@ -207,7 +212,7 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Sign BAST as received-by party (buyer)
      */
-    public function signReceivedBy(Request $request, string $id): JsonResponse
+    public function signReceivedBy(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'received_by_user_id' => 'required|uuid|exists:users,id',
@@ -235,6 +240,8 @@ class BastController extends \App\Http\Controllers\Controller
         }
 
         $bast = Bast::findOrFail($id);
+        abort_unless((string) $request->input('received_by_user_id') === (string) $user->id, 403, 'Anda hanya dapat menandatangani atas nama akun sendiri.');
+        $access->assertMember($user, Company::query()->findOrFail($bast->buyer_company_id));
 
         $bast->update([
             'received_by_user_id' => $request->input('received_by_user_id'),
@@ -256,7 +263,7 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Sign BAST as witness
      */
-    public function signWitness(Request $request, string $id): JsonResponse
+    public function signWitness(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'witness_user_id' => 'required|uuid|exists:users,id',
@@ -283,6 +290,8 @@ class BastController extends \App\Http\Controllers\Controller
         }
 
         $bast = Bast::findOrFail($id);
+        abort_unless((string) $request->input('witness_user_id') === (string) $user->id, 403, 'Anda hanya dapat menandatangani atas nama akun sendiri.');
+        $access->assertMember($user, Company::query()->findOrFail($bast->buyer_company_id));
 
         $bast->update([
             'witness_user_id' => $request->input('witness_user_id'),
@@ -304,10 +313,11 @@ class BastController extends \App\Http\Controllers\Controller
     /**
      * Generate and display BAST PDF in browser (for printing)
      */
-    public function showPdf(string $id, BuildPurchaseOrderPaymentBreakdownAction $buildPurchaseOrderPaymentBreakdownAction)
+    public function showPdf(Request $request, string $id, BuildPurchaseOrderPaymentBreakdownAction $buildPurchaseOrderPaymentBreakdownAction, CompanyAccessService $access)
     {
         $bast = Bast::with('purchaseOrder', 'buyerCompany', 'vendorCompany')
             ->findOrFail($id);
+        $this->assertCompanyAccess($request, $bast, $access);
 
         $disk = config('filesystems.default');
         /** @var FilesystemAdapter $storageDisk */
@@ -354,5 +364,17 @@ class BastController extends \App\Http\Controllers\Controller
         }
 
         return $storage->url($path);
+    }
+
+    private function assertCompanyAccess(Request $request, Bast $bast, CompanyAccessService $access): void
+    {
+        $buyer = $bast->buyer_company_id ? Company::query()->find($bast->buyer_company_id) : null;
+        $vendor = $bast->vendor_company_id ? Company::query()->find($bast->vendor_company_id) : null;
+        abort_unless(
+            ($buyer && $access->isMember($request->user(), $buyer))
+            || ($vendor && $access->isMember($request->user(), $vendor)),
+            403,
+            'Anda tidak memiliki akses ke dokumen ini.',
+        );
     }
 }

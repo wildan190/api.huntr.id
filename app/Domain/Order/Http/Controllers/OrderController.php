@@ -17,6 +17,7 @@ use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Order\Models\DeliveryOrder;
 use App\Domain\Order\Models\Invoice;
 use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Domain\Rfq\Models\Rfq;
@@ -47,9 +48,10 @@ class OrderController extends \App\Http\Controllers\Controller
      */
     public function award(AwardVendorRequest $request, AwardVendorAction $action): JsonResponse
     {
-        $rfq = Rfq::findOrFail($request->input('rfq_id'));
-        $proposal = Proposal::findOrFail($request->input('proposal_id'));
-        $manager = User::findOrFail($request->input('manager_id'));
+        $rfq = Rfq::with('company')->findOrFail($request->input('rfq_id'));
+        $proposal = Proposal::whereKey($request->input('proposal_id'))->where('rfq_id', $rfq->id)->firstOrFail();
+        $manager = $request->user();
+        abort_unless($manager, 401, 'Authentication required.');
 
         return response()->json([
             'po' => $action->execute($manager, $rfq, $proposal)
@@ -82,7 +84,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Vendor mengonfirmasi Purchase Order dan menerbitkan Proforma Invoice.
      */
-    public function confirm(Request $request, PurchaseOrder $po, ConfirmPurchaseOrderAction $action): JsonResponse
+    public function confirm(Request $request, PurchaseOrder $po, ConfirmPurchaseOrderAction $action, CompanyAccessService $access): JsonResponse
     {
         $vendorCompanyId = $request->input('company_id');
         if (!$vendorCompanyId) {
@@ -90,6 +92,7 @@ class OrderController extends \App\Http\Controllers\Controller
         }
 
         $vendorCompany = Company::findOrFail($vendorCompanyId);
+        $access->assertCan($request->user(), $vendorCompany, 'procurement.po.confirm');
 
         $po = $action->execute($vendorCompany, $po, $request->user());
         return response()->json([
@@ -102,11 +105,14 @@ class OrderController extends \App\Http\Controllers\Controller
      * Print Purchase Order (HTML for Ctrl+P).
      */
     public function printPo(
+        Request $request,
         PurchaseOrder $po,
         GetPurchaseOrdersAction $action,
         BuildPurchaseOrderPaymentBreakdownAction $buildPurchaseOrderPaymentBreakdownAction,
+        CompanyAccessService $access,
     )
     {
+        $this->assertPurchaseOrderAccess($request, $po, $access);
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
 
@@ -123,12 +129,15 @@ class OrderController extends \App\Http\Controllers\Controller
      * Print Invoice/Proforma (HTML for Ctrl+P).
      */
     public function printInvoice(
+        Request $request,
         \App\Domain\Order\Models\Invoice $invoice,
         GetPurchaseOrdersAction $action,
         BuildInvoicePaymentBreakdownAction $buildInvoicePaymentBreakdownAction,
+        CompanyAccessService $access,
     )
     {
         $po = $invoice->purchaseOrder;
+        $this->assertPurchaseOrderAccess($request, $po, $access);
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
 
@@ -145,10 +154,11 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Print Delivery Order (HTML for Ctrl+P).
      */
-    public function printDo(\App\Domain\Order\Models\DeliveryOrder $deliveryOrder, GetPurchaseOrdersAction $action)
+    public function printDo(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder, GetPurchaseOrdersAction $action, CompanyAccessService $access)
     {
         $deliveryOrder->load(['goodsReceipts', 'handedByUser', 'receivedByUser', 'witnessUser']);
         $po = $deliveryOrder->purchaseOrder;
+        $this->assertPurchaseOrderAccess($request, $po, $access);
         $data = $action->execute(['company_id' => $po->buyer_company_id, 'search' => $po->po_number]);
         $poData = $data['data'][0] ?? null;
 
@@ -158,10 +168,22 @@ class OrderController extends \App\Http\Controllers\Controller
         return view('print.do', ['do' => $deliveryOrder, 'po' => $poData]);
     }
 
+    private function assertPurchaseOrderAccess(Request $request, PurchaseOrder $po, CompanyAccessService $access): void
+    {
+        $buyer = Company::query()->findOrFail($po->buyer_company_id);
+        $vendor = $po->vendor_id ? Company::query()->find($po->vendor_id) : null;
+        abort_unless(
+            $access->isMember($request->user(), $buyer)
+            || ($vendor && $access->isMember($request->user(), $vendor)),
+            403,
+            'Anda tidak memiliki akses ke dokumen ini.',
+        );
+    }
+
     /**
      * Arrange Delivery (Vendor releases Delivery Order).
      */
-    public function arrangeDelivery(Request $request, PurchaseOrder $po, \App\Domain\Order\Actions\ReleaseDeliveryOrderAction $action): JsonResponse
+    public function arrangeDelivery(Request $request, PurchaseOrder $po, \App\Domain\Order\Actions\ReleaseDeliveryOrderAction $action, CompanyAccessService $access): JsonResponse
     {
         $vendorCompanyId = $request->input('company_id');
         $trackingNumber = $request->input('tracking_number');
@@ -171,6 +193,7 @@ class OrderController extends \App\Http\Controllers\Controller
         }
 
         $vendorCompany = Company::findOrFail($vendorCompanyId);
+        $access->assertCan($request->user(), $vendorCompany, 'procurement.po.confirm');
 
         return response()->json([
             'do' => $action->execute($vendorCompany, $po, $trackingNumber)
@@ -180,7 +203,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Vendor publishes an Invoice.
      */
-    public function publishInvoice(Request $request, \App\Domain\Order\Models\Invoice $invoice, \App\Domain\Order\Actions\PublishInvoiceAction $action): JsonResponse
+    public function publishInvoice(Request $request, \App\Domain\Order\Models\Invoice $invoice, \App\Domain\Order\Actions\PublishInvoiceAction $action, CompanyAccessService $access): JsonResponse
     {
         $vendorCompanyId = $request->input('company_id');
         if (!$vendorCompanyId) {
@@ -188,6 +211,7 @@ class OrderController extends \App\Http\Controllers\Controller
         }
 
         $vendorCompany = Company::findOrFail($vendorCompanyId);
+        $access->assertCan($request->user(), $vendorCompany, 'procurement.po.confirm');
 
         return response()->json([
             'invoice' => $action->execute($vendorCompany, $invoice)
@@ -197,7 +221,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Buyer's Finance team approves an Invoice.
      */
-    public function approveInvoice(Request $request, \App\Domain\Order\Models\Invoice $invoice, \App\Domain\Order\Actions\ApproveInvoiceAction $action): JsonResponse
+    public function approveInvoice(Request $request, \App\Domain\Order\Models\Invoice $invoice, \App\Domain\Order\Actions\ApproveInvoiceAction $action, CompanyAccessService $access): JsonResponse
     {
         $buyerCompanyId = $request->input('company_id');
         if (!$buyerCompanyId) {
@@ -205,6 +229,7 @@ class OrderController extends \App\Http\Controllers\Controller
         }
 
         $buyerCompany = Company::findOrFail($buyerCompanyId);
+        $access->assertCan($request->user(), $buyerCompany, 'finance.access');
 
         return response()->json([
             'invoice' => $action->execute($buyerCompany, $invoice)
@@ -214,7 +239,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Sign Delivery Order as handed-by party (vendor)
      */
-    public function signDoHandedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder): JsonResponse
+    public function signDoHandedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'handed_by_user_id' => 'required|uuid|exists:users,id',
@@ -223,6 +248,11 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         $user = $request->user();
+        abort_unless((string) $request->input('handed_by_user_id') === (string) $user->id, 403, 'Anda hanya dapat menandatangani atas nama akun sendiri.');
+        $purchaseOrder = $deliveryOrder->purchaseOrder;
+        $vendor = $purchaseOrder?->vendor;
+        abort_unless($vendor, 404, 'Vendor untuk Delivery Order tidak ditemukan.');
+        $access->assertMember($user, $vendor);
 
         // Fresh query to get latest roles from database
         $user->load('roles');
@@ -289,7 +319,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Sign Delivery Order as received-by party (buyer)
      */
-    public function signDoReceivedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder): JsonResponse
+    public function signDoReceivedBy(Request $request, \App\Domain\Order\Models\DeliveryOrder $deliveryOrder, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'received_by_user_id' => 'required|uuid|exists:users,id',
@@ -298,6 +328,11 @@ class OrderController extends \App\Http\Controllers\Controller
         ]);
 
         $user = $request->user();
+        abort_unless((string) $request->input('received_by_user_id') === (string) $user->id, 403, 'Anda hanya dapat menandatangani atas nama akun sendiri.');
+        $purchaseOrder = $deliveryOrder->purchaseOrder;
+        $buyer = $purchaseOrder?->buyer;
+        abort_unless($buyer, 404, 'Buyer untuk Delivery Order tidak ditemukan.');
+        $access->assertMember($user, $buyer);
 
         // Fresh query to get latest roles from database
         $user->load('roles');
@@ -364,7 +399,7 @@ class OrderController extends \App\Http\Controllers\Controller
     /**
      * Vendor updates the tracking status of a PO (Packing / In Transit / Delivered).
      */
-    public function updateTrackingStatus(Request $request, PurchaseOrder $po, UpdatePoTrackingStatusAction $action): JsonResponse
+    public function updateTrackingStatus(Request $request, PurchaseOrder $po, UpdatePoTrackingStatusAction $action, CompanyAccessService $access): JsonResponse
     {
         $vendorCompanyId = $request->input('company_id');
         $newStatus = $request->input('status');
@@ -378,6 +413,7 @@ class OrderController extends \App\Http\Controllers\Controller
         }
 
         $vendorCompany = Company::findOrFail($vendorCompanyId);
+        $access->assertCan($request->user(), $vendorCompany, 'procurement.po.confirm');
 
         return response()->json([
             'po' => $action->execute($vendorCompany, $po, $newStatus, $note)

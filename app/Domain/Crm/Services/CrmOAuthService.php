@@ -21,6 +21,7 @@ class CrmOAuthService
     public function authorize(Request $request, string $provider)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'crm.integration.manage');
         $config = $this->providerConfig($provider);
         $state = Str::random(64);
         Cache::put($this->stateKey($state), [

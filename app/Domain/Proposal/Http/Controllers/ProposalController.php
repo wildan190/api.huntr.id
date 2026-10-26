@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Rfq\Models\Rfq;
 use Illuminate\Http\Request;
 
@@ -23,7 +24,7 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Get list of proposals for a company.
      */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, CompanyAccessService $access): JsonResponse
     {
         $companyId = $request->query('company_id');
         $search = $request->query('search');
@@ -33,6 +34,7 @@ class ProposalController extends \App\Http\Controllers\Controller
         }
 
         $company = Company::findOrFail($companyId);
+        $access->assertMember($request->user(), $company);
 
         $query = Proposal::with(['rfq', 'company', 'items.rfqItem.catalogue']);
 
@@ -59,9 +61,10 @@ class ProposalController extends \App\Http\Controllers\Controller
         return response()->json($query->latest()->get());
     }
 
-    public function store(SubmitProposalRequest $request, SubmitProposalAction $action): JsonResponse
+    public function store(SubmitProposalRequest $request, SubmitProposalAction $action, CompanyAccessService $access): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
+        $access->assertMember($request->user(), $company);
         $rfq = Rfq::with('items')->findOrFail($request->input('rfq_id'));
         
         $data = $request->validated();
@@ -77,8 +80,9 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Calculate rankings for a specific RFQ.
      */
-    public function calculateRankings(Rfq $rfq, CalculateVendorRankingAction $action): JsonResponse
+    public function calculateRankings(Request $request, Rfq $rfq, CalculateVendorRankingAction $action, CompanyAccessService $access): JsonResponse
     {
+        $access->assertMember($request->user(), Company::query()->findOrFail($rfq->company_id));
         $rankings = $action->execute($rfq);
         return response()->json(['rankings' => $rankings]);
     }
@@ -86,7 +90,7 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Get overview rankings for a vendor (My Rank page).
      */
-    public function vendorRankings(Request $request, GetVendorMyRankAction $action): JsonResponse
+    public function vendorRankings(Request $request, GetVendorMyRankAction $action, CompanyAccessService $access): JsonResponse
     {
         $companyId = $request->query('company_id');
         if (!$companyId) {
@@ -94,6 +98,7 @@ class ProposalController extends \App\Http\Controllers\Controller
         }
 
         $company = Company::findOrFail($companyId);
+        $access->assertMember($request->user(), $company);
         $data = $action->execute($company);
 
         return response()->json($data);
@@ -235,8 +240,13 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Get proposal detail with full offer information.
      */
-    public function show(Proposal $proposal): JsonResponse
+    public function show(Request $request, Proposal $proposal, CompanyAccessService $access): JsonResponse
     {
+        $proposal->loadMissing('rfq');
+        $buyer = Company::query()->findOrFail($proposal->rfq->company_id);
+        $vendor = Company::query()->findOrFail($proposal->company_id);
+        abort_unless($access->isMember($request->user(), $buyer) || $access->isMember($request->user(), $vendor), 403);
+
         return response()->json(
             $proposal->load('rfq.items.catalogue', 'company', 'items.rfqItem.catalogue')
         );
@@ -245,9 +255,11 @@ class ProposalController extends \App\Http\Controllers\Controller
     /**
      * Get all proposals awaiting manager approval.
      */
-    public function awaitingApproval(Request $request, GetAwaitingApprovalsAction $action): JsonResponse
+    public function awaitingApproval(Request $request, GetAwaitingApprovalsAction $action, CompanyAccessService $access): JsonResponse
     {
         $companyId = $request->query('company_id');
+        $company = Company::query()->findOrFail($companyId);
+        $access->assertCan($request->user(), $company, 'procurement.winner.approve');
         $proposals = $action->execute($companyId);
         return response()->json(['proposals' => $proposals]);
     }

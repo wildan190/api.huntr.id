@@ -17,6 +17,7 @@ class WmsGoodsReceiptImportService
     public function import(ImportGoodsReceiptsRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.receive');
         $data = $request->validated();
         abort_unless(DB::table('warehouses')->where('id', $data['warehouse_id'])->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
 
@@ -57,6 +58,7 @@ class WmsGoodsReceiptImportService
     public function repairLegacyInventory(Request $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.adjust');
 
         return response()->json([
             'repaired_receipt_count' => $this->repairLegacyNamesForCompany($company),

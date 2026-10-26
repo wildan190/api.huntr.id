@@ -98,4 +98,15 @@ class MidtransService
 
         return $response->json();
     }
+
+    public function verifyWebhookSignature(array $payload): bool
+    {
+        $orderId = (string) ($payload['order_id'] ?? '');
+        $statusCode = (string) ($payload['status_code'] ?? '');
+        $grossAmount = (string) ($payload['gross_amount'] ?? '');
+        $signature = (string) ($payload['signature_key'] ?? '');
+
+        return $this->serverKey !== '' && $orderId !== '' && $statusCode !== '' && $grossAmount !== '' && $signature !== ''
+            && hash_equals(hash('sha512', $orderId.$statusCode.$grossAmount.$this->serverKey), $signature);
+    }
 }

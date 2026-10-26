@@ -13,7 +13,11 @@ use Illuminate\Validation\ValidationException;
 
 class BudgetService
 {
-    public function __construct(private BudgetContext $context, private CompanyAccessService $access) {}
+    public function __construct(
+        private BudgetContext $context,
+        private CompanyAccessService $access,
+        private BudgetCommitmentService $budgetCommitments,
+    ) {}
 
     public function dashboard(Request $request)
     {
@@ -254,11 +258,15 @@ class BudgetService
         $plan = $this->plan($company->id, $planId);
         $po = PurchaseOrder::query()->where('buyer_company_id', $company->id)->findOrFail($data['purchase_order_id']);
         $amount = (float) ($data['amount'] ?? $po->total_amount);
-        $this->assertCommitmentWithinBudget($company->id, $plan, $amount);
-        DB::transaction(function () use ($company, $plan, $po, $amount, $data, $request) {
-            DB::table('procurement_plans')->where('id', $plan->id)->update(['purchase_order_id' => $po->id, 'status' => 'in_progress', 'updated_at' => now()]);
-            DB::table('purchase_orders')->where('id', $po->id)->update(['procurement_plan_id' => $plan->id, 'updated_at' => now()]);
-            $this->upsertTransaction($company->id, $plan, 'commitment', $amount, 'purchase_order', $po->id, $po->po_number, $data['note'] ?? null, $request->user()->id, $data['occurred_at'] ?? now()->toDateString());
+        DB::transaction(function () use ($plan, $po, $amount, $data, $request) {
+            $this->budgetCommitments->sync(
+                $po,
+                $amount,
+                $plan->id,
+                $data['note'] ?? null,
+                $data['occurred_at'] ?? null,
+                $request->user()->id,
+            );
         });
 
         return response()->json(['message' => 'PO terhubung dan komitmen anggaran dicatat.', 'plan' => $this->planWithFigures($company->id, $plan->id)]);
@@ -368,19 +376,6 @@ class BudgetService
         $allocated = (float) $query->sum('allocated_amount');
         if ($allocated + $amount > (float) $cycle->total_amount) {
             throw ValidationException::withMessages(['allocated_amount' => ['Total alokasi tidak boleh melampaui total periode anggaran.']]);
-        }
-    }
-
-    private function assertCommitmentWithinBudget(string $companyId, object $plan, float $amount): void
-    {
-        if (! $plan->budget_line_id) {
-            return;
-        }
-        $line = $this->lineWithFigures($companyId, $plan->budget_line_id);
-        $existing = (float) DB::table('procurement_budget_transactions')
-            ->where('procurement_plan_id', $plan->id)->where('kind', 'commitment')->sum('amount');
-        if (((float) $line->committed_amount - $existing + $amount) > (float) $line->allocated_amount) {
-            throw ValidationException::withMessages(['amount' => ['Komitmen PO melampaui alokasi budget line.']]);
         }
     }
 

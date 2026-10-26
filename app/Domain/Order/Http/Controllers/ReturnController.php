@@ -5,6 +5,8 @@ namespace App\Domain\Order\Http\Controllers;
 use App\Domain\Order\Actions\CreateReturnAction;
 use App\Domain\Order\Models\GoodsReturn;
 use App\Domain\Order\Models\PurchaseOrder;
+use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +20,7 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * Create a new return
      */
-    public function store(Request $request, CreateReturnAction $action): JsonResponse
+    public function store(Request $request, CreateReturnAction $action, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'po_id' => 'required|uuid|exists:purchase_orders,id',
@@ -38,6 +40,7 @@ class ReturnController extends \App\Http\Controllers\Controller
 
         try {
             $po = PurchaseOrder::findOrFail($request->input('po_id'));
+            $this->assertCompanyAccess($request, $po->buyer_company_id, $po->vendor_id, $access);
 
             $return = $action->execute($po, $request->all());
 
@@ -53,10 +56,11 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * Get return by ID
      */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $return = GoodsReturn::with('purchaseOrder', 'buyerCompany', 'vendorCompany', 'inspectedByUser', 'approvedByUser')
             ->findOrFail($id);
+        $this->assertCompanyAccess($request, $return->buyer_company_id, $return->vendor_company_id, $access);
 
         return response()->json(['return' => $return]);
     }
@@ -64,17 +68,13 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * List returns for a company
      */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, CompanyAccessService $access): JsonResponse
     {
+        $companyId = $request->input('company_id');
+        abort_unless($companyId, 422, 'company_id is required');
+        $access->assertMember($request->user(), Company::query()->findOrFail($companyId));
         try {
             // Validate only required parameters without database checks first
-            $companyId = $request->input('company_id');
-            if (!$companyId) {
-                return response()->json([
-                    'message' => 'company_id is required',
-                ], 422);
-            }
-
             // Try to get data
             $query = GoodsReturn::where(function ($q) use ($companyId) {
                 $q->where('buyer_company_id', $companyId)
@@ -127,7 +127,7 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * Update return status
      */
-    public function updateStatus(Request $request, string $id): JsonResponse
+    public function updateStatus(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'status' => 'required|in:pending,in_transit,received,processed,cancelled',
@@ -135,6 +135,7 @@ class ReturnController extends \App\Http\Controllers\Controller
         ]);
 
         $return = GoodsReturn::findOrFail($id);
+        $this->assertCompanyAccess($request, $return->buyer_company_id, $return->vendor_company_id, $access);
 
         $return->update([
             'status' => $request->input('status'),
@@ -153,7 +154,7 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * Inspect return (vendor side)
      */
-    public function inspect(Request $request, string $id): JsonResponse
+    public function inspect(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'inspection_status' => 'required|in:approved,partial,rejected',
@@ -161,6 +162,8 @@ class ReturnController extends \App\Http\Controllers\Controller
         ]);
 
         $return = GoodsReturn::findOrFail($id);
+        $vendor = Company::query()->findOrFail($return->vendor_company_id);
+        $access->assertMember($request->user(), $vendor);
 
         if (!$return->canBeInspected()) {
             return response()->json(['message' => 'Return cannot be inspected at this status.'], 422);
@@ -182,13 +185,15 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * Approve return
      */
-    public function approve(Request $request, string $id): JsonResponse
+    public function approve(Request $request, string $id, CompanyAccessService $access): JsonResponse
     {
         $request->validate([
             'approved_notes' => 'nullable|string',
         ]);
 
         $return = GoodsReturn::findOrFail($id);
+        $buyer = Company::query()->findOrFail($return->buyer_company_id);
+        $access->assertMember($request->user(), $buyer);
 
         if (!$return->canBeApproved()) {
             return response()->json(['message' => 'Return cannot be approved at this status.'], 422);
@@ -209,10 +214,11 @@ class ReturnController extends \App\Http\Controllers\Controller
     /**
      * Generate and display Return PDF in browser (for printing)
      */
-    public function showPdf(string $id)
+    public function showPdf(Request $request, string $id, CompanyAccessService $access)
     {
         $return = GoodsReturn::with(['purchaseOrder', 'buyerCompany', 'vendorCompany', 'inspectedByUser', 'approvedByUser', 'bast'])
             ->findOrFail($id);
+        $this->assertCompanyAccess($request, $return->buyer_company_id, $return->vendor_company_id, $access);
 
         $disk = config('filesystems.default');
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storageDisk */
@@ -232,6 +238,18 @@ class ReturnController extends \App\Http\Controllers\Controller
             'buyer_logo_url' => $buyerLogoUrl,
             'vendor_logo_url' => $vendorLogoUrl,
         ]);
+    }
+
+    private function assertCompanyAccess(Request $request, ?string $buyerCompanyId, ?string $vendorCompanyId, CompanyAccessService $access): void
+    {
+        $buyer = $buyerCompanyId ? Company::query()->find($buyerCompanyId) : null;
+        $vendor = $vendorCompanyId ? Company::query()->find($vendorCompanyId) : null;
+        abort_unless(
+            ($buyer && $access->isMember($request->user(), $buyer))
+            || ($vendor && $access->isMember($request->user(), $vendor)),
+            403,
+            'Anda tidak memiliki akses ke dokumen ini.',
+        );
     }
 
     /**

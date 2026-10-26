@@ -3,6 +3,8 @@
 namespace App\Domain\Order\Actions;
 
 use App\Domain\Auth\Models\User;
+use App\Domain\Budget\Services\BudgetCommitmentService;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Order\Models\PurchaseOrder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\UnauthorizedException;
@@ -15,14 +17,16 @@ class AdvanceDirectPurchaseOrderAction
         'in_transit' => 'delivered',
     ];
 
+    public function __construct(
+        private readonly BudgetCommitmentService $budgetCommitments,
+        private readonly CompanyAccessService $access,
+    ) {}
+
     public function execute(User $actor, PurchaseOrder $po, string $companyId): PurchaseOrder
     {
-        $isOwner = (string) $po->buyer?->owner_id === (string) $actor->id;
-        if (! $isOwner && ! $actor->hasRole('manager')) {
-            throw new UnauthorizedException('Only a purchasing manager or company owner can update a direct PO.');
-        }
-
         abort_unless((string) $po->buyer_company_id === (string) $companyId, 422, 'This PO belongs to another buyer workspace.');
+        $po->loadMissing('buyer');
+        $this->access->assertCan($actor, $po->buyer, 'procurement.winner.select');
 
         return DB::transaction(function () use ($po, $actor) {
             $lockedPo = PurchaseOrder::query()->lockForUpdate()->with('rfq')->findOrFail($po->id);
@@ -48,6 +52,8 @@ class AdvanceDirectPurchaseOrderAction
                 'status' => $nextStatus,
                 'tracking_timeline' => $timeline,
             ]);
+
+            $this->budgetCommitments->sync($lockedPo);
 
             return $lockedPo->fresh();
         });
