@@ -44,6 +44,7 @@ class WmsInventoryService
     public function storeWarehouse(StoreWarehouseRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.warehouse.manage');
         $data = $request->validated();
         unset($data['company_id']);
         $id = (string) Str::uuid();
@@ -105,6 +106,7 @@ class WmsInventoryService
     public function storeBin(StoreWarehouseBinRequest $request, ?string $warehouseId = null)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.warehouse.manage');
         $data = $request->validated();
         $targetWarehouseId = $warehouseId ?: ($data['warehouse_id'] ?? null);
         abort_unless($targetWarehouseId && DB::table('warehouses')->where('id', $targetWarehouseId)->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
@@ -138,6 +140,7 @@ class WmsInventoryService
     public function updateBin(UpdateWarehouseBinRequest $request, string $warehouseId, string $binId)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.warehouse.manage');
         $bin = DB::table('warehouse_bins')
             ->where('id', $binId)
             ->where('warehouse_id', $warehouseId)
@@ -162,6 +165,7 @@ class WmsInventoryService
     public function destroyBin(Request $request, string $warehouseId, string $binId)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.warehouse.manage');
         $bin = DB::table('warehouse_bins')
             ->where('id', $binId)
             ->where('warehouse_id', $warehouseId)
@@ -245,6 +249,7 @@ class WmsInventoryService
     public function updateWarehouse(UpdateWarehouseRequest $request, string $warehouseId)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.warehouse.manage');
         $warehouse = DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->first();
         abort_unless($warehouse, 404, 'Warehouse tidak ditemukan.');
         $data = $request->validated();
@@ -356,6 +361,7 @@ class WmsInventoryService
     public function setReorderLevel(SetReorderLevelRequest $request, int $stockId)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.adjust');
         $data = $request->validated();
         $stock = $this->context->stockForTenant($company, $stockId);
 
@@ -378,6 +384,7 @@ class WmsInventoryService
     public function reorderStock(Request $request, int $stockId)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.adjust');
         $stock = $this->context->stockForTenant($company, $stockId);
 
         $validated = $request->validate([
@@ -445,6 +452,7 @@ class WmsInventoryService
     public function receive(ReceiveStockRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.receive');
         $data = $request->validated();
         abort_unless(DB::table('warehouses')->where('id', $data['warehouse_id'])->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
         $receipt = DB::transaction(function () use ($company, $data, $request) {
@@ -565,6 +573,7 @@ class WmsInventoryService
     public function putaway(PutAwayStockRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.receive');
         $data = $request->validated();
         DB::transaction(function () use ($company, $data, $request) {
             $fromBin = DB::table('warehouse_bins')->where('id', $data['from_bin_id'])->where('company_id', $company->id)->where('warehouse_id', $data['warehouse_id'])->where('status', 'active')->first();
@@ -590,6 +599,7 @@ class WmsInventoryService
     public function adjust(AdjustStockRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.adjust');
         $data = $request->validated();
         $stockId = null;
         DB::transaction(function () use ($company, $data, $request, &$stockId) {
@@ -612,6 +622,7 @@ class WmsInventoryService
     public function transfer(TransferStockRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.inventory.transfer');
         $data = $request->validated();
         $sourceStockId = null;
         DB::transaction(function () use ($company, $data, $request, &$sourceStockId) {

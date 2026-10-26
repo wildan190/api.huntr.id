@@ -3,6 +3,8 @@
 namespace App\Domain\Order\Actions;
 
 use App\Domain\Auth\Models\User;
+use App\Domain\Budget\Services\BudgetCommitmentService;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Rfq\Models\Rfq;
 use Illuminate\Support\Facades\DB;
@@ -10,16 +12,19 @@ use Illuminate\Validation\UnauthorizedException;
 
 class CreateDirectPurchaseOrderAction
 {
+    public function __construct(
+        private readonly BudgetCommitmentService $budgetCommitments,
+        private readonly CompanyAccessService $access,
+    ) {}
+
     public function execute(User $actor, Rfq $rfq, array $data): PurchaseOrder
     {
         if ((string) $rfq->company_id !== (string) $data['company_id']) {
             abort(422, 'The PR does not belong to this buyer workspace.');
         }
 
-        $isOwner = (string) $rfq->company->owner_id === (string) $actor->id;
-        if (! $isOwner && ! $actor->hasRole('manager')) {
-            throw new UnauthorizedException('Only a purchasing manager or company owner can create a direct PO.');
-        }
+        $rfq->loadMissing('company');
+        $this->access->assertCan($actor, $rfq->company, 'procurement.winner.select');
 
         return DB::transaction(function () use ($rfq, $data, $actor) {
             $lockedRfq = Rfq::query()->lockForUpdate()->findOrFail($rfq->id);
@@ -34,10 +39,12 @@ class CreateDirectPurchaseOrderAction
             $total = $items->sum(fn ($item) => (float) ($item->estimated_price ?? 0) * (float) $item->qty);
             $reference = strtoupper(substr(str_replace('-', '', $lockedRfq->id), -6));
 
-            return PurchaseOrder::create([
+            $purchaseOrder = PurchaseOrder::create([
                 'buyer_company_id' => $lockedRfq->company_id,
                 'rfq_id' => $lockedRfq->id,
+                'procurement_plan_id' => $lockedRfq->procurement_plan_id,
                 'procurement_type' => $lockedRfq->procurement_type ?? 'goods',
+                'project_type' => $lockedRfq->project_type ?? null,
                 'vendor_id' => null,
                 'vendor_name' => $data['vendor_name'],
                 'po_number' => 'PO-'.now()->format('Ymd').'-'.$reference,
@@ -58,6 +65,10 @@ class CreateDirectPurchaseOrderAction
                 'delivery_point' => $lockedRfq->delivery_point,
                 'department' => $lockedRfq->department ?? 'General Procurement',
             ]);
+
+            $this->budgetCommitments->sync($purchaseOrder);
+
+            return $purchaseOrder->fresh();
         });
     }
 }

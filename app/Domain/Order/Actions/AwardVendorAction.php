@@ -4,6 +4,8 @@ namespace App\Domain\Order\Actions;
 
 use App\Domain\AI\Services\DemoBotService;
 use App\Domain\Auth\Models\User;
+use App\Domain\Budget\Services\BudgetCommitmentService;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Order\Models\PurchaseOrder;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Proposal\Models\Proposal;
@@ -18,7 +20,9 @@ class AwardVendorAction
     public function __construct(
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly RfqRepositoryInterface $rfqRepository,
-        private readonly ProposalRepositoryInterface $proposalRepository
+        private readonly ProposalRepositoryInterface $proposalRepository,
+        private readonly BudgetCommitmentService $budgetCommitments,
+        private readonly CompanyAccessService $access,
     ) {}
 
     /**
@@ -32,11 +36,9 @@ class AwardVendorAction
      */
     public function execute(User $manager, Rfq $rfq, Proposal $winningProposal): PurchaseOrder
     {
-        $isOwner = $rfq->company->owner_id === $manager->id;
-
-        if (! $manager->hasRole('manager') && ! $isOwner) {
-            throw new UnauthorizedException('Only purchasing managers or company owners can award RFQs and generate POs.');
-        }
+        $rfq->loadMissing('company');
+        abort_unless((string) $winningProposal->rfq_id === (string) $rfq->id, 422, 'Proposal does not belong to this RFQ.');
+        $this->access->assertCan($manager, $rfq->company, 'procurement.winner.select');
 
         // 1. Mark RFQ as awarded
         $this->rfqRepository->update($rfq, ['status' => 'awarded']);
@@ -50,7 +52,9 @@ class AwardVendorAction
 
         $po = $this->orderRepository->createPurchaseOrder([
             'rfq_id' => $rfq->id,
+            'procurement_plan_id' => $rfq->procurement_plan_id,
             'procurement_type' => $rfq->procurement_type ?? 'goods',
+            'project_type' => $rfq->project_type ?? null,
             'proposal_id' => $winningProposal->id,
             'vendor_id' => $winningProposal->company_id,
             'po_number' => $poNumber,
@@ -67,6 +71,8 @@ class AwardVendorAction
             'requires_service_acceptance' => in_array($rfq->procurement_type ?? 'goods', ['services', 'mixed'], true),
             'department' => $rfq->department ?? 'General Procurement',
         ]);
+
+        $this->budgetCommitments->sync($po);
 
         // Demo Mode: AI Bot Auto-confirms PO
         if (config('app.demo_mode', false)) {

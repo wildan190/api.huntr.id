@@ -44,7 +44,18 @@ class CompanyAccessService
             'procurement.po.view' => ['name' => 'View purchase orders', 'category' => 'Procurement', 'description' => 'View issued and received purchase orders.'],
             'procurement.po.confirm' => ['name' => 'Confirm purchase order', 'category' => 'Procurement', 'description' => 'Confirm incoming PO on behalf of a vendor.'],
             'wms.access' => ['name' => 'Access WMS', 'category' => 'Applications', 'description' => 'Access WMS & Inventory after the app is installed.'],
+            'wms.view' => ['name' => 'View WMS data', 'category' => 'Warehouse', 'description' => 'View warehouse, stock, receipts, and reports.'],
+            'wms.warehouse.manage' => ['name' => 'Manage warehouses', 'category' => 'Warehouse', 'description' => 'Create and manage warehouses, bins, and imports.'],
+            'wms.inventory.receive' => ['name' => 'Receive and put away stock', 'category' => 'Warehouse', 'description' => 'Receive goods and move them into storage bins.'],
+            'wms.inventory.adjust' => ['name' => 'Adjust inventory', 'category' => 'Warehouse', 'description' => 'Perform stock adjustments and set reorder levels.'],
+            'wms.inventory.transfer' => ['name' => 'Transfer inventory', 'category' => 'Warehouse', 'description' => 'Transfer inventory between warehouses and bins.'],
+            'wms.orders.fulfill' => ['name' => 'Fulfil warehouse orders', 'category' => 'Warehouse', 'description' => 'Allocate, pick, pack, release, and ship warehouse orders.'],
             'crm.access' => ['name' => 'Access CRM', 'category' => 'Applications', 'description' => 'Access CRM after Enterprise Pro and the app are active.'],
+            'crm.view' => ['name' => 'View CRM data', 'category' => 'CRM', 'description' => 'View CRM records assigned to the user.'],
+            'crm.manage' => ['name' => 'Manage CRM records', 'category' => 'CRM', 'description' => 'Create and update CRM customers, leads, deals, activities, tickets, and conversations.'],
+            'crm.automation.manage' => ['name' => 'Manage CRM automation', 'category' => 'CRM', 'description' => 'Manage campaigns, workflows, targets, and currency rates.'],
+            'crm.integration.manage' => ['name' => 'Manage CRM integrations', 'category' => 'CRM', 'description' => 'Connect email, WhatsApp, and other communication channels.'],
+            'crm.quote.approve' => ['name' => 'Approve CRM quotes', 'category' => 'CRM', 'description' => 'Approve delegated CRM quote approvals.'],
             'budget.access' => ['name' => 'Access Budgeting & Procurement Plan', 'category' => 'Applications', 'description' => 'Open Budgeting & Procurement Plan after Enterprise Pro and the app are active.'],
             'budget.manage' => ['name' => 'Manage budgets & procurement plans', 'category' => 'Applications', 'description' => 'Create budget periods, allocations, and procurement plans.'],
             'budget.approve' => ['name' => 'Approve procurement plans', 'category' => 'Applications', 'description' => 'Approve or return submitted procurement plans.'],
@@ -66,8 +77,8 @@ class CompanyAccessService
                 'workspace_admin' => ['Workspace Admin', 'Full workspace access, access management, and emergency approval override.', array_keys(self::permissionCatalog()), true],
                 'procurement_officer' => ['Procurement Officer', 'Creates and manages purchase requests and tender selections.', ['procurement.pr.view', 'procurement.pr.create', 'procurement.winner.select', 'procurement.po.view'], false],
                 'finance_officer' => ['Finance Officer', 'Accesses finance and purchase order information.', ['finance.access', 'procurement.po.view'], false],
-                'warehouse_operator' => ['Warehouse Operator', 'Operates WMS & Inventory.', ['wms.access'], false],
-                'crm_operator' => ['CRM Operator', 'Works with CRM customers, pipeline, and support.', ['crm.access'], false],
+                'warehouse_operator' => ['Warehouse Operator', 'Operates WMS & Inventory.', ['wms.access', 'wms.view', 'wms.inventory.receive', 'wms.inventory.adjust', 'wms.inventory.transfer', 'wms.orders.fulfill'], false],
+                'crm_operator' => ['CRM Operator', 'Works with CRM customers, pipeline, and support.', ['crm.access', 'crm.view', 'crm.manage'], false],
                 'budget_manager' => ['Budget Manager', 'Plans, allocates, and controls procurement budgets.', ['budget.access', 'budget.manage', 'budget.approve'], false],
                 'vendor_operator' => ['Vendor Order Operator', 'Views and confirms incoming purchase orders.', ['procurement.po.view', 'procurement.po.confirm'], false],
             ];
@@ -84,6 +95,8 @@ class CompanyAccessService
                 } elseif ($slug === 'workspace_admin') {
                     // Workspace Admin is deliberately a full-access system role.
                     // Add newly released permissions without removing any custom assignment.
+                    $role->permissions()->syncWithoutDetaching($this->permissionIds($company, $permissionKeys));
+                } elseif ($slug === 'warehouse_operator' || $slug === 'crm_operator') {
                     $role->permissions()->syncWithoutDetaching($this->permissionIds($company, $permissionKeys));
                 }
             }
@@ -140,6 +153,20 @@ class CompanyAccessService
         }
 
         return $legacyFallback && $user->hasRole('manager');
+    }
+
+    public function isMember(User $user, Company $company): bool
+    {
+        return (string) $company->owner_id === (string) $user->id
+            || (string) $user->company_id === (string) $company->id
+            || $company->users()->whereKey($user->id)->exists();
+    }
+
+    public function assertMember(User $user, Company $company, string $message = 'Anda tidak memiliki akses ke perusahaan ini.'): void
+    {
+        if (! $this->isMember($user, $company)) {
+            throw new AuthorizationException($message);
+        }
     }
 
     public function assertCan(User $user, Company $company, string $permission, string $message = 'Anda tidak memiliki izin untuk tindakan ini.'): void
@@ -262,9 +289,38 @@ class CompanyAccessService
 
         return DB::transaction(function () use ($company, $actor, $request, $notes) {
             $request = ApprovalRequest::query()->lockForUpdate()->findOrFail($request->id);
+            abort_unless((string) $request->company_id === (string) $company->id, 404);
+            abort_unless($request->status === 'pending', 422, 'Approval request is no longer pending.');
+            abort_if((string) $request->requested_by === (string) $actor->id, 403, 'Requester cannot approve their own request.');
             $step = ApprovalRequestStep::query()->where('approval_request_id', $request->id)->where('sequence', $request->current_sequence)->lockForUpdate()->firstOrFail();
             $this->assertApprover($company, $actor, $step);
-            $step->update(['status' => 'approved', 'approved_count' => $step->required_approvals, 'acted_by' => $actor->id, 'acted_at' => now(), 'notes' => $notes]);
+            abort_if(
+                DB::table('approval_request_step_decisions')
+                    ->where('approval_request_step_id', $step->id)
+                    ->where('approver_id', $actor->id)
+                    ->exists(),
+                422,
+                'Anda sudah memberikan keputusan pada tahap ini.',
+            );
+            DB::table('approval_request_step_decisions')->insert([
+                'id' => (string) Str::uuid(),
+                'approval_request_step_id' => $step->id,
+                'approver_id' => $actor->id,
+                'decision' => 'approved',
+                'notes' => $notes,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $approvedCount = DB::table('approval_request_step_decisions')
+                ->where('approval_request_step_id', $step->id)
+                ->where('decision', 'approved')
+                ->count();
+            if ($approvedCount < $step->required_approvals) {
+                $step->update(['approved_count' => $approvedCount]);
+
+                return ['configured' => true, 'completed' => false, 'request' => $request->fresh('steps.role')];
+            }
+            $step->update(['status' => 'approved', 'approved_count' => $approvedCount, 'acted_by' => $actor->id, 'acted_at' => now(), 'notes' => $notes]);
             $next = ApprovalRequestStep::query()->where('approval_request_id', $request->id)->where('sequence', '>', $step->sequence)->orderBy('sequence')->first();
             if ($next) {
                 $request->update(['current_sequence' => $next->sequence]);

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Order\Actions;
 
+use App\Domain\Budget\Services\BudgetCommitmentService;
 use App\Domain\Order\Repositories\OrderRepositoryInterface;
 use App\Domain\Company\Models\Company;
 use App\Domain\Order\Models\PurchaseOrder;
@@ -20,6 +21,7 @@ class ConfirmPurchaseOrderAction
         private readonly CalculateInvoiceFeesAction $calculateInvoiceFeesAction,
         private readonly ResolveSubscriptionBillingAction $resolveSubscriptionBillingAction,
         private readonly CompanyAccessService $companyAccess,
+        private readonly BudgetCommitmentService $budgetCommitments,
     ) {
     }
 
@@ -84,6 +86,7 @@ class ConfirmPurchaseOrderAction
             $updateData['tracking_timeline'] = $timeline;
 
             $po = $this->orderRepository->updatePurchaseOrder($po, $updateData);
+            $this->budgetCommitments->sync($po);
 
             $this->orderRepository->createInvoice([
                 'purchase_order_id' => $po->id,

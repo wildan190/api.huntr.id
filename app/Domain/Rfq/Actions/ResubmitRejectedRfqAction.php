@@ -34,6 +34,7 @@ class ResubmitRejectedRfqAction
                 'duration_days' => $data['duration_days'] ?? 7,
                 'procurement_mode' => $data['procurement_mode'] ?? $rfq->procurement_mode,
                 'procurement_type' => $data['procurement_type'] ?? $rfq->procurement_type ?? 'goods',
+                'project_type' => $data['project_type'] ?? $rfq->project_type,
                 'service_start_date' => $data['service_start_date'] ?? null,
                 'service_end_date' => $data['service_end_date'] ?? null,
                 'service_location' => $data['service_location'] ?? null,
@@ -63,7 +64,7 @@ class ResubmitRejectedRfqAction
                     'service_start_date' => $item['service_start_date'] ?? ($data['service_start_date'] ?? null),
                     'service_end_date' => $item['service_end_date'] ?? ($data['service_end_date'] ?? null),
                     'qty' => $item['qty'],
-                    'estimated_price' => $item['estimated_price'] ?? null,
+                    'estimated_price' => $item['budget'] ?? $item['estimated_price'] ?? null,
                     'expected_date' => $item['expected_date'],
                 ]);
             }

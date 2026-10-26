@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use App\Domain\Rfq\Models\Rfq;
 use App\Domain\Company\Models\CompanyDocument;
+use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Filesystem\FilesystemAdapter;
 
 /**
@@ -17,13 +19,16 @@ use Illuminate\Filesystem\FilesystemAdapter;
  */
 class DocumentController extends Controller
 {
-    /**
-     * Download RFQ document - accessible to any authenticated user
-     */
-    public function downloadRfqDocument(Request $request, string $rfqId)
+    public function downloadRfqDocument(Request $request, string $rfqId, CompanyAccessService $access)
     {
         try {
-            $rfq = Rfq::findOrFail($rfqId);
+            $rfq = Rfq::with('proposals')->findOrFail($rfqId);
+            $buyer = Company::query()->findOrFail($rfq->company_id);
+            $hasVendorAccess = $rfq->proposals
+                ->pluck('company_id')
+                ->filter()
+                ->contains(fn (string $companyId) => ($company = Company::query()->find($companyId)) && $access->isMember($request->user(), $company));
+            abort_unless($access->isMember($request->user(), $buyer) || $hasVendorAccess, 403, 'Anda tidak memiliki akses ke dokumen ini.');
             
             if (!$rfq->document_path) {
                 return response()->json(['message' => 'No document available'], 404);
@@ -38,6 +43,8 @@ class DocumentController extends Controller
 
             return $this->serveDocument($rfq->document_path);
 
+        } catch (\Illuminate\Auth\Access\AuthorizationException|\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface|\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Error downloading RFQ document:', [
                 'error' => $e->getMessage(),
@@ -53,13 +60,17 @@ class DocumentController extends Controller
     /**
      * Download company document dengan validasi akses
      */
-    public function downloadCompanyDocument(Request $request, string $documentId)
+    public function downloadCompanyDocument(Request $request, string $documentId, CompanyAccessService $access)
     {
         try {
             $document = CompanyDocument::findOrFail($documentId);
+            $company = Company::query()->findOrFail($document->company_id);
+            $access->assertMember($request->user(), $company);
 
             return $this->serveDocument($document->file_path);
 
+        } catch (\Illuminate\Auth\Access\AuthorizationException|\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface|\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            throw $e;
         } catch (\Exception $e) {
             Log::error('Error downloading company document:', [
                 'error' => $e->getMessage(),
@@ -142,12 +153,10 @@ class DocumentController extends Controller
         }
     }
 
-    /**
-     * Download generic asset (logo, catalogue image, etc.) - accessible to any authenticated user
-     */
     public function downloadAsset(Request $request, string $path)
     {
         try {
+            abort_unless($this->isPublicAssetPath($path), 404);
             Log::info('Serving generic asset to user', [
                 'path' => $path,
                 'user_id' => $request->user()?->id,
@@ -166,15 +175,13 @@ class DocumentController extends Controller
         }
     }
 
-    /**
-     * Get public asset URL (for images, etc.)
-     */
     public function getAssetUrl(Request $request)
     {
         $path = $request->query('path');
         if (!$path) {
             return response()->json(['message' => 'Path parameter required'], 400);
         }
+        abort_unless($this->isPublicAssetPath($path), 404);
 
         $disk = config('filesystems.default');
         /** @var FilesystemAdapter $storage */
@@ -196,5 +203,16 @@ class DocumentController extends Controller
             
             return response()->json(['message' => 'Error generating asset URL'], 500);
         }
+    }
+
+    private function isPublicAssetPath(string $path): bool
+    {
+        if (str_contains($path, "\0") || str_contains($path, '..')) {
+            return false;
+        }
+
+        return str_starts_with($path, 'company_logos/')
+            || str_starts_with($path, 'catalogue_images/')
+            || str_starts_with($path, 'product_images/');
     }
 }

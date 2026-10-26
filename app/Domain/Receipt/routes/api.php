@@ -4,12 +4,7 @@ use App\Domain\Receipt\Http\Controllers\ReceiptController;
 use App\Domain\Receipt\Http\Controllers\GoodsReceiptController;
 use Illuminate\Support\Facades\Route;
 
-// Old receipts endpoint with api middleware (for backward compatibility)
-Route::prefix('api/receipts')->middleware('api')->group(function () {
-    Route::post('', [ReceiptController::class, 'store']);
-});
-
-Route::prefix('api')->middleware('auth:sanctum')->group(function () {
+Route::prefix('api')->middleware(['api', 'auth:api'])->group(function () {
     // Goods Receipt endpoints
     Route::post('/receipts', [ReceiptController::class, 'store'])->name('receipts.store');
     

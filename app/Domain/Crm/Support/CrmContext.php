@@ -30,6 +30,7 @@ class CrmContext
             abort_unless($this->isInstalled($company), 403, 'Install CRM dari App Market terlebih dahulu.');
             $this->access->bootstrap($company);
             abort_unless($this->access->can($user, $company, 'crm.access'), 403, 'Akses CRM belum diberikan pada role Anda.');
+            abort_unless($this->access->can($user, $company, 'crm.view'), 403, 'Role Anda belum memiliki izin untuk melihat data CRM.');
         }
 
         return $company;
@@ -50,5 +51,10 @@ class CrmContext
     {
         return DB::table('company_apps')->where('company_id', $company->id)
             ->where('app_key', 'crm')->whereNotNull('installed_at')->exists();
+    }
+
+    public function assertPermission(Request $request, Company $company, string $permission, string $message = 'Role Anda belum memiliki izin CRM untuk tindakan ini.'): void
+    {
+        $this->access->assertCan($request->user(), $company, $permission, $message);
     }
 }

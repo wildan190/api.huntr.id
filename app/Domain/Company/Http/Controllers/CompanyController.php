@@ -14,6 +14,7 @@ use App\Domain\Company\Http\Requests\UploadCompanyDocumentRequest;
 use App\Domain\Company\Http\Requests\UploadCompanyLogoRequest;
 use App\Domain\Company\Http\Requests\VerifyNpwpRequest;
 use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -138,8 +139,9 @@ class CompanyController extends \App\Http\Controllers\Controller
     /**
      * Update company profile information.
      */
-    public function update(UpdateCompanyRequest $request, Company $company, UpdateCompanyAction $action): JsonResponse
+    public function update(UpdateCompanyRequest $request, Company $company, UpdateCompanyAction $action, CompanyAccessService $access): JsonResponse
     {
+        $access->assertCan($request->user(), $company, 'team.manage');
         $company = $action->execute($company, $request->validated());
         $data = $company->load('documents')->toArray();
         $data['formatted_tax_id'] = $company->formatted_tax_id;
@@ -163,16 +165,22 @@ class CompanyController extends \App\Http\Controllers\Controller
     /**
      * Upload company legal documents.
      */
-    public function uploadDocument(UploadCompanyDocumentRequest $request, UploadCompanyDocumentAction $action): JsonResponse
+    public function uploadDocument(UploadCompanyDocumentRequest $request, UploadCompanyDocumentAction $action, CompanyAccessService $access): JsonResponse
     {
-        return response()->json($action->execute($request->validated()), 200);
+        $data = $request->validated();
+        abort_unless($data['company_id'] ?? null, 422, 'Company ID is required.');
+        $company = Company::query()->findOrFail($data['company_id']);
+        $access->assertCan($request->user(), $company, 'team.manage');
+
+        return response()->json($action->execute($data), 200);
     }
 
     /**
      * Delete a company document.
      */
-    public function deleteDocument(\Illuminate\Http\Request $request, Company $company, \App\Domain\Company\Models\CompanyDocument $document): JsonResponse
+    public function deleteDocument(\Illuminate\Http\Request $request, Company $company, \App\Domain\Company\Models\CompanyDocument $document, CompanyAccessService $access): JsonResponse
     {
+        $access->assertCan($request->user(), $company, 'team.manage');
         if ($document->company_id !== $company->id) {
             return response()->json(['message' => 'Document not found for this company.'], 404);
         }
@@ -192,9 +200,10 @@ class CompanyController extends \App\Http\Controllers\Controller
     /**
      * Upload company logo.
      */
-    public function uploadLogo(UploadCompanyLogoRequest $request, UploadCompanyLogoAction $action): JsonResponse
+    public function uploadLogo(UploadCompanyLogoRequest $request, UploadCompanyLogoAction $action, CompanyAccessService $access): JsonResponse
     {
         $company = Company::findOrFail($request->input('company_id'));
+        $access->assertCan($request->user(), $company, 'team.manage');
         $updatedCompany = $action->execute($company, $request->file('logo'));
 
         /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
@@ -247,40 +256,10 @@ class CompanyController extends \App\Http\Controllers\Controller
     /**
      * Display team members in the company.
      */
-    public function teamMembers(Company $company): JsonResponse
+    public function teamMembers(Request $request, Company $company, CompanyAccessService $access): JsonResponse
     {
-        $user = auth()->user();
-
-        if ($user) {
-            try {
-                $fixed = $user->ensureCompanyOwnerRole();
-                if ($fixed) {
-                    Log::info('Auto-fixed role in teamMembers endpoint', [
-                        'user_id' => $user->id,
-                        'company_id' => $company->id
-                    ]);
-
-                    $user->refresh();
-                }
-            } catch (\Exception $e) {
-                Log::error('Failed to auto-fix role in teamMembers', [
-                    'user_id' => $user->id,
-                    'error' => $e->getMessage()
-                ]);
-            }
-
-            if ($company->owner_id === $user->id && $user->company_id !== $company->id) {
-                $user->update(['company_id' => $company->id]);
-                $user->refresh();
-
-                Log::info('Auto-fixed company_id for company owner in teamMembers', [
-                    'user_id' => $user->id,
-                    'company_id' => $company->id
-                ]);
-            }
-        }
-
-        app(\App\Domain\Company\Services\CompanyAccessService::class)->bootstrap($company);
+        $access->assertMember($request->user(), $company);
+        $access->bootstrap($company);
         $memberRoleIds = DB::table('company_user_roles')->where('company_id', $company->id)->pluck('company_role_id', 'user_id');
         $companyRoles = \App\Domain\Company\Models\CompanyRole::query()->where('company_id', $company->id)->get()->keyBy('id');
         $members = \App\Domain\Auth\Models\User::query()

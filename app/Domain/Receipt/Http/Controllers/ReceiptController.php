@@ -7,13 +7,17 @@ use App\Domain\Receipt\Actions\CreateGoodsReceiptAction;
 use App\Domain\Receipt\Http\Requests\CreateGoodsReceiptRequest;
 use Illuminate\Http\JsonResponse;
 use App\Domain\Order\Models\PurchaseOrder;
+use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 
 class ReceiptController extends \App\Http\Controllers\Controller
 {
-    public function store(CreateGoodsReceiptRequest $request, CreateGoodsReceiptAction $action): JsonResponse
+    public function store(CreateGoodsReceiptRequest $request, CreateGoodsReceiptAction $action, CompanyAccessService $access): JsonResponse
     {
         $po = PurchaseOrder::findOrFail($request->input('po_id'));
         $companyId = $request->input('company_id');
+        $company = Company::findOrFail($companyId);
+        $access->assertMember($request->user(), $company);
 
         // Data Isolation: Ensure the PO belongs to the company submitting the receipt
         if ($po->buyer_company_id !== $companyId) {

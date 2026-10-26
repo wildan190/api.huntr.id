@@ -31,7 +31,7 @@ class CreateRfqAction
      * @param  string|null  $description  RFQ Description
      * @param  array  $cartItems  Array of items: ['catalogue_id' => X, 'qty' => Y, 'expected_date' => Z]
      */
-    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null, string $procurementMode = 'tender', string $procurementType = 'goods', ?string $serviceStartDate = null, ?string $serviceEndDate = null, ?string $serviceLocation = null, ?string $acceptanceCriteria = null): Rfq
+    public function execute(Company $buyerCompany, string $title, ?string $description, array $cartItems, ?string $userId = null, string $status = 'pending_approval', ?int $durationDays = null, ?string $documentPath = null, ?string $deliveryPoint = null, ?string $department = null, ?string $warehouseId = null, string $procurementMode = 'tender', string $procurementType = 'goods', ?string $serviceStartDate = null, ?string $serviceEndDate = null, ?string $serviceLocation = null, ?string $acceptanceCriteria = null, ?string $projectType = null): Rfq
     {
         $this->subscriptionAccess->assertAvailable($buyerCompany);
 
@@ -57,6 +57,7 @@ class CreateRfqAction
             'status' => $status,
             'procurement_mode' => $procurementMode,
             'procurement_type' => $procurementType,
+            'project_type' => $projectType,
             'service_start_date' => $serviceStartDate,
             'service_end_date' => $serviceEndDate,
             'service_location' => $serviceLocation,
@@ -79,7 +80,7 @@ class CreateRfqAction
             'service_start_date' => $item['service_start_date'] ?? $serviceStartDate,
             'service_end_date' => $item['service_end_date'] ?? $serviceEndDate,
             'qty' => $item['qty'],
-            'estimated_price' => $item['estimated_price'] ?? null,
+            'estimated_price' => $item['budget'] ?? $item['estimated_price'] ?? null,
             'expected_date' => $item['expected_date'] ?? null,
         ], $cartItems);
 
@@ -94,7 +95,7 @@ class CreateRfqAction
         if ($status === 'pending_approval') {
             $estimatedAmount = collect($lineItems)->sum(fn (array $item) => (float) ($item['qty'] ?? 0) * (float) ($item['estimated_price'] ?? 0));
             $this->companyAccess->bootstrap($buyerCompany);
-            $this->companyAccess->startSubject($buyerCompany, 'purchase_request', $rfq->id, $estimatedAmount, $userId, ['title' => $rfq->title, 'procurement_mode' => $procurementMode, 'procurement_type' => $procurementType]);
+            $this->companyAccess->startSubject($buyerCompany, 'purchase_request', $rfq->id, $estimatedAmount, $userId, ['title' => $rfq->title, 'procurement_mode' => $procurementMode, 'procurement_type' => $procurementType, 'project_type' => $projectType]);
         }
 
         $this->broadcastAction->execute(

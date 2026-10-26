@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Domain\Payment\Services\MidtransService;
 use App\Domain\Subscription\Actions\RecordRealizedGmvAction;
+use App\Domain\Company\Models\Company;
+use App\Domain\Company\Services\CompanyAccessService;
 
 use App\Domain\Payment\Http\Requests\StorePaymentRequest;
 
@@ -23,12 +25,15 @@ class PaymentController extends \App\Http\Controllers\Controller
     /**
      * Get list of payments for a company.
      */
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, CompanyAccessService $access): JsonResponse
     {
         $companyId = $request->query('company_id');
         if (!$companyId) {
             return response()->json(['message' => 'Company ID is required.'], 400);
         }
+
+        $company = Company::findOrFail($companyId);
+        $access->assertMember($request->user(), $company);
 
         $payments = Payment::with(['invoice.purchaseOrder'])
             ->whereHas('invoice.purchaseOrder', function($q) use ($companyId) {
@@ -44,11 +49,14 @@ class PaymentController extends \App\Http\Controllers\Controller
     /**
      * Initiate a payment for an invoice.
      */
-    public function store(StorePaymentRequest $request, CreatePaymentAction $action): JsonResponse
+    public function store(StorePaymentRequest $request, CreatePaymentAction $action, CompanyAccessService $access): JsonResponse
     {
         $validated = $request->validated();
 
         $invoice = Invoice::findOrFail($validated['invoice_id']);
+        $buyer = $invoice->purchaseOrder->buyer;
+        abort_unless($buyer, 404, 'Buyer perusahaan tidak ditemukan.');
+        $access->assertCan($request->user(), $buyer, 'finance.access', 'Role Anda belum memiliki izin untuk membuat pembayaran.');
         
         try {
             $payment = $action->execute($invoice, $validated['method']);
@@ -67,10 +75,11 @@ class PaymentController extends \App\Http\Controllers\Controller
     public function webhook(Request $request, \App\Domain\Subscription\Services\SubscriptionPaymentService $subscriptionPayments): JsonResponse
     {
         $payload = $request->all();
-        Log::info('Midtrans Webhook Received', $payload);
 
         $orderId = $payload['order_id'] ?? null;
         if (!$orderId) return response()->json(['message' => 'Invalid payload'], 400);
+
+        abort_unless($this->midtrans->verifyWebhookSignature($payload), 403, 'Signature Midtrans tidak valid.');
 
         if (str_starts_with((string) $orderId, 'SUB-')) {
             $subscriptionPayments->acceptWebhook($payload);
@@ -80,7 +89,13 @@ class PaymentController extends \App\Http\Controllers\Controller
         $payment = Payment::where('external_id', $orderId)->first();
         if (!$payment) return response()->json(['message' => 'Payment not found'], 404);
 
-        $status = $payload['transaction_status'];
+        $status = (string) ($payload['transaction_status'] ?? '');
+        abort_unless(in_array($status, ['pending', 'capture', 'settlement', 'deny', 'cancel', 'expire', 'failure'], true), 422, 'Status transaksi Midtrans tidak valid.');
+        abort_unless(
+            abs((float) ($payload['gross_amount'] ?? 0) - (float) $payment->amount) < 0.01,
+            422,
+            'Nominal webhook tidak sesuai dengan pembayaran.',
+        );
         
         // Dispatch job to process settlement in background via Horizon
         ProcessPaymentSettlementJob::dispatch($payment->id, $status, $payload);
@@ -92,9 +107,11 @@ class PaymentController extends \App\Http\Controllers\Controller
      * Get payment status.
      */
     public function show(
+        Request $request,
         $id,
         \App\Domain\Communication\Actions\BroadcastWebsocketNotificationAction $broadcastAction,
         RecordRealizedGmvAction $recordRealizedGmvAction,
+        CompanyAccessService $access,
     ): JsonResponse
     {
         $payment = Payment::with(['invoice.purchaseOrder.buyer', 'invoice.purchaseOrder.vendor.users'])->where('id', $id)->first();
@@ -105,6 +122,15 @@ class PaymentController extends \App\Http\Controllers\Controller
                 'payment' => null
             ], 404);
         }
+        $po = $payment->invoice->purchaseOrder;
+        $buyer = $po?->buyer;
+        $vendor = $po?->vendor;
+        abort_unless(
+            ($buyer && $access->isMember($request->user(), $buyer))
+            || ($vendor && $access->isMember($request->user(), $vendor)),
+            403,
+            'Anda tidak memiliki akses ke pembayaran ini.',
+        );
 
         // If status is still pending, actively check Midtrans for updates
         if ($payment->status === 'pending') {

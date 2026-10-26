@@ -20,6 +20,7 @@ class ApproveWorkflowRequestAction
 
     public function execute(Company $company, ApprovalRequest $request, User $actor, ?string $notes = null): array
     {
+        abort_unless((string) $request->company_id === (string) $company->id, 404);
         $result = $this->access->approveSubject(
             $company,
             $request->subject_type,

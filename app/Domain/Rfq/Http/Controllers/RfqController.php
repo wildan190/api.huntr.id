@@ -28,8 +28,11 @@ class RfqController extends Controller
     /**
      * Menampilkan daftar RFQ dengan filter.
      */
-    public function index(Request $request, GetRfqsAction $action): JsonResponse
+    public function index(Request $request, GetRfqsAction $action, CompanyAccessService $access): JsonResponse
     {
+        $companyId = $request->query('company_id');
+        abort_unless($companyId, 422, 'Company ID is required.');
+        $access->assertMember($request->user(), Company::query()->findOrFail($companyId));
         return response()->json($action->execute($request->all()));
     }
 
@@ -37,8 +40,13 @@ class RfqController extends Controller
      * Menampilkan detail RFQ beserta item dan proposalnya.
      * Items dengan gambar diprioritaskan untuk ditampilkan lebih dulu.
      */
-    public function show(Rfq $rfq): JsonResponse
+    public function show(Request $request, Rfq $rfq, CompanyAccessService $access): JsonResponse
     {
+        $buyer = Company::query()->findOrFail($rfq->company_id);
+        $isVendorParticipant = $rfq->proposals()
+            ->pluck('company_id')
+            ->contains(fn (string $companyId) => ($vendor = Company::query()->find($companyId)) && $access->isMember($request->user(), $vendor));
+        abort_unless($access->isMember($request->user(), $buyer) || $isVendorParticipant, 403);
         // Load RFQ dengan relasi yang diperlukan
         $rfqData = $rfq->load([
             'company',
@@ -122,6 +130,7 @@ class RfqController extends Controller
             $data['service_end_date'] ?? null,
             $data['service_location'] ?? null,
             $data['acceptance_criteria'] ?? null,
+            $data['project_type'] ?? null,
         );
 
         return response()->json(['rfq' => $rfq], 201);
@@ -203,13 +212,14 @@ class RfqController extends Controller
         }
     }
 
-    public function resubmit(CreateRfqRequest $request, Rfq $rfq, ResubmitRejectedRfqAction $action): JsonResponse
+    public function resubmit(CreateRfqRequest $request, Rfq $rfq, ResubmitRejectedRfqAction $action, CompanyAccessService $access): JsonResponse
     {
         $user = $request->user();
         abort_unless($user, 401, 'Authentication required.');
 
         $data = $request->validated();
         abort_unless((string) $rfq->company_id === (string) $data['company_id'], 422, 'PR company cannot be changed during revision.');
+        $access->assertCan($user, Company::query()->findOrFail($rfq->company_id), 'procurement.pr.create');
 
         $documentPath = null;
         if ($request->hasFile('document')) {
@@ -225,8 +235,9 @@ class RfqController extends Controller
     /**
      * Mendapatkan perankingan proposal untuk RFQ tertentu.
      */
-    public function rankings(Rfq $rfq): JsonResponse
+    public function rankings(Request $request, Rfq $rfq, CompanyAccessService $access): JsonResponse
     {
+        $access->assertMember($request->user(), Company::query()->findOrFail($rfq->company_id));
         $rankings = $rfq->proposals()
             ->with(['company', 'items.rfqItem.catalogue'])
             ->orderBy('price_offer', 'asc')
@@ -245,8 +256,9 @@ class RfqController extends Controller
     /**
      * Mengundang vendor untuk ikut serta dalam RFQ.
      */
-    public function inviteVendor(Request $request, Rfq $rfq): JsonResponse
+    public function inviteVendor(Request $request, Rfq $rfq, CompanyAccessService $access): JsonResponse
     {
+        $access->assertCan($request->user(), Company::query()->findOrFail($rfq->company_id), 'procurement.pr.create');
         $request->validate([
             'whatsapp' => 'required|string',
         ]);

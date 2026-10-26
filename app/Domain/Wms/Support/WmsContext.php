@@ -34,6 +34,11 @@ class WmsContext
         return $company;
     }
 
+    public function assertPermission(Request $request, Company $company, string $permission, string $message = 'Role Anda belum memiliki izin untuk melakukan operasi WMS ini.'): void
+    {
+        $this->access->assertCan($request->user(), $company, $permission, $message);
+    }
+
     public function getStock(Company $company, string $warehouseId, array $line, bool $create = false): object
     {
         abort_unless(DB::table('warehouses')->where('id', $warehouseId)->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');

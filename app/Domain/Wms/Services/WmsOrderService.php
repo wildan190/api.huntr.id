@@ -22,6 +22,7 @@ class WmsOrderService
     public function allocate(AllocateStockRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.orders.fulfill');
         $data = $request->validated();
         $order = DB::transaction(function () use ($company, $data, $request) {
             abort_unless(DB::table('warehouses')->where('id', $data['warehouse_id'])->where('company_id', $company->id)->exists(), 404, 'Warehouse tidak ditemukan.');
@@ -160,6 +161,7 @@ class WmsOrderService
     public function pack(PackWarehouseOrderRequest $request, int $id)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.orders.fulfill');
         $data = $request->validated();
         $order = DB::table('warehouse_orders')->where('company_id', $company->id)->where('id', $id)->first();
         abort_unless($order, 404);
@@ -172,6 +174,7 @@ class WmsOrderService
     public function startPicking(UpdateWarehouseOrderStatusRequest $request, int $id)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.orders.fulfill');
         $order = DB::table('warehouse_orders')->where('company_id', $company->id)->where('id', $id)->first();
         abort_unless($order, 404);
         abort_unless($order->status === 'allocated', 422, 'Hanya order yang sudah dialokasikan dapat mulai dipicking.');
@@ -183,6 +186,7 @@ class WmsOrderService
     public function release(UpdateWarehouseOrderStatusRequest $request, int $id)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.orders.fulfill');
         $order = DB::transaction(function () use ($company, $id) {
             $order = DB::table('warehouse_orders')->where('company_id', $company->id)->where('id', $id)->lockForUpdate()->first();
             abort_unless($order, 404);
@@ -203,6 +207,7 @@ class WmsOrderService
     public function ship(ShipWarehouseOrderRequest $request, int $id)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.orders.fulfill');
         $data = $request->validated();
         DB::transaction(function () use ($company, $id, $data, $request) {
             $order = DB::table('warehouse_orders')->where('company_id', $company->id)->where('id', $id)->lockForUpdate()->first();

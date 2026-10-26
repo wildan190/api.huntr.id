@@ -15,6 +15,7 @@ class WmsUniversalImportService
     public function import(ImportWarehouseStockRequest $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'wms.warehouse.manage');
         $data = $request->validated();
         $warehouse = DB::table('warehouses')
             ->where('id', $data['warehouse_id'])

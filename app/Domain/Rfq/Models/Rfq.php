@@ -34,6 +34,7 @@ class Rfq extends Model
 
     protected $fillable = [
         'company_id',
+        'procurement_plan_id',
         'user_id',
         'title',
         'description',
@@ -42,6 +43,7 @@ class Rfq extends Model
         'award_mode',
         'procurement_mode',
         'procurement_type',
+        'project_type',
         'service_start_date',
         'service_end_date',
         'service_location',

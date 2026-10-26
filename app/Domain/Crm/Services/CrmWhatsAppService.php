@@ -25,6 +25,7 @@ class CrmWhatsAppService
     public function start(Request $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'crm.integration.manage');
         $this->serviceSecret();
         $userId = $request->user()->id;
         $tenantId = $this->tenantKey($company->id, $userId);
@@ -76,6 +77,7 @@ class CrmWhatsAppService
     public function send(Request $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'crm.manage');
         $data = validator($request->all(), [
             'to' => ['required', 'string', 'max:40'],
             'body' => ['required', 'string', 'max:4096'],
@@ -107,6 +109,7 @@ class CrmWhatsAppService
     public function disconnect(Request $request)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'crm.integration.manage');
         $userId = $request->user()->id;
         $tenantId = $this->tenantKey($company->id, $userId);
         $response = $this->callService(fn () => $this->serviceRequest()->delete("/sessions/{$tenantId}"), $company->id, $userId);

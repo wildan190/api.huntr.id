@@ -3,6 +3,7 @@
 namespace App\Domain\Crm\Services;
 
 use App\Domain\Crm\Support\CrmContext;
+use App\Domain\Company\Services\CompanyAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
@@ -16,7 +17,10 @@ use Illuminate\Validation\ValidationException;
  */
 class CrmEnterpriseService
 {
-    public function __construct(private CrmContext $context) {}
+    public function __construct(
+        private CrmContext $context,
+        private CompanyAccessService $access,
+    ) {}
 
     public function contacts(Request $request)
     {
@@ -249,12 +253,17 @@ class CrmEnterpriseService
     public function requestQuoteApproval(Request $request, string $quoteId)
     {
         $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'crm.manage');
         $this->assertOwned($company->id, 'crm_quotes', $quoteId);
         $data = $this->validated($request, [
             'department' => ['nullable', 'string', 'max:120'],
-            'approver_id' => ['nullable', 'uuid'],
+            'approver_id' => ['required', 'uuid'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
+        abort_if((string) $data['approver_id'] === (string) $request->user()->id, 422, 'Peminta quote tidak dapat menjadi approver.');
+        $approver = \App\Domain\Auth\Models\User::query()->findOrFail($data['approver_id']);
+        abort_unless($this->access->isMember($approver, $company), 422, 'Approver harus merupakan anggota company ini.');
+        $this->access->assertCan($approver, $company, 'crm.quote.approve', 'Approver belum memiliki izin menyetujui quote CRM.');
         $approvalId = (string) Str::uuid();
 
         DB::transaction(function () use ($company, $quoteId, $data, $approvalId, $request) {
@@ -262,6 +271,7 @@ class CrmEnterpriseService
                 'id' => $approvalId,
                 'company_id' => $company->id, 'user_id' => $request->user()->id,
                 'quote_id' => $quoteId,
+                'approver_id' => $data['approver_id'],
                 'status' => 'pending',
             ]));
             DB::table('crm_quotes')->where('id', $quoteId)->update([
@@ -277,11 +287,13 @@ class CrmEnterpriseService
     public function decideQuoteApproval(Request $request, string $quoteId, string $approvalId)
     {
         $company = $this->context->tenant($request);
-        $this->assertOwned($company->id, 'crm_quotes', $quoteId);
+        $this->context->assertPermission($request, $company, 'crm.quote.approve');
+        abort_unless(DB::table('crm_quotes')->where('company_id', $company->id)->where('id', $quoteId)->exists(), 404);
         $approval = DB::table('crm_quote_approvals')
-            ->where('company_id', $company->id)->where('user_id', request()->user()->id)
+            ->where('company_id', $company->id)->where('approver_id', request()->user()->id)
             ->where('quote_id', $quoteId)
             ->where('id', $approvalId)
+            ->where('status', 'pending')
             ->first();
         if (! $approval) {
             throw ValidationException::withMessages(['approval' => 'Approval tidak ditemukan.']);
@@ -293,7 +305,6 @@ class CrmEnterpriseService
 
         DB::transaction(function () use ($company, $quoteId, $approvalId, $data, $request) {
             DB::table('crm_quote_approvals')->where('id', $approvalId)->update([
-                'approver_id' => $request->user()?->id,
                 'status' => $data['decision'],
                 'note' => $data['note'] ?? null,
                 'decided_at' => now(),

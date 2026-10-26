@@ -16,7 +16,6 @@ class AwardVendorRequest extends FormRequest
         return [
             'rfq_id' => ['required', 'exists:rfqs,id'],
             'proposal_id' => ['required', 'exists:proposals,id'],
-            'manager_id' => ['required', 'exists:users,id'],
         ];
     }
 }

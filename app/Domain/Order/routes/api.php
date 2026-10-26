@@ -12,7 +12,7 @@ Route::prefix('api/orders')->middleware(['api', 'auth:api'])->group(function () 
     Route::post('direct', [OrderController::class, 'storeDirect']);
     Route::post('{po}/advance-direct', [OrderController::class, 'advanceDirect']);
     Route::post('{po}/confirm', [OrderController::class, 'confirm']);
-    Route::get('{po}/print', [OrderController::class, 'printPo'])->withoutMiddleware('auth:api');
+    Route::get('{po}/print', [OrderController::class, 'printPo']);
     
     // Negotiation routes (Legacy endpoints redirecting to new Domain)
     Route::get('negotiations', [\App\Domain\Negotiation\Http\Controllers\NegotiationController::class, 'index']);
@@ -30,13 +30,13 @@ Route::get('api/track', [OrderController::class, 'publicTrack'])->middleware('ap
 Route::get('api/verify', [OrderController::class, 'verifySignature'])->middleware('api');
 
 Route::prefix('api/do')->middleware(['api', 'auth:api'])->group(function () {
-    Route::get('{deliveryOrder}/print', [OrderController::class, 'printDo'])->withoutMiddleware('auth:api');
+    Route::get('{deliveryOrder}/print', [OrderController::class, 'printDo']);
     Route::post('{deliveryOrder}/sign-handed-by', [OrderController::class, 'signDoHandedBy']);
     Route::post('{deliveryOrder}/sign-received-by', [OrderController::class, 'signDoReceivedBy']);
 });
 
 Route::prefix('api/invoices')->middleware(['api', 'auth:api'])->group(function () {
-    Route::get('{invoice}/print', [OrderController::class, 'printInvoice'])->withoutMiddleware('auth:api');
+    Route::get('{invoice}/print', [OrderController::class, 'printInvoice']);
     Route::post('{invoice}/publish', [OrderController::class, 'publishInvoice']);
     Route::post('{invoice}/approve', [OrderController::class, 'approveInvoice']);
 });
@@ -46,7 +46,7 @@ Route::prefix('api/returns')->middleware(['api', 'auth:sanctum'])->group(functio
     Route::get('', [ReturnController::class, 'index'])->name('returns.index');
     Route::post('', [ReturnController::class, 'store'])->name('returns.store');
     Route::get('{id}', [ReturnController::class, 'show'])->name('returns.show');
-    Route::get('{id}/pdf', [ReturnController::class, 'showPdf'])->name('returns.pdf')->withoutMiddleware('auth:sanctum');
+    Route::get('{id}/pdf', [ReturnController::class, 'showPdf'])->name('returns.pdf');
     Route::patch('{id}/status', [ReturnController::class, 'updateStatus'])->name('returns.update-status');
     Route::post('{id}/inspect', [ReturnController::class, 'inspect'])->name('returns.inspect');
     Route::post('{id}/approve', [ReturnController::class, 'approve'])->name('returns.approve');
@@ -79,7 +79,6 @@ Route::prefix('api/basts')->middleware(['api', 'auth:api'])->group(function () {
     Route::post('{id}/sign-received-by', [BastController::class, 'signReceivedBy'])->name('basts.sign-received-by');
 });
 
-// BAST PDF endpoint - no auth middleware (HTML view for printing)
-Route::prefix('api/basts')->middleware(['api'])->group(function () {
-    Route::get('{id}/pdf', [BastController::class, 'showPdf'])->name('basts.pdf')->withoutMiddleware('auth:sanctum');
+Route::prefix('api/basts')->middleware(['api', 'auth:api'])->group(function () {
+    Route::get('{id}/pdf', [BastController::class, 'showPdf'])->name('basts.pdf');
 });
