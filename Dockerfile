@@ -90,6 +90,7 @@ COPY --chown=www-data:www-data . .
 # Run Composer Install optimized for production
 RUN git config --global --add safe.directory /var/www
 RUN composer install --no-interaction --no-dev --optimize-autoloader --prefer-dist --no-scripts
+RUN php artisan package:discover --ansi
 
 # Create a non-root user for security
 RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
