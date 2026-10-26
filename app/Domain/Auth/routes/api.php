@@ -28,6 +28,10 @@ Route::prefix('api/account')->middleware(['api', 'auth:api'])->group(function ()
     Route::get('sessions', [AccountController::class, 'getSessions']);
     Route::delete('sessions/{sessionId}', [AccountController::class, 'logoutSession']);
 
+    // User profile
+    Route::get('profile', [AccountController::class, 'getProfile']);
+    Route::post('profile', [AccountController::class, 'updateProfile'])->middleware('throttle:10,1');
+
     // 2FA routes (CSRF-free, uses Bearer token auth)
     Route::prefix('two-factor-authentication')->group(function () {
         Route::post('/', [TwoFactorController::class, 'enable']);
