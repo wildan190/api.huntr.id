@@ -11,6 +11,7 @@ use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use App\Domain\Access\Traits\HasAccess;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @property string $id
@@ -88,6 +89,7 @@ class User extends Authenticatable
      */
     protected $appends = [
         'trial_days_remaining',
+        'profile_photo_url',
     ];
 
     /**
@@ -122,6 +124,18 @@ class User extends Authenticatable
             'password' => 'hashed',
             'trial_ends_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Get public URL for user profile photo.
+     */
+    public function getProfilePhotoUrlAttribute(): ?string
+    {
+        if (!$this->profile_photo_path) {
+            return null;
+        }
+        $disk = config('filesystems.default');
+        return Storage::disk($disk)->url($this->profile_photo_path);
     }
 
     /**

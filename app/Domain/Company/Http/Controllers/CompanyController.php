@@ -266,7 +266,7 @@ class CompanyController extends \App\Http\Controllers\Controller
             ->where(function ($query) use ($company) {
                 $query->where('company_id', $company->id)->orWhere('id', $company->owner_id);
             })
-            ->select('users.id', 'users.name', 'users.email', 'users.whatsapp')
+            ->select('users.id', 'users.name', 'users.email', 'users.whatsapp', 'users.profile_photo_path')
             ->with('roles')
             ->get()
             ->map(function ($user) use ($memberRoleIds, $companyRoles) {
