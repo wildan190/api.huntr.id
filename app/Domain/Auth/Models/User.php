@@ -17,6 +17,19 @@ use Illuminate\Support\Facades\Log;
  * @property string $name
  * @property string|null $email
  * @property string|null $whatsapp
+ * @property string|null $nik
+ * @property string|null $npwp
+ * @property string|null $phone
+ * @property string|null $birth_place
+ * @property string|null $birth_date
+ * @property string|null $job_title
+ * @property string|null $country
+ * @property string|null $province
+ * @property string|null $city
+ * @property string|null $district
+ * @property string|null $postal_code
+ * @property string|null $full_address
+ * @property string|null $profile_photo_path
  * @property string $password
  * @property string|null $company_id
  * @property \Illuminate\Support\Carbon|null $trial_ends_at
@@ -40,6 +53,20 @@ class User extends Authenticatable
         'password',
         'company_id',
         'trial_ends_at',
+        // Profile fields
+        'nik',
+        'npwp',
+        'phone',
+        'birth_place',
+        'birth_date',
+        'job_title',
+        'country',
+        'province',
+        'city',
+        'district',
+        'postal_code',
+        'full_address',
+        'profile_photo_path',
     ];
 
     /**
