@@ -43,15 +43,30 @@ class RfqController extends Controller
     public function show(Request $request, Rfq $rfq, CompanyAccessService $access): JsonResponse
     {
         $buyer = Company::query()->findOrFail($rfq->company_id);
-        $isVendorParticipant = $rfq->proposals()
-            ->pluck('company_id')
-            ->contains(fn (string $companyId) => ($vendor = Company::query()->find($companyId)) && $access->isMember($request->user(), $vendor));
-        abort_unless($access->isMember($request->user(), $buyer) || $isVendorParticipant, 403);
+        $viewer = $request->filled('company_id')
+            ? Company::query()->findOrFail($request->query('company_id'))
+            : null;
+        if ($viewer) {
+            $access->assertMember($request->user(), $viewer);
+        }
+        $isBuyerViewer = $viewer
+            ? (string) $viewer->id === (string) $buyer->id
+            : $access->isMember($request->user(), $buyer);
+        $isVendorViewer = $viewer?->type === 'vendor';
+        $isVendorParticipant = $isVendorViewer && $rfq->proposals()
+            ->where('company_id', $viewer->id)
+            ->exists();
+        $isPublicVendorRfq = $isVendorViewer && in_array($rfq->status, ['active', 'open'], true);
+        abort_unless($isBuyerViewer || $isVendorParticipant || $isPublicVendorRfq, 403, 'Anda tidak memiliki akses ke RFQ ini.');
+
         // Load RFQ dengan relasi yang diperlukan
         $rfqData = $rfq->load([
             'company',
             'user',
-            'proposals' => function ($query) {
+            'proposals' => function ($query) use ($isBuyerViewer, $viewer) {
+                if (! $isBuyerViewer && $viewer?->type === 'vendor') {
+                    $query->where('company_id', $viewer->id);
+                }
                 $query->with('company');
             },
         ]);
