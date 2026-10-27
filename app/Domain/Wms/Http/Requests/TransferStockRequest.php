@@ -7,7 +7,8 @@ class TransferStockRequest extends WmsFormRequest
     public function rules(): array
     {
         return $this->tenantRules() + [
-            'from_warehouse_id' => ['required', 'uuid', 'different:to_warehouse_id'],
+            // A transfer may stay within one warehouse when an operator moves stock between bins from the map.
+            'from_warehouse_id' => ['required', 'uuid'],
             'to_warehouse_id' => ['required', 'uuid'],
             'sku' => ['required', 'string', 'max:100'],
             'from_bin' => ['required', 'string', 'max:100'],

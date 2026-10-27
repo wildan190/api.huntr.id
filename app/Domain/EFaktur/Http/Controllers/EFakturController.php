@@ -11,6 +11,7 @@ use App\Domain\EFaktur\Http\Requests\VatInVerifyRequest;
 use App\Domain\EFaktur\Models\EFaktur;
 use App\Domain\EFaktur\Services\PajakExpressService;
 use App\Domain\EFaktur\Services\LocalEfakturSimulationService;
+use App\Domain\Company\Services\CompanyAccessService;
 use App\Domain\Order\Models\Bast;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class EFakturController extends \App\Http\Controllers\Controller
     public function __construct(
         private readonly PajakExpressService $pajakExpress,
         private readonly LocalEfakturSimulationService $localSimulation,
+        private readonly CompanyAccessService $companyAccess,
     ) {}
 
     /* ═══════════════════════════════════════════════════════════════ */
@@ -357,9 +359,10 @@ class EFakturController extends \App\Http\Controllers\Controller
      * Download PDF faktur menggunakan approvalSign URL dari DJP.
      * POST /api/efaktur/{id}/pdf
      */
-    public function pdf(string $id): JsonResponse
+    public function pdf(Request $request, string $id): JsonResponse
     {
-        $efaktur = EFaktur::findOrFail($id);
+        $efaktur = EFaktur::with('purchaseOrder.buyer', 'purchaseOrder.vendor')->findOrFail($id);
+        $this->assertParticipant($request, $efaktur);
 
         if ($this->localSimulation->enabled() && $efaktur->isApproved()) {
             return response()->json(['pdf' => $this->localSimulation->pdf($efaktur)]);
@@ -389,6 +392,20 @@ class EFakturController extends \App\Http\Controllers\Controller
             Log::error('EFakturController.pdf error', ['id' => $id, 'error' => $e->getMessage()]);
             return response()->json(['message' => $e->getMessage()], 422);
         }
+    }
+
+    private function assertParticipant(Request $request, EFaktur $efaktur): void
+    {
+        $purchaseOrder = $efaktur->purchaseOrder;
+        abort_unless($purchaseOrder, 404, 'Purchase Order e-Faktur tidak ditemukan.');
+
+        foreach ([$purchaseOrder->buyer, $purchaseOrder->vendor] as $company) {
+            if ($company && $this->companyAccess->isMember($request->user(), $company)) {
+                return;
+            }
+        }
+
+        abort(403, 'Anda tidak memiliki akses ke e-Faktur ini.');
     }
 
     /**
