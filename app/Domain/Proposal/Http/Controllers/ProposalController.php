@@ -82,8 +82,32 @@ class ProposalController extends \App\Http\Controllers\Controller
      */
     public function calculateRankings(Request $request, Rfq $rfq, CalculateVendorRankingAction $action, CompanyAccessService $access): JsonResponse
     {
-        $access->assertMember($request->user(), Company::query()->findOrFail($rfq->company_id));
+        $buyer = Company::query()->findOrFail($rfq->company_id);
+        $viewer = $request->filled('company_id')
+            ? Company::query()->findOrFail($request->query('company_id'))
+            : null;
+        if ($viewer) {
+            $access->assertMember($request->user(), $viewer);
+        }
+        $isBuyerViewer = $viewer
+            ? (string) $viewer->id === (string) $buyer->id
+            : $access->isMember($request->user(), $buyer);
+        $isVendorViewer = $viewer?->type === 'vendor';
+        $hasSubmittedProposal = $isVendorViewer && Proposal::query()
+            ->where('rfq_id', $rfq->id)
+            ->where('company_id', $viewer->id)
+            ->exists();
+        $isPublicVendorRfq = $isVendorViewer && in_array($rfq->status, ['active', 'open'], true);
+        abort_unless($isBuyerViewer || $hasSubmittedProposal || $isPublicVendorRfq, 403, 'Anda tidak memiliki akses ke peringkat RFQ ini.');
+
         $rankings = $action->execute($rfq);
+        if (! $isBuyerViewer && $isVendorViewer) {
+            $rankings = array_values(array_filter(
+                $rankings,
+                fn (array $ranking) => (string) ($ranking['proposal']->company_id ?? '') === (string) $viewer->id,
+            ));
+        }
+
         return response()->json(['rankings' => $rankings]);
     }
 

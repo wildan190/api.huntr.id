@@ -304,9 +304,18 @@ class BudgetService
 
     private function linesForCycle(string $companyId, string $cycleId)
     {
-        $figures = DB::table('procurement_budget_transactions')->select('budget_line_id', DB::raw("SUM(CASE WHEN kind = 'commitment' THEN amount ELSE 0 END) committed_amount"), DB::raw("SUM(CASE WHEN kind = 'actual' THEN amount ELSE 0 END) actual_amount"))->where('company_id', $companyId)->where('budget_cycle_id', $cycleId)->groupBy('budget_line_id');
+        $figures = DB::table('procurement_budget_transactions')
+            ->select(
+                'budget_line_id',
+                DB::raw("SUM(CASE WHEN kind = 'commitment' THEN amount ELSE 0 END) committed_amount"),
+                DB::raw("SUM(CASE WHEN kind = 'actual' THEN amount ELSE 0 END) actual_amount"),
+                DB::raw("COUNT(DISTINCT CASE WHEN kind = 'commitment' AND reference_type = 'purchase_order' THEN reference_id END) commitment_count"),
+            )
+            ->where('company_id', $companyId)
+            ->where('budget_cycle_id', $cycleId)
+            ->groupBy('budget_line_id');
 
-        return DB::table('procurement_budget_lines as lines')->leftJoinSub($figures, 'figures', 'figures.budget_line_id', '=', 'lines.id')->where('lines.company_id', $companyId)->where('lines.budget_cycle_id', $cycleId)->select('lines.*', DB::raw('COALESCE(figures.committed_amount, 0) as committed_amount'), DB::raw('COALESCE(figures.actual_amount, 0) as actual_amount'), DB::raw('lines.allocated_amount - COALESCE(figures.committed_amount, 0) as available_amount'))->orderBy('lines.code')->get();
+        return DB::table('procurement_budget_lines as lines')->leftJoinSub($figures, 'figures', 'figures.budget_line_id', '=', 'lines.id')->where('lines.company_id', $companyId)->where('lines.budget_cycle_id', $cycleId)->select('lines.*', DB::raw('COALESCE(figures.committed_amount, 0) as committed_amount'), DB::raw('COALESCE(figures.actual_amount, 0) as actual_amount'), DB::raw('COALESCE(figures.commitment_count, 0) as commitment_count'), DB::raw('lines.allocated_amount - COALESCE(figures.committed_amount, 0) as available_amount'))->orderBy('lines.code')->get();
     }
 
     private function planWithFigures(string $companyId, string $planId)
