@@ -3,6 +3,7 @@
 namespace App\Domain\AI\Services;
 
 use App\Domain\AI\Models\AiUsageLog;
+use App\Domain\Company\Models\Company;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -84,7 +85,9 @@ ATURAN KEJUJURAN DATA (WAJIB):
 TXT;
 
     private string $apiKey;
+
     private string $model;
+
     private int $timeout;
 
     public function __construct(private AiQuotaService $quota)
@@ -109,10 +112,10 @@ TXT;
         $lower = mb_strtolower($text);
 
         $pattern = '/(?<![\p{L}])(?:budget|anggaran|pagu|plafon|dana|total\s+biaya|biaya|senilai|sebesar|maksimal|maks|hingga|sampai|rp\.?|idr)'
-            . '[\s:=]*(?:(?:sekitar|sebesar|maksimal|maks|hingga|sampai|kurang\s+lebih)\s+)?(?:rp\.?|idr)?\s*'
-            . '(\d+(?:[.,]\d+)*)(?:\s*(miliar|milyar|juta|jt|ribu|rb|k)(?![\p{L}]))?/iu';
+            .'[\s:=]*(?:(?:sekitar|sebesar|maksimal|maks|hingga|sampai|kurang\s+lebih)\s+)?(?:rp\.?|idr)?\s*'
+            .'(\d+(?:[.,]\d+)*)(?:\s*(miliar|milyar|juta|jt|ribu|rb|k)(?![\p{L}]))?/iu';
 
-        if (!preg_match_all($pattern, $lower, $all, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+        if (! preg_match_all($pattern, $lower, $all, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
             return null;
         }
 
@@ -157,7 +160,7 @@ TXT;
             }
 
             $items[] = [
-                'name' => mb_strtoupper(mb_substr($name, 0, 1)) . mb_substr($name, 1),
+                'name' => mb_strtoupper(mb_substr($name, 0, 1)).mb_substr($name, 1),
                 'qty' => max(1, $qty),
                 'uom' => 'unit',
                 'detailed_specs' => null,
@@ -206,19 +209,100 @@ TXT;
         $all = [
             [
                 'role' => 'system',
-                'content' => trim($systemInstruction . "\n\n" . self::GROUNDING_RULES),
-            ]
+                'content' => trim($systemInstruction."\n\n".self::GROUNDING_RULES),
+            ],
         ];
 
         foreach ($messages as $msg) {
             $role = $msg['role'] ?? 'user';
-            if (!in_array($role, ['user', 'assistant'], true)) {
+            if (! in_array($role, ['user', 'assistant'], true)) {
                 $role = 'user'; // jangan izinkan klien menyuntik role system
             }
             $all[] = ['role' => $role, 'content' => (string) ($msg['content'] ?? '')];
         }
 
         return $this->request($all, $temperature, false, $companyId, $endpoint);
+    }
+
+    /**
+     * Executes OpenAI function-calling against the strictly read-only Huntr tool gateway.
+     * The model never receives a database credential or a company identifier it can alter.
+     */
+    public function answerWithHuntrTools(string $query, Company $company, HuntrAssistToolGateway $tools): string
+    {
+        if ($this->apiKey === '') {
+            throw new \RuntimeException('OpenAI API Key belum terkonfigurasi.');
+        }
+
+        // One user question consumes one request from the company quota even when
+        // the model needs a second turn to turn a tool result into prose.
+        $this->quota->assertAvailable($company->id);
+
+        $messages = [
+            ['role' => 'system', 'content' => 'You are Huntr Assist. For platform-data questions, call the available functions before answering. Summarize only tool results in Indonesian. Never claim unavailable data exists, never expose internal IDs, and do not mention database access.'],
+            ['role' => 'user', 'content' => $query],
+        ];
+        $usage = [
+            'prompt_tokens' => 0,
+            'completion_tokens' => 0,
+            'total_tokens' => 0,
+        ];
+
+        for ($step = 0; $step < 3; $step++) {
+            $response = Http::withToken($this->apiKey)->acceptJson()->timeout($this->timeout)->post(self::ENDPOINT, [
+                'model' => $this->model,
+                'messages' => $messages,
+                'tools' => $tools->definitions(),
+                // The platform route is selected only for data questions. Requiring
+                // a function on the first turn prevents a plausible but fabricated
+                // answer when the model decides it does not need context.
+                'tool_choice' => $step === 0 ? 'required' : 'auto',
+                'parallel_tool_calls' => false,
+                'temperature' => 0.1,
+            ]);
+
+            if ($response->failed()) {
+                throw new \RuntimeException('OpenAI API Error: '.$response->status());
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                throw new \RuntimeException('OpenAI mengembalikan respons tool yang tidak valid.');
+            }
+            $this->mergeUsage($usage, $data['usage'] ?? []);
+            $message = $data['choices'][0]['message'] ?? [];
+            $toolCalls = $message['tool_calls'] ?? [];
+
+            if ($toolCalls === []) {
+                $this->trackUsage($usage, 'huntr-assist-platform-tools', $company->id);
+
+                return trim((string) ($message['content'] ?? 'Data platform tidak dapat diringkas.'));
+            }
+
+            $messages[] = [
+                'role' => 'assistant',
+                'content' => $message['content'] ?? null,
+                'tool_calls' => $toolCalls,
+            ];
+
+            foreach ($toolCalls as $call) {
+                $callId = (string) data_get($call, 'id');
+                $toolName = (string) data_get($call, 'function.name');
+                if ($callId === '' || $toolName === '') {
+                    throw new \RuntimeException('OpenAI mengembalikan pemanggilan tool yang tidak lengkap.');
+                }
+
+                $arguments = json_decode((string) data_get($call, 'function.arguments', '{}'), true);
+                $result = $tools->execute($toolName, is_array($arguments) ? $arguments : [], $company);
+                $messages[] = [
+                    'role' => 'tool',
+                    'tool_call_id' => $callId,
+                    'content' => json_encode($result, JSON_THROW_ON_ERROR),
+                ];
+            }
+        }
+
+        throw new \RuntimeException('Huntr Assist mencapai batas langkah pembacaan data platform.');
     }
 
     /**
@@ -232,7 +316,7 @@ TXT;
         float $temperature = 0.0
     ): array {
         $raw = $this->ask(
-            $prompt . "\n\nBalas HANYA dengan satu objek JSON valid.",
+            $prompt."\n\nBalas HANYA dengan satu objek JSON valid.",
             $systemInstruction,
             $companyId,
             $endpoint,
@@ -242,14 +326,15 @@ TXT;
 
         $decoded = json_decode(trim($raw), true);
 
-        if (!is_array($decoded)) {
+        if (! is_array($decoded)) {
             // Cadangan: buang pagar markdown jika ada. Tidak ada "perbaikan" regex yang memotong JSON.
             $stripped = trim(preg_replace('/^```(?:json)?\s*|\s*```$/m', '', $raw));
             $decoded = json_decode($stripped, true);
         }
 
-        if (!is_array($decoded)) {
+        if (! is_array($decoded)) {
             Log::warning('OpenAiService: askJson gagal parse JSON', ['endpoint' => $endpoint]);
+
             return [];
         }
 
@@ -278,7 +363,7 @@ TXT;
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiKey,
+                'Authorization' => 'Bearer '.$this->apiKey,
                 'Content-Type' => 'application/json',
             ])
                 ->timeout($this->timeout)
@@ -290,7 +375,7 @@ TXT;
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
-                throw new \RuntimeException('OpenAI API Error: ' . $response->status());
+                throw new \RuntimeException('OpenAI API Error: '.$response->status());
             }
 
             $data = $response->json();
@@ -347,15 +432,15 @@ PROMPT;
         try {
             $raw = $this->askJson(
                 $prompt,
-                'Kamu adalah ekstraktor kebutuhan pengadaan. Tugasmu hanya menyalin dan merapikan informasi dari teks user.' . "\n\n" . self::GROUNDING_RULES,
+                'Kamu adalah ekstraktor kebutuhan pengadaan. Tugasmu hanya menyalin dan merapikan informasi dari teks user.'."\n\n".self::GROUNDING_RULES,
                 $companyId,
                 'extractSearchIntent',
                 0.0
             );
 
-            if (!empty($raw)) {
+            if (! empty($raw)) {
                 $intent = $this->normalizeIntent($raw, $userQuery);
-                if (!empty($intent['target_items']) || !empty($intent['keywords'])) {
+                if (! empty($intent['target_items']) || ! empty($intent['keywords'])) {
                     return $intent;
                 }
             }
@@ -374,7 +459,7 @@ PROMPT;
         $keywords = [];
         foreach ((array) ($raw['keywords'] ?? []) as $kw) {
             $kw = trim((string) $kw);
-            if ($kw === '' || !$this->containsOnlySourceWords($kw, $query)) {
+            if ($kw === '' || ! $this->containsOnlySourceWords($kw, $query)) {
                 continue;
             }
             $keywords[] = $kw;
@@ -385,12 +470,12 @@ PROMPT;
         $targets = [];
         foreach ((array) ($raw['target_items'] ?? []) as $t) {
             $name = $this->cleanString($t['name'] ?? null);
-            if ($name === null || !$this->containsOnlySourceWords($name, $query)) {
+            if ($name === null || ! $this->containsOnlySourceWords($name, $query)) {
                 continue;
             }
 
             $specifications = $this->cleanString($t['spec_requirements'] ?? null);
-            if ($specifications !== null && !$this->containsOnlySourceWords($specifications, $query)) {
+            if ($specifications !== null && ! $this->containsOnlySourceWords($specifications, $query)) {
                 $specifications = null;
             }
 
@@ -434,7 +519,7 @@ PROMPT;
             'department' => $department,
             'urgency' => $urgency,
             // Ringkasan disusun dari item hasil ekstraksi, bukan teks bebas AI.
-            'ai_summary' => !empty($names) ? 'Pengadaan ' . implode(', ', $names) : 'Pengadaan: ' . $query,
+            'ai_summary' => ! empty($names) ? 'Pengadaan '.implode(', ', $names) : 'Pengadaan: '.$query,
             'is_comparison' => (bool) ($raw['is_comparison'] ?? false)
                 || count($targets) >= 2
                 || str_contains($queryLower, 'bandingkan')
@@ -450,14 +535,14 @@ PROMPT;
 
         $keywords = array_values(array_unique(array_filter(
             preg_split('/\s+/u', trim(preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $userQuery))) ?: [],
-            fn($w) => mb_strlen($w) > 2
+            fn ($w) => mb_strlen($w) > 2
         )));
 
         return [
             'keywords' => $keywords,
             'category' => null,
             'brand' => null,
-            'target_items' => array_map(fn($it) => [
+            'target_items' => array_map(fn ($it) => [
                 'name' => $it['name'],
                 'brand' => null,
                 'spec_requirements' => null,
@@ -468,7 +553,7 @@ PROMPT;
             'estimated_total_budget_idr' => $budget,
             'department' => null,
             'urgency' => 'Normal',
-            'ai_summary' => 'Pengadaan: ' . $userQuery,
+            'ai_summary' => 'Pengadaan: '.$userQuery,
             'is_comparison' => count($items) >= 2 || str_contains($lower, 'bandingkan') || str_contains($lower, 'compare'),
         ];
     }
@@ -478,7 +563,7 @@ PROMPT;
         $candidateWords = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($candidate), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         $sourceWords = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($source), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
-        return !empty($candidateWords) && empty(array_diff($candidateWords, $sourceWords));
+        return ! empty($candidateWords) && empty(array_diff($candidateWords, $sourceWords));
     }
 
     private function explicitQuantity(string $query, string $name): ?int
@@ -492,7 +577,7 @@ PROMPT;
         $namePattern = preg_quote($normalizedName, '/');
         if (preg_match(
             '/(?<![\p{L}\p{N}])(\d+)\s+(?:(?:unit|units|pcs|pc|set|buah|kotak|box|paket|pasang)\s+)?'
-            . $namePattern . '(?![\p{L}\p{N}])/u',
+            .$namePattern.'(?![\p{L}\p{N}])/u',
             $normalizedQuery,
             $matches
         )) {
@@ -500,7 +585,7 @@ PROMPT;
         }
 
         if (preg_match(
-            '/' . $namePattern . '\s+(?:sebanyak|qty|quantity|jumlah)\s+(\d+)(?![\p{L}\p{N}])/u',
+            '/'.$namePattern.'\s+(?:sebanyak|qty|quantity|jumlah)\s+(\d+)(?![\p{L}\p{N}])/u',
             $normalizedQuery,
             $matches
         )) {
@@ -582,7 +667,7 @@ PROMPT;
         try {
             $response = $this->askJson(
                 $prompt,
-                'Kamu adalah evaluator teknis pengadaan yang ketat dan objektif. Kamu menolak produk yang berbeda kategori.' . "\n\n" . self::GROUNDING_RULES,
+                'Kamu adalah evaluator teknis pengadaan yang ketat dan objektif. Kamu menolak produk yang berbeda kategori.'."\n\n".self::GROUNDING_RULES,
                 $companyId,
                 'rankSearchProducts',
                 0.0
@@ -590,7 +675,7 @@ PROMPT;
 
             foreach ((array) ($response['results'] ?? []) as $row) {
                 $key = (string) ($row['product_id'] ?? '');
-                if (!isset($validIds[$key])) {
+                if (! isset($validIds[$key])) {
                     continue; // id karangan AI diabaikan
                 }
                 $byId[$key] = $row;
@@ -611,12 +696,13 @@ PROMPT;
                     'fit_reason' => 'Tidak dievaluasi oleh AI.',
                     'missing_specs' => [],
                 ];
+
                 continue;
             }
 
             $isMatch = ($row['is_match'] ?? false) === true;
             $missing = array_values(array_filter(array_map(
-                fn($s) => $this->cleanString($s),
+                fn ($s) => $this->cleanString($s),
                 (array) ($row['missing_specs'] ?? [])
             )));
 
@@ -644,12 +730,12 @@ PROMPT;
     {
         $candidates = [];
         foreach ($catalogues as $c) {
-            if (!isset($c['id'])) {
+            if (! isset($c['id'])) {
                 continue;
             }
             $snippets = [];
             foreach (array_slice((array) ($c['_web_results'] ?? []), 0, 3) as $r) {
-                $line = trim(($r['title'] ?? '') . ' - ' . ($r['snippet'] ?? ''), ' -');
+                $line = trim(($r['title'] ?? '').' - '.($r['snippet'] ?? ''), ' -');
                 if ($line !== '') {
                     $snippets[] = $line;
                 }
@@ -707,7 +793,7 @@ PROMPT;
         try {
             $res = $this->askJson(
                 $prompt,
-                'Kamu adalah analis produk pengadaan. Kamu hanya merangkum data yang diberikan dan tidak menambah fakta.' . "\n\n" . self::GROUNDING_RULES,
+                'Kamu adalah analis produk pengadaan. Kamu hanya merangkum data yang diberikan dan tidak menambah fakta.'."\n\n".self::GROUNDING_RULES,
                 $companyId,
                 'compareProducts',
                 0.1
@@ -716,7 +802,7 @@ PROMPT;
             $matrix = [];
             foreach ((array) ($res['comparison_matrix'] ?? []) as $row) {
                 $id = (string) ($row['catalogue_id'] ?? '');
-                if (!isset($candidates[$id])) {
+                if (! isset($candidates[$id])) {
                     continue;
                 }
                 $cand = $candidates[$id];
@@ -753,7 +839,7 @@ PROMPT;
                         $values[$candidates[$vid]['name'] ?? $vid] = $this->cleanString(is_scalar($val) ? (string) $val : null);
                     }
                 }
-                if (!empty($values)) {
+                if (! empty($values)) {
                     $specTable[] = ['feature' => $feature, 'values' => $values];
                 }
             }
@@ -795,15 +881,15 @@ PROMPT;
      */
     public function generatePrDraft(string $userPrompt, array $items, array $context = []): array
     {
-        $itemNames = array_values(array_filter(array_map(fn($i) => $i['name'] ?? null, $items)));
-        $title = !empty($itemNames)
-            ? 'Pengadaan ' . implode(', ', array_slice($itemNames, 0, 2)) . (count($itemNames) > 2 ? ' dan lainnya' : '')
-            : 'Purchase Requisition ' . date('Y-m-d');
+        $itemNames = array_values(array_filter(array_map(fn ($i) => $i['name'] ?? null, $items)));
+        $title = ! empty($itemNames)
+            ? 'Pengadaan '.implode(', ', array_slice($itemNames, 0, 2)).(count($itemNames) > 2 ? ' dan lainnya' : '')
+            : 'Purchase Requisition '.date('Y-m-d');
 
         $draft = [
             'title' => $title,
             'department' => $context['department'] ?? null,
-            'description' => 'Permintaan pengadaan: ' . $userPrompt,
+            'description' => 'Permintaan pengadaan: '.$userPrompt,
             'business_justification' => null,
             'manager_notes' => null,
             'duration_days' => (int) config('ai.default_rfq_duration_days', 7),
@@ -862,13 +948,13 @@ PROMPT;
         try {
             $res = $this->askJson(
                 $prompt,
-                'Kamu adalah staf master data katalog yang teliti dan tidak menebak.' . "\n\n" . self::GROUNDING_RULES,
+                'Kamu adalah staf master data katalog yang teliti dan tidak menebak.'."\n\n".self::GROUNDING_RULES,
                 $companyId,
                 'autofillCatalogue',
                 0.1
             );
 
-            if (!empty($res)) {
+            if (! empty($res)) {
                 if (in_array($res['category'] ?? null, self::CATALOGUE_CATEGORIES, true)) {
                     $result['category'] = $res['category'];
                 }
@@ -954,7 +1040,7 @@ PROMPT;
             }
         }
 
-        throw new \RuntimeException('Gagal meng-generate gambar produk AI' . ($lastError ? ': ' . $lastError : '.'));
+        throw new \RuntimeException('Gagal meng-generate gambar produk AI'.($lastError ? ': '.$lastError : '.'));
     }
 
     /**
@@ -977,13 +1063,14 @@ PROMPT;
         try {
             return $this->ask(
                 $prompt,
-                'Kamu adalah asisten pengadaan yang objektif dan jujur terhadap batas pengetahuannya.' . "\n\n" . self::GROUNDING_RULES,
+                'Kamu adalah asisten pengadaan yang objektif dan jujur terhadap batas pengetahuannya.'."\n\n".self::GROUNDING_RULES,
                 $companyId,
                 'generateComparisonText',
                 0.2
             );
         } catch (\Exception $e) {
             Log::error('OpenAiService: generateComparisonText failed', ['error' => $e->getMessage()]);
+
             return 'Gagal memuat perbandingan produk.';
         }
     }
@@ -1014,6 +1101,18 @@ PROMPT;
         }
     }
 
+    /** @param array<string, int> $total */
+    private function mergeUsage(array &$total, mixed $usage): void
+    {
+        if (! is_array($usage)) {
+            return;
+        }
+
+        $total['prompt_tokens'] += (int) ($usage['prompt_tokens'] ?? 0);
+        $total['completion_tokens'] += (int) ($usage['completion_tokens'] ?? 0);
+        $total['total_tokens'] += (int) ($usage['total_tokens'] ?? 0);
+    }
+
     public function getUsageSummary(string $companyId): ?array
     {
         return $this->quota->summaryById($companyId);
@@ -1025,22 +1124,24 @@ PROMPT;
 
     private function cleanString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
         $value = trim($value);
         if ($value === '' || in_array(mb_strtolower($value), ['null', 'none', 'n/a', '-', 'tidak ada'], true)) {
             return null;
         }
+
         return $value;
     }
 
     private function stringList(mixed $value): array
     {
-        if (!is_array($value)) {
+        if (! is_array($value)) {
             return [];
         }
-        return array_values(array_filter(array_map(fn($v) => $this->cleanString($v), $value)));
+
+        return array_values(array_filter(array_map(fn ($v) => $this->cleanString($v), $value)));
     }
 
     /** Merek hanya valid jika benar-benar tertulis di teks user. */
@@ -1050,6 +1151,7 @@ PROMPT;
         if ($brand === null) {
             return null;
         }
+
         return $this->containsOnlySourceWords($brand, $query) ? $brand : null;
     }
 
@@ -1061,6 +1163,7 @@ PROMPT;
                 return true;
             }
         }
+
         return false;
     }
 

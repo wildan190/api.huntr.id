@@ -41,6 +41,12 @@ return [
         'notification_driver' => env('WHATSAPP_NOTIFICATION_DRIVER', 'fonnte'),
     ],
 
+    'newsapi' => [
+        'key' => env('NEWSAPI_KEY'),
+        'endpoint' => env('NEWSAPI_ENDPOINT', 'https://newsapi.org/v2'),
+        'timeout' => (int) env('NEWSAPI_TIMEOUT', 10),
+    ],
+
     'midtrans' => [
         'server_key' => env('MIDTRANS_SERVER_KEY'),
         'client_key' => env('MIDTRANS_CLIENT_KEY'),

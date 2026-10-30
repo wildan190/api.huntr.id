@@ -1,7 +1,9 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Domain\AI\Http\Controllers\AiController;
+use App\Domain\AI\Http\Controllers\DemoBotController;
+use App\Domain\Subscription\Http\Middleware\EnsureSubscriptionCurrent;
+use Illuminate\Support\Facades\Route;
 
 /**
  * AI Domain Routes
@@ -13,7 +15,7 @@ Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
     // Agentic Procurement Endpoints
     Route::post('agentic-procurement/run', [AiController::class, 'agenticRun']);
     Route::post('agentic-procurement/chat', [AiController::class, 'agenticChat']);
-    Route::post('agentic-procurement/create-pr', [AiController::class, 'agenticCreatePr'])->middleware(['auth:api', \App\Domain\Subscription\Http\Middleware\EnsureSubscriptionCurrent::class]);
+    Route::post('agentic-procurement/create-pr', [AiController::class, 'agenticCreatePr'])->middleware(['auth:api', EnsureSubscriptionCurrent::class]);
 
     // Public: AI search katalog (buyer maupun guest bisa search)
     Route::post('search', [AiController::class, 'search']);
@@ -32,16 +34,17 @@ Route::prefix('api/ai')->middleware(['api', 'cors'])->group(function () {
 
     // Protected: memerlukan auth (akses data internal)
     Route::middleware('auth:api')->group(function () {
+        Route::post('huntr-assist', [AiController::class, 'huntrAssist']);
         Route::post('rank-proposals', [AiController::class, 'rankProposals']);
-        Route::post('generate-pr',    [AiController::class, 'generatePr']);
-        Route::get('usage',           [AiController::class, 'getUsage']);
+        Route::post('generate-pr', [AiController::class, 'generatePr']);
+        Route::get('usage', [AiController::class, 'getUsage']);
     });
 });
 
 // Demo Mode AI Vendor Bots Routes
 Route::prefix('api/demo')->middleware(['api', 'cors'])->group(function () {
-    Route::get('bots', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'getBotRoster']);
-    Route::post('rfq/{rfq}/generate-bots', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'generateBotsForRfq']);
-    Route::post('negotiation/{negotiation}/respond', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'respondNegotiation']);
-    Route::post('po/{po}/confirm', [\App\Domain\AI\Http\Controllers\DemoBotController::class, 'confirmPo']);
+    Route::get('bots', [DemoBotController::class, 'getBotRoster']);
+    Route::post('rfq/{rfq}/generate-bots', [DemoBotController::class, 'generateBotsForRfq']);
+    Route::post('negotiation/{negotiation}/respond', [DemoBotController::class, 'respondNegotiation']);
+    Route::post('po/{po}/confirm', [DemoBotController::class, 'confirmPo']);
 });

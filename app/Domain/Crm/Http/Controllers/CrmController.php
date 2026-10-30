@@ -70,6 +70,7 @@ class CrmController
     public function storeRate(Request $request, CrmEnterpriseService $service) { return $service->storeRate($request); }
     public function targets(Request $request, CrmEnterpriseService $service) { return $service->targets($request); }
     public function storeTarget(Request $request, CrmEnterpriseService $service) { return $service->storeTarget($request); }
+    public function quoteApprovers(Request $request, CrmEnterpriseService $service) { return $service->quoteApprovers($request); }
     public function requestQuoteApproval(Request $request, string $quoteId, CrmEnterpriseService $service) { return $service->requestQuoteApproval($request, $quoteId); }
     public function decideQuoteApproval(Request $request, string $quoteId, string $approvalId, CrmEnterpriseService $service) { return $service->decideQuoteApproval($request, $quoteId, $approvalId); }
     public function reports(Request $request, CrmEnterpriseService $service) { return $service->reports($request); }

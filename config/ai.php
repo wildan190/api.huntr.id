@@ -34,7 +34,7 @@ return [
     |
     */
     'openai_api_key' => env('OPENAI_API_KEY'),
-    'openai_model'   => env('OPENAI_MODEL', 'gpt-4o-mini'),
+    'openai_model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
 
     /*
     /*
@@ -47,4 +47,25 @@ return [
     |
     */
     'brave_search_api_key' => env('BRAVE_SEARCH_API_KEY', ''),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Perplexity Agent API / Huntr Assist
+    |--------------------------------------------------------------------------
+    |
+    | The key is resolved exclusively by Laravel. Do not place it in a Vite
+    | environment variable: browser bundles must never receive provider keys.
+    |
+    */
+    'perplexity' => [
+        'api_key' => env('PERPLEXITY_API_KEY'),
+        'endpoint' => env('PERPLEXITY_AGENT_ENDPOINT', 'https://api.perplexity.ai/v1/agent'),
+        'effort' => env('PERPLEXITY_AGENT_EFFORT', 'low'),
+        'timeout' => (int) env('PERPLEXITY_AGENT_TIMEOUT', 30),
+        'max_output_tokens' => (int) env('PERPLEXITY_AGENT_MAX_OUTPUT_TOKENS', 700),
+    ],
+
+    'huntr_assist' => [
+        'openai_fallback' => (bool) env('HUNTR_ASSIST_OPENAI_FALLBACK', true),
+    ],
 ];
