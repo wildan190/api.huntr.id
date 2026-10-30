@@ -63,6 +63,7 @@ Route::prefix('api/crm')->middleware(['api', 'auth:api'])->group(function () {
     Route::post('/currency-rates', [CrmController::class, 'storeRate']);
     Route::get('/sales-targets', [CrmController::class, 'targets']);
     Route::post('/sales-targets', [CrmController::class, 'storeTarget']);
+    Route::get('/quotes/approvers', [CrmController::class, 'quoteApprovers']);
     Route::post('/quotes/{quoteId}/approval-requests', [CrmController::class, 'requestQuoteApproval']);
     Route::post('/quotes/{quoteId}/approval-requests/{approvalId}/decision', [CrmController::class, 'decideQuoteApproval']);
     Route::get('/reports', [CrmController::class, 'reports']);

@@ -439,7 +439,21 @@ class CrmService
     public function quotes(Request $request)
     {
         $company = $this->context->tenant($request);
-        return response()->json($this->paginate(DB::table('crm_quotes')->where('company_id', $company->id)->where('user_id', request()->user()->id)->orderByDesc('created_at'), $request));
+        $quotes = DB::table('crm_quotes as quotes')
+            ->leftJoin('crm_quote_approvals as approvals', function ($join) use ($request): void {
+                $join->on('approvals.quote_id', '=', 'quotes.id')
+                    ->where('approvals.approver_id', '=', $request->user()->id)
+                    ->where('approvals.status', '=', 'pending');
+            })
+            ->where('quotes.company_id', $company->id)
+            ->where(function ($query) use ($request): void {
+                $query->where('quotes.user_id', $request->user()->id)
+                    ->orWhereNotNull('approvals.id');
+            })
+            ->select('quotes.*', 'approvals.id as pending_approval_id')
+            ->orderByDesc('quotes.created_at');
+
+        return response()->json($this->paginate($quotes, $request));
     }
 
     public function storeQuote(Request $request)

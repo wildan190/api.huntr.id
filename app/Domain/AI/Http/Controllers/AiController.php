@@ -7,9 +7,13 @@ use App\Domain\AI\Actions\AiCompareProductsAction;
 use App\Domain\AI\Actions\AiGeneratePrAction;
 use App\Domain\AI\Actions\AiRankProposalsAction;
 use App\Domain\AI\Actions\AiSearchCatalogueAction;
+use App\Domain\AI\Actions\AskHuntrAssistAction;
 use App\Domain\AI\Actions\CreateAgenticPrAction;
 use App\Domain\AI\Actions\RunAgenticProcurementAction;
 use App\Domain\AI\Services\OpenAiService;
+use App\Domain\AI\Services\PerplexityAgentException;
+use App\Domain\Auth\Models\User;
+use App\Domain\Company\Models\Company;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +27,56 @@ use Illuminate\Validation\ValidationException;
  */
 class AiController extends Controller
 {
+    /** Web-grounded assistant for the Main Menu. */
+    public function huntrAssist(Request $request, AskHuntrAssistAction $action): JsonResponse
+    {
+        $validated = $request->validate([
+            'query' => 'required|string|min:2|max:2000',
+            'company_id' => 'nullable|string|exists:companies,id',
+            'previous_response_id' => 'nullable|string|max:255',
+        ]);
+
+        /** @var User|null $user */
+        $user = $request->user();
+        $companyId = $validated['company_id'] ?? null;
+        $company = null;
+
+        if ($companyId !== null) {
+            $company = Company::query()->findOrFail($companyId);
+            $isMember = $user instanceof User && (
+                $company->owner_id === $user->id
+                || $user->company_id === $company->id
+                || $user->companies()->whereKey($company->id)->exists()
+            );
+
+            abort_unless($isMember, 403, 'Anda tidak memiliki akses ke workspace ini.');
+        }
+
+        try {
+            return response()->json([
+                'success' => true,
+                ...$action->execute(
+                    $validated['query'],
+                    $company,
+                    $user?->id,
+                    $validated['previous_response_id'] ?? null,
+                ),
+            ]);
+        } catch (PerplexityAgentException $exception) {
+            $response = [
+                'success' => false,
+                'message' => $exception->getMessage(),
+                'code' => $exception->errorCode,
+            ];
+
+            if ($exception->retryAfter !== null) {
+                $response['retry_after'] = $exception->retryAfter;
+            }
+
+            return response()->json($response, $exception->status);
+        }
+    }
+
     /**
      * POST /api/ai/agentic-procurement/run
      *

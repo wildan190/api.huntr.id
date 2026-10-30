@@ -250,11 +250,50 @@ class CrmEnterpriseService
         return response()->json(['target' => DB::table('crm_sales_targets')->find($id)], 201);
     }
 
+    /**
+     * Return only active workspace members who can approve CRM quotes.
+     * This deliberately derives eligibility server-side so the browser cannot
+     * nominate an arbitrary user ID from another tenant.
+     */
+    public function quoteApprovers(Request $request)
+    {
+        $company = $this->context->tenant($request);
+        $this->context->assertPermission($request, $company, 'crm.manage');
+        $requesterId = (string) $request->user()->id;
+
+        $members = $company->users()->select(['id', 'name', 'email'])->get();
+        $owner = \App\Domain\Auth\Models\User::query()
+            ->select(['id', 'name', 'email'])
+            ->find($company->owner_id);
+
+        if ($owner && ! $members->contains('id', $owner->id)) {
+            $members->push($owner);
+        }
+
+        return response()->json([
+            'approvers' => $members
+                ->unique('id')
+                ->filter(fn (\App\Domain\Auth\Models\User $member) => (string) $member->id !== $requesterId)
+                ->filter(fn (\App\Domain\Auth\Models\User $member) => $this->access->can($member, $company, 'crm.quote.approve'))
+                ->values()
+                ->map(fn (\App\Domain\Auth\Models\User $member) => [
+                    'id' => $member->id,
+                    'name' => $member->name,
+                    'email' => $member->email,
+                ]),
+        ]);
+    }
+
     public function requestQuoteApproval(Request $request, string $quoteId)
     {
         $company = $this->context->tenant($request);
         $this->context->assertPermission($request, $company, 'crm.manage');
         $this->assertOwned($company->id, 'crm_quotes', $quoteId);
+        abort_if(
+            DB::table('crm_quote_approvals')->where('company_id', $company->id)->where('quote_id', $quoteId)->where('status', 'pending')->exists(),
+            422,
+            'Quote ini sudah memiliki approval yang masih menunggu keputusan.',
+        );
         $data = $this->validated($request, [
             'department' => ['nullable', 'string', 'max:120'],
             'approver_id' => ['required', 'uuid'],
