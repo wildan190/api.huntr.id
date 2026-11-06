@@ -18,7 +18,7 @@ class NewsServiceTest extends TestCase
             'services.newsapi.key' => 'test-key',
             'services.newsapi.endpoint' => 'https://newsapi.example/v2',
         ]);
-        Cache::forget('newsapi:huntr:v2:economy:politics');
+        Cache::forget('newsapi:huntr:v3:economy:politics');
         Http::fake(function (Request $request) {
             $politics = str_contains(urldecode($request->url()), 'politics');
 
@@ -38,6 +38,26 @@ class NewsServiceTest extends TestCase
 
         $this->assertCount(2, $result['articles']);
         $this->assertSame(['politics', 'economy'], array_column($result['articles'], 'category'));
+        Http::assertSentCount(2);
+    }
+
+    #[Test]
+    public function it_reuses_the_shared_news_cache_for_thirty_minutes(): void
+    {
+        config([
+            'services.newsapi.key' => 'test-key',
+            'services.newsapi.endpoint' => 'https://newsapi.example/v2',
+        ]);
+        Cache::forget('newsapi:huntr:v3:economy:politics');
+        Http::fake([
+            '*' => Http::response(['articles' => []]),
+        ]);
+
+        $service = app(NewsService::class);
+        $service->headlines();
+        $service->headlines();
+
+        // Each category is fetched once; the second call is served from cache.
         Http::assertSentCount(2);
     }
 }

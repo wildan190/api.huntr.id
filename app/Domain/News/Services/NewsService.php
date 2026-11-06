@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 class NewsService
 {
     private const ALLOWED_CATEGORIES = ['economy', 'politics'];
+    private const CACHE_TTL_MINUTES = 30;
 
     /** @return array{articles: array<int, array<string, mixed>>, updated_at: string, notice: string|null} */
     public function headlines(string $category = 'all'): array
@@ -29,8 +30,10 @@ class NewsService
         }
 
         return Cache::remember(
-            'newsapi:huntr:v2:'.implode(':', $categories),
-            now()->addMinutes(10),
+            // One shared cache protects the News API quota for every Huntr
+            // user; a fresh request is made only after this interval expires.
+            'newsapi:huntr:v3:'.implode(':', $categories),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
             function () use ($categories, $key): array {
                 $feeds = collect($categories)
                     ->map(fn (string $item) => $this->fetchCategory($item, $key));
