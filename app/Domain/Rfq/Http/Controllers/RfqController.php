@@ -284,10 +284,11 @@ class RfqController extends Controller
             $whatsapp = '62'.substr($whatsapp, 1);
         }
 
-        $frontendUrl = config('app.frontend_url', 'https://app.huntr.id');
-        $rfqLink = $frontendUrl.'/rfq/'.$rfq->id;
+        $origin = $request->header('origin');
+        $frontendUrl = $origin ?: config('app.frontend_url', 'https://app.huntr.id');
+        $rfqLink = rtrim($frontendUrl, '/').'/tender/'.$rfq->id;
 
-        $message = "Hello! You have been invited to submit a quotation for RFQ #{$rfq->id} - {$rfq->title}.\n\nRegister on Huntr.id to view the details and submit your proposal:\n{$rfqLink}";
+        $message = "Halo! Anda diundang untuk mengajukan penawaran tender RFQ #{$rfq->id} - {$rfq->title}.\n\nLihat rincian spesifikasi barang/jasa dan submit penawaran Anda melalui link resmi Huntr berikut:\n{$rfqLink}";
 
         $whatsappLink = 'https://wa.me/'.$whatsapp.'?text='.urlencode($message);
 
