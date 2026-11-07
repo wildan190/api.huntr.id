@@ -94,6 +94,7 @@ class AiRankProposalsAction
             return array_merge($rank, [
                 'proposal' => $proposal ? [
                     'id'              => $proposal->id,
+                    'company_id'      => $proposal->company_id,
                     'price_offer'     => $proposal->price_offer,
                     'delivery_days'   => $proposal->delivery_days,
                     'warranty_months' => $proposal->warranty_months,
@@ -102,6 +103,7 @@ class AiRankProposalsAction
                     'document_path'   => $proposal->document_path,
                     'document_url'    => $proposal->document_url,
                     'company'         => ['name' => $proposal->company?->name],
+                    'items'           => $proposal->items,
                 ] : null,
             ]);
         })->values()->toArray();

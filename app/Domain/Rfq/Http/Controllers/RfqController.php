@@ -11,6 +11,7 @@ use App\Domain\Rfq\Actions\RejectRfqAction;
 use App\Domain\Rfq\Actions\ResubmitRejectedRfqAction;
 use App\Domain\Rfq\Http\Requests\CreateRfqRequest;
 use App\Domain\Rfq\Models\Rfq;
+use App\Domain\Rfq\Services\ItemPriceHistoryService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ class RfqController extends Controller
      * Menampilkan detail RFQ beserta item dan proposalnya.
      * Items dengan gambar diprioritaskan untuk ditampilkan lebih dulu.
      */
-    public function show(Request $request, Rfq $rfq, CompanyAccessService $access): JsonResponse
+    public function show(Request $request, Rfq $rfq, CompanyAccessService $access, ItemPriceHistoryService $priceHistoryService): JsonResponse
     {
         $buyer = Company::query()->findOrFail($rfq->company_id);
         $viewer = $request->filled('company_id')
@@ -67,7 +68,7 @@ class RfqController extends Controller
                 if (! $isBuyerViewer && $viewer?->type === 'vendor') {
                     $query->where('company_id', $viewer->id);
                 }
-                $query->with('company');
+                $query->with(['company', 'items']);
             },
         ]);
 
@@ -88,6 +89,14 @@ class RfqController extends Controller
                 },
             ])
             ->values(); // Reset array keys setelah sorting
+
+        // Resolve last_price untuk setiap item
+        foreach ($items as $item) {
+            $priceData = $priceHistoryService->resolveLastPrice($item, (string) $rfq->company_id, (string) $rfq->id);
+            $item->setAttribute('last_price', $priceData['price']);
+            $item->setAttribute('last_price_source', $priceData['source']);
+            $item->setAttribute('last_price_date', $priceData['date']);
+        }
 
         // Set items yang sudah diurutkan ke RFQ
         $rfqData->setRelation('items', $items);
