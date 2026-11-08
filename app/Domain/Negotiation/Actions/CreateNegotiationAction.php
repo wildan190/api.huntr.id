@@ -35,10 +35,11 @@ class CreateNegotiationAction
             if (isset($data['items']) && is_array($data['items'])) {
                 foreach ($data['items'] as $item) {
                     NegotiationItem::create([
-                        'negotiation_id' => $negotiation->id,
+                        'negotiation_id'   => $negotiation->id,
                         'proposal_item_id' => $item['proposal_item_id'],
+                        'original_price'   => $item['original_price'] ?? null,
                         'negotiated_price' => $item['negotiated_price'],
-                        'negotiated_qty' => $item['negotiated_qty'],
+                        'negotiated_qty'   => $item['negotiated_qty'],
                     ]);
                 }
             }

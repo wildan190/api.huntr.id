@@ -34,6 +34,7 @@ class Proposal extends Model
         'rfq_id',
         'company_id',
         'price_offer',
+        'initial_price_offer',
         'quotation_number',
         'delivery_days',
         'warranty_months',
@@ -50,10 +51,16 @@ class Proposal extends Model
 
     protected $casts = [
         'price_offer' => 'float',
+        'initial_price_offer' => 'float',
         'awarded_amount' => 'float',
         'awarded_at' => 'datetime',
         'approved_at' => 'datetime',
     ];
+
+    public function getInitialPriceOfferAttribute($value): float
+    {
+        return $value !== null ? (float) $value : (float) $this->price_offer;
+    }
 
     protected $appends = ['document_url'];
 

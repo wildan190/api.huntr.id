@@ -23,8 +23,15 @@ class NegotiationItem extends Model
     protected $fillable = [
         'negotiation_id',
         'proposal_item_id',
+        'original_price',
         'negotiated_price',
         'negotiated_qty',
+    ];
+
+    protected $casts = [
+        'original_price' => 'float',
+        'negotiated_price' => 'float',
+        'negotiated_qty' => 'integer',
     ];
 
     public function negotiation()

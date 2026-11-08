@@ -30,7 +30,7 @@ class AiRankProposalsAction
             'items.catalogue',
             'company',
             'proposals' => function ($q) {
-                $q->with(['company', 'items.rfqItem.catalogue']);
+                $q->with(['company', 'items.rfqItem.catalogue', 'acceptedNegotiation.items', 'negotiations.items']);
             }
         ])->findOrFail($rfqId);
 

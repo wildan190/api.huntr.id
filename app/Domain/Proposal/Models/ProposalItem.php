@@ -24,13 +24,20 @@ class ProposalItem extends Model
         'proposal_id',
         'rfq_item_id',
         'price_offer',
+        'initial_price_offer',
         'is_awarded',
     ];
 
     protected $casts = [
         'is_awarded' => 'boolean',
         'price_offer' => 'float',
+        'initial_price_offer' => 'float',
     ];
+
+    public function getInitialPriceOfferAttribute($value): float
+    {
+        return $value !== null ? (float) $value : (float) $this->price_offer;
+    }
 
     public function proposal()
     {
