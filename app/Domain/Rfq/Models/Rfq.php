@@ -57,11 +57,15 @@ class Rfq extends Model
         'delivery_point',
         'warehouse_id',
         'department',
+        'award_cancelled_at',
+        'award_cancelled_by_user_id',
+        'award_cancellation_reason',
     ];
 
     protected $casts = [
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
+        'award_cancelled_at' => 'datetime',
         'duration_days' => 'integer',
         'service_start_date' => 'date',
         'service_end_date' => 'date',

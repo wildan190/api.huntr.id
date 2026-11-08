@@ -34,6 +34,7 @@ class Proposal extends Model
         'rfq_id',
         'company_id',
         'price_offer',
+        'quotation_number',
         'delivery_days',
         'warranty_months',
         'document_path',
@@ -55,6 +56,15 @@ class Proposal extends Model
     ];
 
     protected $appends = ['document_url'];
+
+    public function getQuotationNumberAttribute($value): string
+    {
+        if (!empty($value)) {
+            return $value;
+        }
+        $dateStr = $this->created_at ? $this->created_at->format('Ymd') : date('Ymd');
+        return 'QUO-' . $dateStr . '-' . strtoupper(substr((string) $this->id, 0, 6));
+    }
 
     public function getDocumentUrlAttribute(): ?string
     {
