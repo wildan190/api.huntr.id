@@ -64,14 +64,15 @@ class SubmitProposalAction
             }
 
             $proposal = $this->proposalRepository->create([
-                'rfq_id'          => $rfq->id,
-                'company_id'      => $vendorCompany->id,
-                'price_offer'     => $totalPriceOffer,
-                'delivery_days'   => $data['delivery_days'],
-                'warranty_months' => $data['warranty_months'] ?? 12,
-                'document_path'   => $data['document_path'] ?? null,
-                'payment_term'    => $data['payment_term'] ?? null,
-                'status'          => 'submitted',
+                'rfq_id'              => $rfq->id,
+                'company_id'          => $vendorCompany->id,
+                'price_offer'         => $totalPriceOffer,
+                'initial_price_offer' => $totalPriceOffer,
+                'delivery_days'       => $data['delivery_days'],
+                'warranty_months'     => $data['warranty_months'] ?? 12,
+                'document_path'       => $data['document_path'] ?? null,
+                'payment_term'        => $data['payment_term'] ?? null,
+                'status'              => 'submitted',
             ]);
 
             $quotationNumber = 'QUO-' . date('Ymd') . '-' . strtoupper(substr((string) $proposal->id, 0, 6));
@@ -79,9 +80,10 @@ class SubmitProposalAction
 
             foreach ($items as $item) {
                 ProposalItem::create([
-                    'proposal_id' => $proposal->id,
-                    'rfq_item_id' => $item['rfq_item_id'],
-                    'price_offer' => $item['price_offer'],
+                    'proposal_id'         => $proposal->id,
+                    'rfq_item_id'         => $item['rfq_item_id'],
+                    'price_offer'         => $item['price_offer'],
+                    'initial_price_offer' => $item['price_offer'],
                 ]);
             }
 

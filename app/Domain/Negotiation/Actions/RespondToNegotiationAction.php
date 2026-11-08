@@ -36,14 +36,22 @@ class RespondToNegotiationAction
                     if ($negItem->proposal_item_id) {
                         $pItem = ProposalItem::find($negItem->proposal_item_id);
                         if ($pItem) {
-                            $pItem->update(['price_offer' => $negItem->negotiated_price]);
+                            if (!$pItem->initial_price_offer) {
+                                $pItem->initial_price_offer = $negItem->original_price ?: $pItem->price_offer;
+                            }
+                            $pItem->price_offer = $negItem->negotiated_price;
+                            $pItem->save();
                         } else {
                             // Fallback: try to find by rfq_item_id if the ID sent was actually an rfq_item_id
                             $pItemFallback = ProposalItem::where('proposal_id', $proposal->id)
                                 ->where('rfq_item_id', $negItem->proposal_item_id)
                                 ->first();
                             if ($pItemFallback) {
-                                $pItemFallback->update(['price_offer' => $negItem->negotiated_price]);
+                                if (!$pItemFallback->initial_price_offer) {
+                                    $pItemFallback->initial_price_offer = $negItem->original_price ?: $pItemFallback->price_offer;
+                                }
+                                $pItemFallback->price_offer = $negItem->negotiated_price;
+                                $pItemFallback->save();
                                 // Correct the negotiation item for future lookups
                                 $negItem->update(['proposal_item_id' => $pItemFallback->id]);
                             }
@@ -51,8 +59,12 @@ class RespondToNegotiationAction
                     }
                 }
 
+                if (!$proposal->initial_price_offer) {
+                    $proposal->initial_price_offer = $proposal->price_offer;
+                }
                 $proposal->update([
                     'price_offer' => $totalPrice,
+                    'initial_price_offer' => $proposal->initial_price_offer,
                     'payment_term' => $negotiation->payment_scheme ?? $proposal->payment_term,
                     'delivery_days' => $negotiation->delivery_terms ?? $proposal->delivery_days,
                 ]);

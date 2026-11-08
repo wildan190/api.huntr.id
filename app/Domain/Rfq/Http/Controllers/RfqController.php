@@ -68,7 +68,7 @@ class RfqController extends Controller
                 if (! $isBuyerViewer && $viewer?->type === 'vendor') {
                     $query->where('company_id', $viewer->id);
                 }
-                $query->with(['company', 'items']);
+                $query->with(['company', 'items', 'acceptedNegotiation.items', 'negotiations.items']);
             },
         ]);
 

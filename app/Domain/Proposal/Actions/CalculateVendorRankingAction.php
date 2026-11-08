@@ -53,7 +53,7 @@ class CalculateVendorRankingAction
             $reason = $this->calculateDetailedReason($proposal, $sortedProposals, $index);
             
             $rankings[] = [
-                'proposal' => $proposal->load(['company', 'items.rfqItem.catalogue']),
+                'proposal' => $proposal->load(['company', 'items.rfqItem.catalogue', 'acceptedNegotiation.items', 'negotiations.items']),
                 'rank' => $rank,
                 'is_winner' => in_array($proposal->winner_status, ['awarded', 'approved'], true),
                 'is_top_rank' => $rank === 1,
