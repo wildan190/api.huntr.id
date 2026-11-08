@@ -16,10 +16,7 @@ Route::prefix('api/auth')->middleware(['api'])->group(function () {
     Route::post('password/reset-whatsapp', [AuthController::class, 'resetPassword'])->middleware('throttle:3,1');
 
     Route::post('two-factor/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:5,1');
-
-    Route::middleware('auth:api')->group(function () {
-        Route::post('logout', [AuthController::class, 'logout']);
-    });
+    Route::post('logout', [AuthController::class, 'logout']);
 });
 
 Route::prefix('api/account')->middleware(['api', 'auth:api'])->group(function () {
