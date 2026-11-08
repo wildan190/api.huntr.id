@@ -44,7 +44,7 @@ class GetCataloguesAction
         }
         
         $query = Catalogue::query()->with(['company' => function ($q) {
-            $q->select('id', 'owner_id', 'name', 'type', 'status', 'country', 'email', 'industry_type', 'logo_path', 'created_at', 'updated_at');
+            $q->select('id', 'owner_id', 'type', 'status', 'country', 'email', 'industry_type', 'logo_path', 'created_at', 'updated_at');
         }]);
 
         if (!empty($params['company_id'])) {

@@ -44,7 +44,9 @@ class AiSearchCatalogueAction
         $intent['comparison_analysis'] = $comparisonAnalysis;
 
         // 3. Build DB query berdasarkan intent
-        $dbQuery = Catalogue::query()->with('company');
+        $dbQuery = Catalogue::query()->with(['company' => function ($q) {
+            $q->select('id', 'owner_id', 'type', 'status', 'country', 'email', 'industry_type', 'logo_path', 'created_at', 'updated_at');
+        }]);
 
         // Filter hanya vendor yang approved/pending
         $dbQuery->whereHas('company', function ($q) {

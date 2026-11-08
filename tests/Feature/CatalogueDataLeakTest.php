@@ -44,12 +44,12 @@ class CatalogueDataLeakTest extends TestCase
 
         $companyData = $response->json('data.0.company');
 
-        // Safe public fields should be present
+        // Safe public fields should be present (company name is omitted from public catalogue cards)
         $this->assertEquals($company->id, $companyData['id']);
-        $this->assertEquals($company->name, $companyData['name']);
         $this->assertEquals($company->type, $companyData['type']);
         $this->assertEquals($company->email, $companyData['email']);
         $this->assertEquals($company->industry_type, $companyData['industry_type']);
+        $this->assertArrayNotHasKey('name', $companyData);
 
         // Sensitive fields MUST NOT be present in public response
         $this->assertArrayNotHasKey('tax_id', $companyData);
