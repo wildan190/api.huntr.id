@@ -23,23 +23,30 @@ class AwardMultiWinnersAction
     ) {}
 
     /**
-     * Buyer awards multiple vendor proposals as winners (split award / multi-vendor).
+     * Buyer awards vendor proposals as winners (separate order / split award / multi-vendor).
      *
      * Requirements:
-     * - Vendor count must be > 1 (at least 2) and <= 5.
-     * - Only checked items per vendor will be awarded and later issued to PO.
+     * - Vendor count must be >= 1 and <= 10.
+     * - Only checked items per vendor will be awarded and issued to PO.
      *
      * @param Rfq $rfq
      * @param string $buyerUserId
      * @param array<int, array{proposal_id: string, item_ids: array<int, string>}> $awards
      * @param string $awardMode
+     * @param bool $generatePo
      * @return array<int, Proposal>
      * @throws ValidationException
      */
-    public function execute(Rfq $rfq, string $buyerUserId, array $awards, string $awardMode = 'multi_vendor'): array
+    public function execute(
+        Rfq $rfq,
+        string $buyerUserId,
+        array $awards,
+        string $awardMode = 'separate_order',
+        bool $generatePo = true
+    ): array
     {
-        // 1. Verify RFQ is active
-        if ($rfq->status !== 'active') {
+        // 1. Verify RFQ status
+        if (!in_array($rfq->status, ['active', 'open', 'approved'], true)) {
             throw ValidationException::withMessages([
                 'rfq' => ['Cannot award winners for inactive RFQ.'],
             ]);
@@ -47,20 +54,14 @@ class AwardMultiWinnersAction
 
         // 2. Validate vendor count
         $vendorCount = count($awards);
-        if ($awardMode === 'multi_vendor') {
-            if ($vendorCount < 2) {
-                throw ValidationException::withMessages([
-                    'awards' => ['Skema multi-vendor mengharuskan lebih dari 1 vendor pemenang (minimal 2 vendor).'],
-                ]);
-            }
-            if ($vendorCount > 5) {
-                throw ValidationException::withMessages([
-                    'awards' => ['Maksimal pemenang tender adalah 5 vendor.'],
-                ]);
-            }
-        } elseif ($vendorCount < 1) {
+        if ($vendorCount < 1) {
             throw ValidationException::withMessages([
-                'awards' => ['Minimal 1 vendor harus dipilih sebagai pemenang.'],
+                'awards' => ['Minimal 1 vendor harus dipilih untuk pembuatan Purchase Order.'],
+            ]);
+        }
+        if ($vendorCount > 10) {
+            throw ValidationException::withMessages([
+                'awards' => ['Maksimal pemenang tender adalah 10 vendor.'],
             ]);
         }
 
@@ -103,7 +104,7 @@ class AwardMultiWinnersAction
 
         $awardedProposals = [];
 
-        DB::transaction(function () use ($rfq, $buyerUserId, $awards, $awardedProposalIds, $awardMode, $rfqItems, &$awardedProposals) {
+        DB::transaction(function () use ($rfq, $buyerUserId, $awards, $awardedProposalIds, $awardMode, $rfqItems, $generatePo, &$awardedProposals) {
             // 1. Reject all other proposals for this RFQ
             Proposal::where('rfq_id', $rfq->id)
                 ->whereNotIn('id', $awardedProposalIds)
@@ -158,16 +159,16 @@ class AwardMultiWinnersAction
                 'award_mode' => $awardMode,
             ]);
 
-            // Demo Mode: run AFTER transaction commits — auto approve winners, generate POs, confirm POs
-            if (config('app.demo_mode', false)) {
+            // 4. Generate Purchase Orders for each awarded proposal if generatePo is true
+            if ($generatePo || config('app.demo_mode', false)) {
                 foreach ($awardedProposals as $awardedProposal) {
                     try {
                         $approvedProposal = $this->approveWinnerAction->execute($awardedProposal->fresh(), $buyerUserId);
-                        if (!empty($approvedProposal->generatedPurchaseOrder)) {
+                        if (config('app.demo_mode', false) && !empty($approvedProposal->generatedPurchaseOrder)) {
                             $this->demoBotService->handleBotConfirmPo($approvedProposal->generatedPurchaseOrder);
                         }
                     } catch (\Exception $e) {
-                        Log::warning("Demo auto approve+confirm multi-winner failed: " . $e->getMessage());
+                        Log::warning("Generate PO for separate order failed: " . $e->getMessage());
                     }
                 }
             }

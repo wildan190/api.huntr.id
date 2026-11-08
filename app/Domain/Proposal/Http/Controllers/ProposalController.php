@@ -200,18 +200,24 @@ class ProposalController extends \App\Http\Controllers\Controller
             }
 
             $awards = $request->input('awards', []);
-            $awardMode = $request->input('award_mode', 'multi_vendor');
+            $awardMode = $request->input('award_mode', 'separate_order');
+            $generatePo = $request->boolean('generate_po', true);
 
             if (!is_array($awards) || empty($awards)) {
                 return response()->json(['message' => 'Daftar pemenang (awards) wajib diisi.'], 422);
             }
 
-            $awardedProposals = $action->execute($rfq, $userId, $awards, $awardMode);
+            $awardedProposals = $action->execute($rfq, $userId, $awards, $awardMode, $generatePo);
+
+            $pos = \App\Domain\Order\Models\PurchaseOrder::where('rfq_id', $rfq->id)
+                ->whereIn('proposal_id', collect($awards)->pluck('proposal_id')->all())
+                ->get();
 
             return response()->json([
-                'message' => 'Pemenang tender berhasil ditetapkan.',
+                'message' => 'Pemenang tender dan Purchase Order berhasil ditetapkan.',
                 'rfq' => $rfq->fresh(['company']),
                 'proposals' => $awardedProposals,
+                'purchase_orders' => $pos,
             ]);
         } catch (\Illuminate\Validation\ValidationException $ve) {
             return response()->json([
