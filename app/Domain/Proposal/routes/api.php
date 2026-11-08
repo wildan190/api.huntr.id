@@ -7,6 +7,7 @@ Route::prefix('api/proposals')->middleware(['api', 'auth:api'])->group(function 
     Route::get('', [ProposalController::class, 'index']);
     Route::post('', [ProposalController::class, 'store']);
     Route::get('my-rank', [ProposalController::class, 'vendorRankings']);
+    Route::get('{proposal}/print', [ProposalController::class, 'printQuotation']);
     Route::get('{proposal}', [ProposalController::class, 'show']);
     
     // Manager-only routes for proposal approval and awarding
@@ -21,5 +22,6 @@ Route::prefix('api/rfqs')->middleware(['api', 'auth:api'])->group(function () {
     Route::get('{rfq}/rankings', [ProposalController::class, 'calculateRankings']);
     Route::middleware('manager.only')->group(function () {
         Route::post('{rfq}/award-winners', [ProposalController::class, 'awardWinners']);
+        Route::post('{rfq}/cancel-award', [ProposalController::class, 'cancelAward']);
     });
 });

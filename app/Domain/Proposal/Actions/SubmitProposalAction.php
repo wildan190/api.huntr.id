@@ -74,6 +74,9 @@ class SubmitProposalAction
                 'status'          => 'submitted',
             ]);
 
+            $quotationNumber = 'QUO-' . date('Ymd') . '-' . strtoupper(substr((string) $proposal->id, 0, 6));
+            $proposal->update(['quotation_number' => $quotationNumber]);
+
             foreach ($items as $item) {
                 ProposalItem::create([
                     'proposal_id' => $proposal->id,
