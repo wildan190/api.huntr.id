@@ -42,6 +42,7 @@ class SendWhatsAppVerificationJob implements ShouldQueue
             ])->asForm()->post('https://api.fonnte.com/send', [
                 'target' => $target,
                 'message' => $this->message,
+                'countryCode' => '0',
             ]);
 
             Log::info('Fonnte Send WhatsApp Response: HTTP '.$response->status().'. Body: '.$response->body());

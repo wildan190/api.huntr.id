@@ -7,8 +7,8 @@ namespace App\Support;
  */
 final class WhatsappNumber
 {
-    /** Indonesian mobile: 62 + 8xx + 8–11 digits | Malaysian mobile: 60 + 1x + 7–8 digits */
-    private const VALID_PATTERN = '/^(628\d{8,11}|601\d{8,9})$/';
+    /** Indonesian mobile: 62 + 8xx + 8–11 digits | Malaysian mobile: 60 + 1x + 7–9 digits */
+    private const VALID_PATTERN = '/^(628\d{8,11}|601\d{7,9})$/';
 
     public static function normalize(?string $phone): string
     {
@@ -26,14 +26,24 @@ final class WhatsappNumber
             $digits = substr($digits, 2);
         }
 
-        // Malaysian international format already provided: 601xxxxxxxxx
-        if (preg_match('/^601\d{8,9}$/', $digits)) {
+        // Malaysian international with redundant leading zero: +6001... or 6001... -> convert to 601...
+        if (preg_match('/^6001\d{7,9}$/', $digits)) {
+            return '601'.substr($digits, 4);
+        }
+
+        // Malaysian international format already provided: 601xxxxxxx (10-12 digits)
+        if (preg_match('/^601\d{7,9}$/', $digits)) {
             return $digits;
         }
 
         // Malaysian local mobile format: 01x-xxxxxxx -> convert to 601xxxxxxxxx
-        if (preg_match('/^01\d{8,9}$/', $digits)) {
+        if (preg_match('/^01\d{7,9}$/', $digits)) {
             return '60'.substr($digits, 1);
+        }
+
+        // Malaysian mobile without 0 or 60 prefix: 1x-xxxxxxx (8-10 digits)
+        if (preg_match('/^1[0-9]\d{6,8}$/', $digits)) {
+            return '60'.$digits;
         }
 
         // Common typo: 685xxxxxxxxxx instead of 085xxxxxxxxxx
