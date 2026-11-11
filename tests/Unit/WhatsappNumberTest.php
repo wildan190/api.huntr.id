@@ -44,6 +44,27 @@ class WhatsappNumberTest extends TestCase
         $this->assertSame('601112345678', WhatsappNumber::normalize('01112345678'));
     }
 
+    public function test_normalize_malaysian_redundant_zero(): void
+    {
+        // +6001x... and 6001x... should strip the extra 0 -> 601x...
+        $this->assertSame('60123456789', WhatsappNumber::normalize('+6001 2-345 6789'));
+        $this->assertSame('6012345678', WhatsappNumber::normalize('60012345678'));   // 6001-234-5678 (7-digit suffix)
+        $this->assertSame('60112345678', WhatsappNumber::normalize('600112345678'));  // 6001 1-234-5678 (8-digit suffix)
+    }
+
+    public function test_normalize_malaysian_bare_prefix(): void
+    {
+        // Malaysian mobile without 0 or 60 prefix: 12-345 6789 -> 60123456789
+        $this->assertSame('60123456789', WhatsappNumber::normalize('123456789'));
+        $this->assertSame('601112345678', WhatsappNumber::normalize('1112345678'));
+    }
+
+    public function test_is_valid_accepts_short_malaysian_numbers(): void
+    {
+        // 7-digit suffix after 601 (10 digits total) should be valid
+        $this->assertTrue(WhatsappNumber::isValid('6011234567'));
+    }
+
     public function test_is_valid_accepts_indonesian_and_malaysian_numbers(): void
     {
         $this->assertFalse(WhatsappNumber::isValid('685156334793'));

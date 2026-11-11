@@ -49,6 +49,7 @@ class SendWhatsAppVerificationAction
             ])->asForm()->post('https://api.fonnte.com/send', [
                 'target' => $target,
                 'message' => $message,
+                'countryCode' => '0',
             ]);
 
             $status = $response->status();
